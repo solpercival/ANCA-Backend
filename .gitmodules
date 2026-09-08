@@ -1,0 +1,4 @@
+[submodule "docs"]
+	path = docs
+	url = git@github.com:your-org/cnc-documentation.git
+	branch = main

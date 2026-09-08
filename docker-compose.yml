@@ -1,0 +1,65 @@
+# Local stack. `docker compose up` brings the light path (orchestrator +
+# postgres + redis). Model servers and observability sit behind profiles so a
+# laptop without a GPU can still run the app against fakes/mocks.
+#
+#   docker compose up                          # orchestrator + data
+#   docker compose --profile models up         # + Qwen3 servers (needs GPU)
+#   docker compose --profile observability up   # + langfuse
+services:
+  orchestrator:
+    build:
+      context: .
+      dockerfile: docker/orchestrator.Dockerfile
+    env_file: .env
+    ports: ["8080:8080"]
+    depends_on: [postgres, redis]
+
+  postgres:
+    image: pgvector/pgvector:pg16   # postgres + pgvector extension
+    env_file: .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/init_pgvector.sql:/docker-entrypoint-initdb.d/init.sql:ro
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    volumes: ["redisdata:/data"]
+
+  # --- optional: model servers (GPU) ---
+  embedding-server:
+    profiles: ["models"]
+    image: vllm/vllm-openai:latest
+    command: ["--model", "${EMBEDDING_MODEL}", "--task", "embed"]
+    ports: ["8001:8000"]
+    deploy:
+      resources:
+        reservations:
+          devices: [{driver: nvidia, count: 1, capabilities: [gpu]}]
+
+  response-server:
+    profiles: ["models"]
+    image: vllm/vllm-openai:latest
+    command: ["--model", "${LLM_MODEL}"]
+    ports: ["8002:8000"]
+    deploy:
+      resources:
+        reservations:
+          devices: [{driver: nvidia, count: 1, capabilities: [gpu]}]
+
+  # --- optional: observability ---
+  langfuse:
+    profiles: ["observability"]
+    image: langfuse/langfuse:2
+    env_file: .env
+    ports: ["3000:3000"]
+    depends_on: [postgres]
+
+volumes:
+  pgdata:
+  redisdata:

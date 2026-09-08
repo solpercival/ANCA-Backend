@@ -1,0 +1,75 @@
+"""Coordinates a single resolve/chat turn across the retrieval components.
+
+The orchestrator holds only interfaces, so it can be constructed with fakes in
+tests. get_orchestrator() wires the real, model-backed implementations and is
+overridden via FastAPI dependency_overrides during testing.
+"""
+from rag_engine.api.auth import Tier
+from rag_engine.api.schemas import (
+    ChatRequest,
+    ChatResponse,
+    Citation,
+    ResolveRequest,
+    ResolveResponse,
+)
+from rag_engine.retrieval.hybrid import HybridRetriever
+from rag_engine.retrieval.interfaces import Chunk, Generator, Reranker
+
+
+class Orchestrator:
+    def __init__(
+        self,
+        retriever: HybridRetriever,
+        reranker: Reranker,
+        generator: Generator,
+        rerank_top_n: int = 8,
+        retrieval_top_k: int = 50,
+    ):
+        self._retriever = retriever
+        self._reranker = reranker
+        self._generator = generator
+        self._top_n = rerank_top_n
+        self._top_k = retrieval_top_k
+
+    def _build_prompt(self, req: ResolveRequest, chunks: list[Chunk], tier: Tier) -> str:
+        context = "\n\n".join(f"[{c.source}#{c.chunk_id}] {c.text}" for c in chunks)
+        return (
+            "You are a CNC troubleshooting assistant. Answer ONLY from the context. "
+            "Produce ordered steps with citations; if the fix is not in the context, "
+            f"say so.\nTier: {tier.value}\nAlarm: {req.code}\n\nContext:\n{context}"
+        )
+
+    async def resolve(self, req: ResolveRequest, tier: Tier) -> ResolveResponse:
+        where = {}
+        if req.env.machine_variant:
+            where["machine_variant"] = req.env.machine_variant
+        query = req.query or req.code
+        candidates = await self._retriever.retrieve(query, top_k=self._top_k, where=where or None)
+        top = await self._reranker.rerank(query, candidates, top_n=self._top_n)
+        _ = self._build_prompt(req, top, tier)  # fed to generator in the real impl
+        # Placeholder assembly; real generation happens in the model container.
+        return ResolveResponse(
+            code=req.code,
+            steps=[c.text for c in top[:3]],
+            citations=[Citation(source=c.source, chunk_id=c.chunk_id) for c in top[:3]],
+            confidence=top[0].score if top else 0.0,
+        )
+
+    async def chat(self, req: ChatRequest, tier: Tier) -> ChatResponse:
+        # Rewrite + session handling live here in the full build.
+        candidates = await self._retriever.retrieve(req.message, top_k=self._top_k)
+        top = await self._reranker.rerank(req.message, candidates, top_n=self._top_n)
+        reply = await self._generator.generate(req.message)
+        return ChatResponse(
+            conversation_id=req.conversation_id,
+            reply=reply,
+            citations=[Citation(source=c.source, chunk_id=c.chunk_id) for c in top[:3]],
+        )
+
+
+def get_orchestrator() -> Orchestrator:  # pragma: no cover - wired at runtime
+    """Real wiring. Imports model-backed impls lazily so importing this module
+    (e.g. in CI) never pulls torch/sentence-transformers."""
+    raise NotImplementedError(
+        "Runtime wiring is provided in the model container; overridden in tests."
+    )

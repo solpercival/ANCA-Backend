@@ -1,0 +1,63 @@
+[project]
+name = "rag-engine"
+version = "0.1.0"
+description = "CNC troubleshooting RAG engine (orchestrator, hybrid retrieval, reranking, generation)"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "httpx>=0.27",
+    "psycopg[binary]>=3.2",
+    "pgvector>=0.3",
+    "redis>=5.2",
+    "python-jose[cryptography]>=3.3",   # OAuth2 / JWT
+    "bm25s>=0.2",                        # sparse lexical index
+    "langfuse>=2.53",                   # runtime tracing
+]
+
+[project.optional-dependencies]
+# Heavy, GPU-oriented deps kept out of the default install so hosted CI stays light.
+models = [
+    "sentence-transformers>=3.3",       # Qwen3-Embedding / Qwen3-Reranker
+    "torch>=2.5",
+]
+eval = [
+    "ragas>=0.2",
+    "deepeval>=1.4",
+]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.8",
+    "pylint>=3.3",
+    "mypy>=1.13",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "ingestion", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+# B008: Depends() in defaults is the idiomatic FastAPI pattern.
+ignore = ["B008"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.12"
+packages = ["rag_engine"]
+ignore_missing_imports = true

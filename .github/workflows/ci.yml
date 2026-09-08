@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint-test-build:
+    # Hosted runner (no GPU): lint, type-check, unit tests, and image build.
+    # Never loads Qwen3 — model-backed code sits behind interfaces and is faked.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false   # docs submodule not needed for lint/test
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install (dev extras only — no models)
+        run: pip install -e ".[dev]"
+
+      - name: Ruff (lint + import order)
+        run: ruff check .
+
+      - name: Pylint
+        run: pylint src/rag_engine || true   # advisory; ruff is the gate
+
+      - name: Mypy (type check)
+        run: mypy || true                     # advisory until types are complete
+
+      - name: Pytest
+        run: pytest -q
+
+      - name: Build orchestrator image
+        run: docker build -f docker/orchestrator.Dockerfile -t rag-orchestrator:ci .
