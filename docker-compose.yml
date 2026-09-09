@@ -1,9 +1,9 @@
 # Local stack. `docker compose up` brings the light path (orchestrator +
-# postgres + redis). Model servers and observability sit behind profiles so a
-# laptop without a GPU can still run the app against fakes/mocks.
+# postgres + redis). Ollama and observability sit behind profiles so a laptop
+# without local model resources can still run the app against fakes/mocks.
 #
 #   docker compose up                          # orchestrator + data
-#   docker compose --profile models up         # + Qwen3 servers (needs GPU)
+#   docker compose --profile models up         # + Ollama
 #   docker compose --profile observability up   # + langfuse
 services:
   orchestrator:
@@ -13,6 +13,17 @@ services:
     env_file: .env
     ports: ["8080:8080"]
     depends_on: [postgres, redis]
+
+  # One-shot job: writes embeddings to PostgreSQL and the lexical index to the
+  # named BM25 volume. Run with `make ingest` after the model profile is up.
+  ingestion:
+    build:
+      context: .
+      dockerfile: docker/ingestion.Dockerfile
+    env_file: .env
+    volumes:
+      - bm25data:/var/lib/rag/bm25
+    depends_on: [postgres, ollama]
 
   postgres:
     image: pgvector/pgvector:pg16   # postgres + pgvector extension
@@ -31,26 +42,12 @@ services:
     ports: ["6379:6379"]
     volumes: ["redisdata:/data"]
 
-  # --- optional: model servers (GPU) ---
-  embedding-server:
+  # --- optional: local models ---
+  ollama:
     profiles: ["models"]
-    image: vllm/vllm-openai:latest
-    command: ["--model", "${EMBEDDING_MODEL}", "--task", "embed"]
-    ports: ["8001:8000"]
-    deploy:
-      resources:
-        reservations:
-          devices: [{driver: nvidia, count: 1, capabilities: [gpu]}]
-
-  response-server:
-    profiles: ["models"]
-    image: vllm/vllm-openai:latest
-    command: ["--model", "${LLM_MODEL}"]
-    ports: ["8002:8000"]
-    deploy:
-      resources:
-        reservations:
-          devices: [{driver: nvidia, count: 1, capabilities: [gpu]}]
+    image: ollama/ollama:latest
+    ports: ["11434:11434"]
+    volumes: ["ollamadata:/root/.ollama"]
 
   # --- optional: observability ---
   langfuse:
@@ -63,3 +60,5 @@ services:
 volumes:
   pgdata:
   redisdata:
+  bm25data:
+  ollamadata:

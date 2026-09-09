@@ -1,8 +1,8 @@
 # CNC Troubleshooting RAG Engine
 
 Alarm-code-driven troubleshooting assistant: resolve-by-code and conversational
-chat over CNC documentation, using hybrid retrieval (pgvector + BM25), Qwen3
-embedding/reranker/generation, FastAPI orchestration, Redis, and Postgres.
+chat over CNC documentation, using hybrid retrieval (pgvector + BM25), Ollama
+models, FastAPI orchestration, Redis, and PostgreSQL.
 
 ## Repository shape
 
@@ -34,11 +34,26 @@ docker-compose.yml   local stack (profiles: models, observability)
 cp .env.example .env
 make install          # venv + dev deps (no models)
 make test             # unit tests
-make up               # orchestrator + postgres(pgvector) + redis
+make up               # orchestrator + PostgreSQL(pgvector) + redis
 # open http://localhost:8080/docs  (OpenAPI / Swagger)
 ```
 
-Bring up the Qwen3 model servers (GPU required) and Langfuse with:
+Start Ollama and download the local models:
+
+```bash
+make models
+```
+
+Build the offline indexes:
+
+```bash
+make ingest           # writes pgvector rows and the persistent BM25 index
+```
+
+PostgreSQL stores dense vectors; BM25 is persisted in the `bm25data` Docker
+volume.
+
+Bring up Ollama and Langfuse with:
 
 ```bash
 make up-full

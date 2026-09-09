@@ -8,6 +8,5 @@ venv/
 .mypy_cache/
 .env
 *.log
-chroma_store/
 bm25_index/
 .DS_Store

@@ -12,6 +12,7 @@ from rag_engine.api.schemas import (
     ResolveRequest,
     ResolveResponse,
 )
+from rag_engine.providers import get_generation_backend
 from rag_engine.retrieval.hybrid import HybridRetriever
 from rag_engine.retrieval.interfaces import Chunk, Generator, Reranker
 
@@ -68,8 +69,12 @@ class Orchestrator:
 
 
 def get_orchestrator() -> Orchestrator:  # pragma: no cover - wired at runtime
-    """Real wiring. Imports model-backed impls lazily so importing this module
-    (e.g. in CI) never pulls torch/sentence-transformers."""
-    raise NotImplementedError(
-        "Runtime wiring is provided in the model container; overridden in tests."
-    )
+    """Real wiring. Switches the generation backend based on the configured provider."""
+    from rag_engine.providers import get_embedding_backend
+    from rag_engine.retrieval.hybrid import HybridRetriever
+
+    embedder = get_embedding_backend()
+    vector_store = None
+    lexical = None
+    retriever = HybridRetriever(embedder, vector_store, lexical)
+    return Orchestrator(retriever, reranker=None, generator=get_generation_backend())

@@ -26,18 +26,31 @@ class Settings(BaseSettings):
     redis_host: str = "redis"
     redis_port: int = 6379
 
-    # model servers
-    embedding_base_url: str = "http://embedding-server:8000/v1"
-    embedding_model: str = "Qwen/Qwen3-Embedding-0.6B"
-    reranker_base_url: str = "http://embedding-server:8000/v1"
-    reranker_model: str = "Qwen/Qwen3-Reranker-0.6B"
-    llm_base_url: str = "http://response-server:8000/v1"
-    llm_model: str = "Qwen/Qwen3-4B-Instruct"
+    # provider selection
+    embedding_provider: str = "ollama"
+    llm_provider: str = "ollama"
+
+    # ollama
+    ollama_base_url: str = "http://ollama:11434"
+    embedding_model: str = "qwen3-embedding:0.6b"
+    llm_model: str = "qwen3:4b"
+
+    # openai-compatible providers (e.g. OpenAI, OpenRouter, LiteLLM)
+    openai_base_url: str = ""
+    openai_api_key: str = ""
+    openai_embedding_model: str = "text-embedding-3-small"
+    openai_llm_model: str = "gpt-4o-mini"
+
+    # anthropic / claude
+    anthropic_base_url: str = "https://api.anthropic.com"
+    anthropic_api_key: str = ""
+    anthropic_llm_model: str = "claude-3-5-sonnet-20241022"
 
     # retrieval
     retrieval_top_k: int = 50
     rerank_top_n: int = 8
     rrf_k: int = 60
+    bm25_index_dir: str = "/var/lib/rag/bm25"
 
     # langfuse
     langfuse_host: str = "http://langfuse:3000"
