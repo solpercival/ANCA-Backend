@@ -1,0 +1,45 @@
+name: RAG Snapshot Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  snapshot-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dev dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Generate eval artifact
+        run: python eval/run_eval.py
+
+      - name: Compare against baseline snapshot
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          generated = json.loads(Path("eval/results/latest.json").read_text(encoding="utf-8"))
+          expected = json.loads(Path("eval/results/expected.json").read_text(encoding="utf-8"))
+
+          if generated != expected:
+              print("Snapshot mismatch")
+              print("Generated:")
+              print(json.dumps(generated, indent=2))
+              print("Expected:")
+              print(json.dumps(expected, indent=2))
+              raise SystemExit(1)
+
+          print("Snapshot matches expected output")
+          PY

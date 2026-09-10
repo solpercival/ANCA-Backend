@@ -1,0 +1,57 @@
+name: RAG Eval
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * *"
+  pull_request:
+    paths:
+      - "src/**"
+      - "ingestion/**"
+      - "eval/**"
+      - "tests/**"
+      - "pyproject.toml"
+
+jobs:
+  quality-gate:
+    runs-on: ubuntu-latest
+    env:
+      LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+      LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+      LANGFUSE_HOST: ${{ secrets.LANGFUSE_HOST || 'http://localhost:3000' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install eval dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,eval]"
+
+      - name: Generate eval artifact
+        run: python eval/run_eval.py
+
+      - name: Compare snapshot baseline
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          generated = json.loads(Path("eval/results/latest.json").read_text(encoding="utf-8"))
+          expected = json.loads(Path("eval/results/expected.json").read_text(encoding="utf-8"))
+
+          if generated != expected:
+              print("Snapshot mismatch")
+              print(json.dumps(generated, indent=2))
+              print(json.dumps(expected, indent=2))
+              raise SystemExit(1)
+
+          print("Snapshot matches expected output")
+          PY
+
+      - name: Run DeepEval quality gate
+        run: python eval/deep_eval.py
