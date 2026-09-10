@@ -1,8 +1,13 @@
 """Coordinates a single resolve/chat turn across the retrieval components.
 
-The orchestrator holds only interfaces, so it can be constructed with fakes in
-tests. get_orchestrator() wires the real, model-backed implementations and is
-overridden via FastAPI dependency_overrides during testing.
+Onboarding note:
+- this is the main runtime orchestration layer for a single request turn
+- the app is designed to keep retrieval and generation behind interfaces, but the
+  concrete runtime wiring is still the main integration task left to finish
+- current status: tests use fake implementations; production wiring still needs a
+  valid vector store, lexical index, and provider-backed generation path
+- follow-up work: replace placeholder runtime objects with real Postgres/BM25
+  integrations and validate a full end-to-end query path
 """
 from rag_engine.api.auth import Tier
 from rag_engine.api.schemas import (

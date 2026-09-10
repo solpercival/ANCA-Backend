@@ -1,7 +1,12 @@
 """Provider adapters for embeddings and generation.
 
-This keeps the app switchable across Ollama, OpenAI-compatible APIs, and
-Anthropic/Claude without changing the retrieval/storage layer.
+Onboarding note:
+- this module is the first integration point for model-provider switching
+- each backend should implement the same interface contract used by the app
+- current status: config exists and adapters are present for Ollama/OpenAI/
+  Anthropic, but the real app wiring still needs to be validated end-to-end
+- follow-up work: connect this layer into the actual retrieval and orchestrator
+  runtime, then test a real provider on a full stack
 """
 from __future__ import annotations
 
