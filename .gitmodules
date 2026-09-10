@@ -1,4 +1,3 @@
-[submodule "docs"]
-	path = docs
-	url = git@github.com:your-org/cnc-documentation.git
-	branch = main
+[submodule "docs/working_docs"]
+	path = docs/working_docs
+	url = https://github.com/ban2018193/anca-mate.git
