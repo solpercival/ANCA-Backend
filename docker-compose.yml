@@ -1,9 +1,7 @@
-# Local stack. `docker compose up` brings the light path (orchestrator +
-# postgres + redis). Ollama and observability sit behind profiles so a laptop
-# without local model resources can still run the app against fakes/mocks.
+# Local stack. `docker compose up` brings the application, data services, and
+# Ollama. Observability remains behind a profile.
 #
-#   docker compose up                          # orchestrator + data
-#   docker compose --profile models up         # + Ollama
+#   docker compose up                          # application + data + Ollama
 #   docker compose --profile observability up   # + langfuse
 services:
   orchestrator:
@@ -44,10 +42,10 @@ services:
 
   # --- optional: local models ---
   ollama:
-    profiles: ["models"]
     image: ollama/ollama:latest
     ports: ["11434:11434"]
-    volumes: ["ollamadata:/root/.ollama"]
+    volumes:
+      - ollamadata:/root/.ollama
 
   # --- optional: observability ---
   langfuse:
