@@ -2,7 +2,7 @@
 VENV=.venv/bin
 
 install:
-	python3 -m venv .venv && $(VENV)/pip install -e ".[dev]"
+	python3.14 -m venv .venv && $(VENV)/pip install -e ".[dev]"
 
 fmt:
 	$(VENV)/ruff format . && $(VENV)/ruff check --fix .
