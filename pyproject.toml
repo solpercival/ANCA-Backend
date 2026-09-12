@@ -2,7 +2,7 @@
 name = "rag-engine"
 version = "0.1.0"
 description = "CNC troubleshooting RAG engine (orchestrator, hybrid retrieval, reranking, generation)"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
@@ -44,7 +44,7 @@ where = ["src"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py312"
+target-version = "py314"
 src = ["src", "ingestion", "tests"]
 
 [tool.ruff.lint]
@@ -58,6 +58,6 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.14"
 packages = ["rag_engine"]
 ignore_missing_imports = true

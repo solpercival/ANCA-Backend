@@ -1,6 +1,6 @@
 # Offline ingestion job (chunk -> embed -> pgvector + BM25).
 # Installs the model extras; run on demand, not as a long-lived service.
-FROM python:3.12-slim
+FROM python:3.14-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
 COPY pyproject.toml ./
