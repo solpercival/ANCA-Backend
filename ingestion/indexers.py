@@ -2,7 +2,9 @@
 import json
 from pathlib import Path
 
-import bm25s
+# ingestion/indexers.py
+from rag_engine.providers import get_lexical_backend
+
 import httpx
 import psycopg
 from pgvector.psycopg import register_vector
@@ -53,23 +55,10 @@ def _write_vectors(chunks: list[RawChunk], embeddings: list[list[float]]) -> Non
             )
 
 
-def _write_bm25(chunks: list[RawChunk]) -> None:
-    index_dir = Path(get_settings().bm25_index_dir)
-    index_dir.mkdir(parents=True, exist_ok=True)
-    retriever = bm25s.BM25()
-    corpus = [chunk.text for chunk in chunks]
-    retriever.index(bm25s.tokenize(corpus))
-    retriever.save(str(index_dir), corpus=corpus)
-    (index_dir / "metadata.json").write_text(
-        json.dumps(
-            [
-                {"chunk_id": chunk.chunk_id, "source": chunk.source}
-                for chunk in chunks
-            ],
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
+def _write_lexical(chunks):
+    backend = get_lexical_backend()
+    if hasattr(backend, "index_documents"):
+        backend.index_documents(chunks)
 
 
 def embed_and_index(chunks: list[RawChunk]) -> None:  # pragma: no cover - integration
@@ -78,4 +67,4 @@ def embed_and_index(chunks: list[RawChunk]) -> None:  # pragma: no cover - integ
     with httpx.Client(timeout=120.0) as client:
         embeddings = _embed(chunks, client)
     _write_vectors(chunks, embeddings)
-    _write_bm25(chunks)
+    _write_lexical(chunks)

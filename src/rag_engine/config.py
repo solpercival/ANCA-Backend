@@ -36,6 +36,7 @@ class Settings(BaseSettings):
 
     # provider selection
     embedding_provider: str = "ollama"
+    lexical_provider: str = "bm25"
     llm_provider: str = "ollama"
 
     # ollama

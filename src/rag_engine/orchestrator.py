@@ -80,6 +80,6 @@ def get_orchestrator() -> Orchestrator:  # pragma: no cover - wired at runtime
 
     embedder = get_embedding_backend()
     vector_store = None
-    lexical = None
+    lexical = get_lexical_backend()
     retriever = HybridRetriever(embedder, vector_store, lexical)
     return Orchestrator(retriever, reranker=None, generator=get_generation_backend())
