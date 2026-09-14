@@ -17,7 +17,7 @@ from rag_engine.api.schemas import (
     ResolveRequest,
     ResolveResponse,
 )
-from rag_engine.providers import get_generation_backend
+from rag_engine.providers import get_generation_backend, get_lexical_backend
 from rag_engine.retrieval.hybrid import HybridRetriever
 from rag_engine.retrieval.interfaces import Chunk, Generator, Reranker
 
