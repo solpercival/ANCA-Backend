@@ -9,6 +9,8 @@ Onboarding note:
 - follow-up work: replace placeholder runtime objects with real Postgres/BM25
   integrations and validate a full end-to-end query path
 """
+from functools import lru_cache
+
 from rag_engine.api.auth import Tier
 from rag_engine.api.schemas import (
     ChatRequest,
@@ -72,14 +74,22 @@ class Orchestrator:
             citations=[Citation(source=c.source, chunk_id=c.chunk_id) for c in top[:3]],
         )
 
-
+@lru_cache(maxsize=1)
 def get_orchestrator() -> Orchestrator:  # pragma: no cover - wired at runtime
-    """Real wiring. Switches the generation backend based on the configured provider."""
-    from rag_engine.providers import get_embedding_backend
+    """
+    Real wiring. Switches the generation backend based on the configured provider.
+    App is only built once (singleton)
+    """
+    
+    from rag_engine.providers import get_embedding_backend, get_generation_backend
     from rag_engine.retrieval.hybrid import HybridRetriever
 
     embedder = get_embedding_backend()
-    vector_store = None
+    vector_store = get_vector_store_backend()   # returns None until pgvector adapter lands
     lexical = get_lexical_backend()
     retriever = HybridRetriever(embedder, vector_store, lexical)
-    return Orchestrator(retriever, reranker=None, generator=get_generation_backend())
+    return Orchestrator(
+        retriever,
+        reranker=get_reranker_backend(),        # None until reranker lands
+        generator=get_generation_backend(),
+    )

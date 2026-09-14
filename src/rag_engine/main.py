@@ -18,6 +18,7 @@ logging.basicConfig(level=settings.log_level)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # startup 
+    app.state.orchestrator = get_orchestrator()
     app.state.httpx_client = httpx.AsyncClient(timeout=120.0)
     app.state.pg_pool = await create_postgres_pool()
     app.state.redis = redis.asyncio.Redis.from_url(...)

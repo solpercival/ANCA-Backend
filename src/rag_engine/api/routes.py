@@ -12,6 +12,9 @@ from rag_engine.orchestrator import Orchestrator, get_orchestrator
 
 router = APIRouter()
 
+def get_orchestrator_from_request(request: Request):
+    return request.app.state.orchestrator
+
 
 @router.get("/health", tags=["ops"])
 async def health() -> dict[str, str]:
@@ -22,7 +25,7 @@ async def health() -> dict[str, str]:
 async def resolve(
     req: ResolveRequest,
     principal: Principal = Depends(current_principal),
-    orch: Orchestrator = Depends(get_orchestrator),
+    orch: Orchestrator = Depends(get_orchestrator_from_request),
 ) -> ResolveResponse:
     resp = await orch.resolve(req, tier=principal.tier)
     # Tier gate: only technician/partner see likely_causes.
@@ -35,6 +38,6 @@ async def resolve(
 async def chat(
     req: ChatRequest,
     principal: Principal = Depends(current_principal),
-    orch: Orchestrator = Depends(get_orchestrator),
+    orch: Orchestrator = Depends(get_orchestrator_from_request),
 ) -> ChatResponse:
     return await orch.chat(req, tier=principal.tier)
