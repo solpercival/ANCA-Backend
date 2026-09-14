@@ -22,9 +22,6 @@ from rag_engine.retrieval.interfaces import Chunk
 def get_lexical_backend() -> Any:
     settings = get_settings()
     provider = settings.lexical_provider.lower()
-
-    if provider == "bm25":
-        return BM25LexicalIndex()
     
     raise ValueError(f"Unsupported lexical provider: {provider}")
 

@@ -27,7 +27,7 @@ models:        ## start Ollama and download the local models
 down:
 	docker compose down
 
-ingest:        ## offline: chunk docs -> embed -> pgvector + BM25
+ingest:        ## offline: chunk docs -> embed -> pgvector
 	$(MAKE) models
 	docker compose run --rm --build ingestion
 

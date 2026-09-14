@@ -13,7 +13,6 @@ dependencies = [
     "pgvector>=0.3",
     "redis>=5.2",
     "python-jose[cryptography]>=3.3",   # OAuth2 / JWT
-    "bm25s>=0.2",                        # sparse lexical index
     "langfuse>=2.53",                   # runtime tracing
 ]
 
