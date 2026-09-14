@@ -4,7 +4,7 @@ Onboarding note:
 - this file is the source of truth for runtime provider selection
 - keep provider names and URLs here; do not hard-code model endpoints elsewhere
 - required follow-up work: wire the selected provider into real embedding and
-  generation adapters, then validate against Postgres + BM25 + Redis in a local
+  generation adapters, then validate against Postgres + Redis in a local
   docker stack
 """
 from functools import lru_cache

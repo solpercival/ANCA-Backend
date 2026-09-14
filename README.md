@@ -1,7 +1,7 @@
 # CNC Troubleshooting RAG Engine
 
 Alarm-code-driven troubleshooting assistant: resolve-by-code and conversational
-chat over CNC documentation, using hybrid retrieval (pgvector + BM25), Ollama
+chat over CNC documentation, using hybrid retrieval (pgvector), Ollama
 models, FastAPI orchestration, Redis, and PostgreSQL.
 
 ## Repository shape
@@ -20,7 +20,7 @@ src/rag_engine/      FastAPI app, orchestrator, retrieval, generation, auth
   retrieval/         interfaces (Protocols), hybrid RRF, embedder/reranker/vectorstore
   generation/        response LLM adapter
   stores/            postgres + redis adapters
-ingestion/           OFFLINE: chunk -> embed -> pgvector + BM25
+ingestion/           OFFLINE: chunk -> embed -> pgvector
 eval/                Ragas/DeepEval harness vs the gold set
 tests/               CPU-only unit tests (no models) — the CI gate
 docker/              orchestrator + ingestion images
@@ -68,11 +68,10 @@ make models
 Build the offline indexes:
 
 ```bash
-make ingest           # writes pgvector rows and the persistent BM25 index
+make ingest           # writes pgvector rows
 ```
 
-PostgreSQL stores dense vectors; BM25 is persisted in the `bm25data` Docker
-volume.
+PostgreSQL stores dense vectors
 
 Bring up the stack with Langfuse enabled with:
 

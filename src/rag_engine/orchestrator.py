@@ -6,7 +6,7 @@ Onboarding note:
   concrete runtime wiring is still the main integration task left to finish
 - current status: tests use fake implementations; production wiring still needs a
   valid vector store, lexical index, and provider-backed generation path
-- follow-up work: replace placeholder runtime objects with real Postgres/BM25
+- follow-up work: replace placeholder runtime objects with real Postgres
   integrations and validate a full end-to-end query path
 """
 from rag_engine.api.auth import Tier
