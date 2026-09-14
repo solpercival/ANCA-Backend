@@ -36,7 +36,7 @@ class Settings(BaseSettings):
 
     # provider selection
     embedding_provider: str = "ollama"
-    lexical_provider: str = "bm25"
+    lexical_provider: str = "postgres"
     llm_provider: str = "ollama"
 
     # ollama
@@ -59,7 +59,6 @@ class Settings(BaseSettings):
     retrieval_top_k: int = 50
     rerank_top_n: int = 8
     rrf_k: int = 60
-    bm25_index_dir: str = "/var/lib/rag/bm25"
 
     # langfuse
     langfuse_host: str = "http://langfuse:3000"
