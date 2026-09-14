@@ -53,19 +53,13 @@ def chunk_markdown(text: str, source: str) -> list[RawChunk]:
 
         buf.extend(segments)
 
-    def flush() -> None:
-        joined = "\n".join(buf).strip()
-        if joined:
-            chunks.append(RawChunk(text=joined, source=source))
-        buf.clear()
+    for segment in buf:
+        new_chunk = RawChunk(text=segment[IDX_TEXT], 
+                             source=source, 
+                             headers=list(json.loads(segment[IDX_HEADERS]).values()),
+                             kind=segment[IDX_CODE])
+        chunks.append(new_chunk)
 
-    for line in text.splitlines():
-        if line.strip().startswith("```"):
-            in_code = not in_code
-        if line.startswith("#") and not in_code:
-            flush()
-        buf.append(line)
-    flush()
     return chunks
 
 def extract_atomic_blocks(text_sections: list[tuple[str,str,str]],
