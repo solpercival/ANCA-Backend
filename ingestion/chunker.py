@@ -4,8 +4,20 @@ Splits on headers while keeping code blocks, tables, and lists atomic. This is
 the documentation team's territory: it runs during ingestion, never per request.
 """
 import hashlib
+import re
 from dataclasses import dataclass, field
+from langchain_text_splitters import MarkdownHeaderTextSplitter, MarkdownTextSplitter
 
+CHUNK_SIZE = 800
+CHUNK_OVERLAP = 200
+SPLIT_HEADERS = [("#", "h1"), ("##", "h2"), ("###", "h3"), ("####", "h4")]
+# regex objects for markdown
+TABLE_BLOCK = re.compile(r"(?:^\|.*\|\s*$\n?)+", re.MULTILINE)
+CODE_BLOCK = re.compile(r"```.*?```", re.DOTALL)
+LIST_BLOCK = re.compile(r"(?:^\s*(?:[-*+]|\d+\.)\s+.+$\n?)+", re.MULTILINE)
+
+HEADER_SPLITTER = MarkdownHeaderTextSplitter(headers_to_split_on=SPLIT_HEADERS, strip_headers=True)
+TEXT_SPLITTER = MarkdownTextSplitter()
 
 @dataclass
 class RawChunk:
