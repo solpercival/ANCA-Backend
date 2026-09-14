@@ -20,7 +20,7 @@ IDX_CODE = 0
 IDX_TEXT = 1
 IDX_HEADERS = 2
 
-HEADER_SPLITTER = MarkdownHeaderTextSplitter(headers_to_split_on=SPLIT_HEADERS, strip_headers=True)
+HEADER_SPLITTER = MarkdownHeaderTextSplitter(headers_to_split_on=SPLIT_HEADERS, strip_headers=False)
 
 @dataclass
 class RawChunk:
