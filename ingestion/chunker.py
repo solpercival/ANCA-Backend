@@ -35,17 +35,21 @@ class RawChunk:
 
 
 def chunk_markdown(text: str, source: str) -> list[RawChunk]:
-    """Minimal splitter: section by top-level headers, keep fenced code atomic.
+    """
+    Minimal splitter: section by top-level headers, keep fenced code atomic.
+    This is a minimal splitter using langchain-text-splitters to split on headers 
+    and atomic blocks such as code, lists and tables.
 
-    Real implementation uses the langchain markdown splitters; this keeps the
-    pipeline importable and testable without extra deps.
+    Parameters:
+    text - the content of the document as a str
+    source - a str representing the path of the source document
     """
     chunks: list[RawChunk] = []
     buf: list[tuple[str,str,str]] = [] # Stored as type, content, headers
-    in_code = False
 
     headers_split_text = HEADER_SPLITTER.split_text(text=text)
 
+    # apply splitting using atomic blocks re
     for section in headers_split_text:
         segments = [("text", section.page_content, json.dumps(section.metadata))]
         for k,v in ATOMIC_BLOCKS:
@@ -53,6 +57,7 @@ def chunk_markdown(text: str, source: str) -> list[RawChunk]:
 
         buf.extend(segments)
 
+    # convert segments into RawChunks
     for segment in buf:
         new_chunk = RawChunk(text=segment[IDX_TEXT], 
                              source=source, 
@@ -66,6 +71,16 @@ def extract_atomic_blocks(text_sections: list[tuple[str,str,str]],
                           pattern: re.Pattern[str],
                           title: str) -> list[tuple[str,str,str]]:
     buffer: list[tuple[str,str,str]] = []
+    """
+    Extracts blocks that matches given pattern from text. Extracted blocks are
+    tagged with the provided title argument. 
+    Returns a list of tuples in same format as the text_sections parameter.
+    
+    Parameters:
+    text_sections - A list of tuples containing the blocks of text or markdown objects. Stored as (tag, text, headers)
+    pattern - A regex pattern object used to detect and split the existing blocks if found
+    title - The tag used for the newly separated object
+    """
 
     for text in text_sections:
         last_end = 0
