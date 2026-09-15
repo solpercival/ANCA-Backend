@@ -1,5 +1,6 @@
 """HTTP surface: health, resolve-by-code, and conversational chat."""
-from fastapi import APIRouter, Depends, Request
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from rag_engine.api.auth import Principal, Tier, current_principal
 from rag_engine.api.errors import RetrievalUnavailable
@@ -9,9 +10,11 @@ from rag_engine.api.schemas import (
     ResolveRequest,
     ResolveResponse,
 )
+from rag_engine.config import get_settings
 from rag_engine.orchestrator import Orchestrator, get_orchestrator
 
 router = APIRouter()
+settings = get_settings()
 
 def get_orchestrator_from_request(request: Request):
     orch = getattr(request.app.state, "orchestrator", None)
@@ -29,6 +32,48 @@ def get_orchestrator_from_request(request: Request):
 @router.get("/health", tags=["ops"])
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@router.get("/ready", tags=["ops"])
+async def ready(request: Request) -> dict[str, object]:
+    checks = {
+        "postgres": False,
+        "redis": False,
+        "model_server": False,
+    }
+
+    pg_pool = getattr(request.app.state, "pg_pool", None)
+    if pg_pool is not None:
+        try:
+            async with pg_pool.connection() as conn:
+                await conn.execute("SELECT 1")
+            checks["postgres"] = True
+        except Exception:
+            checks["postgres"] = False
+
+    # Redis
+    redis_client = getattr(app.state, "redis", None)
+    if redis_client is not None:
+        try:
+            checks["redis"] = await redis_client.ping()
+        except Exception:
+            checks["redis"] = False
+    
+    # Model server (Ollama/OpenAI-compatible endpoint)
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.get(f"{settings.ollama_base_url}/api/tags")
+            checks["model_server"] = resp.status_code == 200
+    except Exception:
+        checks["model_server"] = False
+
+    if all(checks.values()):
+        return {"status": "ok", "checks": checks}
+
+    raise HTTPException(
+        status_code=503,
+        detail={"status": "not_ready", "checks": checks},
+    )
 
 
 @router.post("/api/v1/resolve", response_model=ResolveResponse, tags=["resolve"])

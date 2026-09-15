@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 
 import httpx
 import redis.asyncio
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from rag_engine.api.error_handlers import register_error_handlers
@@ -101,11 +101,6 @@ def get_embedder(request: Request):
 def get_generator(request: Request):
     client = request.app.state.httpx_client
     return get_generation_backend(client)
-
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
-
 
 @app.get("/", tags=["ops"])
 async def root() -> dict[str, str]:
