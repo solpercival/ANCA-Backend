@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS heading (
 	order VARCHAR(45) NOT NULL,
 	hierarchy VARCHAR(45) NOT NULL,
 	document_id INTEGER REFERENCES document(doc_id) NOT NULL
+	CONSTRAINT prevent_duplicate_heading UNIQUE(order, document_id)
 )
 
 CREATE TABLE IF NOT EXISTS response (

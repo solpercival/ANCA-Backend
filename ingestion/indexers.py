@@ -61,6 +61,62 @@ def insert_document(cursor, version: str, hash: str, file_path: str) -> int:
 
     return res[0]
 
+def insert_headings(cursor, headers: list[str], doc_id: int) -> list[int]:
+    heading_ids = []
+    for header in headers:
+        res = cursor.execute(
+            """
+            INSERT INTO heading (order, hierarchy, document_id)
+            VALUES (%s, %s, %s)
+            RETURNING heading_id
+            """
+        )
+
+        heading_ids.append(res[0])
+
+def insert_chunk(cursor, data: dict, doc_id: int, heading_cache: dict[tuple, int]) -> None:
+    heading_ids = []
+
+    for header in chunk.headers:
+        header_key = (str(header), "h1", doc_id)
+
+        if header_key not in heading_cache:
+            cursor.execute(
+                """
+                INSERT INTO heading (order, hierarchy, document_id)
+                VALUES (%s, %s, %s)
+                RETURNING heading_id
+                """,
+                header_key
+            )
+            heading_id = cursor.fetchone()["heading_id"]
+            heading_cache[header_key] = heading_id
+
+        heading_ids.append(heading_cache[header_key])
+
+    chunk = data["chunk"]
+    dense = data["dense"]
+    sparse = data["sparse"]
+    cursor.execute(
+        """
+        INSERT INTO document_chunks
+            (content, metadata, dc_type, document_chunkscol, lexical_embedding, semantic_embedding)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        RETURNING chunk_id
+        """,
+        (chunk.text, "{}", chunk.kind, chunk.source, sparse, dense)
+    )
+    chunk_id = cursor.fetchone()["chunk_id"]
+
+    if heading_ids and chunk_id:
+        cursor.executemany(
+            """
+            INSERT INTO chunk_headings (heading_id, doc_chunks_id)
+            VALUES (%s, %s)
+            """,
+            [(h_id, chunk_id) for h_id in heading_ids]
+        )
+
 def validate_tables(cursor) -> None:
     cursor.execute(
         """
@@ -107,10 +163,10 @@ def validate_tables(cursor) -> None:
     
 
 def _write_embeddings(chunks: list[RawChunk], dense_embeddings: list[list[float]], sparse_embeddings: list[dict[str,float]]) -> None:
-    doc_chunks: dict[str, list[RawChunk]] = defaultdict(list)
+    doc_chunks: dict[str, dict] = defaultdict(list)
 
-    for chunk in chunks:
-        doc_chunks[chunk.source].append(chunk)
+    for i in range(len(chunks)):
+        doc_chunks[chunks[i].source].append({"chunk": chunks[i], "dense": dense_embeddings[i], "sparse": sparse_embeddings[i]})
 
     settings = get_settings()
     with psycopg.connect(settings.postgres_dsn) as connection:
@@ -118,16 +174,13 @@ def _write_embeddings(chunks: list[RawChunk], dense_embeddings: list[list[float]
         with connection.cursor() as cursor:
             # check if tables created
             validate_tables(cursor=cursor)
+            heading_cache = {}
 
             for doc in doc_chunks:
                 doc_id = insert_document(cursor=cursor, version=1, hash="", file_path=doc)
+                insert_chunk(cursor=cursor, data=doc_chunks[doc], doc_id=doc_id, heading_cache=heading_cache)
 
-                for chunk in doc_chunks[doc]:
-                    heading_ids = 
-
-            chunk_insert_data = [(chunk.text, '{}', chunk.kind, "", sparse, dense) for 
-                           chunk, sparse, dense in zip(chunks, sparse_embeddings, dense_embeddings)]
-            
+            connection.commit()                                
 
 def embed_and_index(chunks: list[RawChunk]) -> None:  # pragma: no cover - integration
     if not chunks:
