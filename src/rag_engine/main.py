@@ -23,11 +23,6 @@ async def create_postgres_pool():
     return None
 
 
-def load_bm25_index_once():
-    """Placeholder for later BM25/index bootstrap."""
-    return None
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # startup
@@ -51,12 +46,6 @@ async def lifespan(app: FastAPI):
         app.state.redis = None
         log.warning("Redis connection not initialized yet; placeholder only.", exc_info=True)
 
-    try:
-        app.state.bm25_index = load_bm25_index_once()
-    except Exception:
-        app.state.bm25_index = None
-        log.warning("BM25 index bootstrap not initialized yet; placeholder only.", exc_info=True)
-
     yield
 
     # shutdown
@@ -66,9 +55,6 @@ async def lifespan(app: FastAPI):
         await app.state.redis.aclose()
     if getattr(app.state, "pg_pool", None) is not None:
         await app.state.pg_pool.close()
-    bm25 = getattr(app.state, "bm25_index", None)
-    if bm25 is not None and hasattr(bm25, "close"):
-        bm25.close()
 
 app = FastAPI(lifespan=lifespan)
 
