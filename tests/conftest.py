@@ -19,7 +19,6 @@ class FakeVectorStore:
     async def search(self, vector, top_k, where=None):
         return [Chunk(chunk_id="v1", text="Reset the drive.", source="manual.md")]
 
-
 class FakeLexical:
     async def search(self, query, top_k):
         return [Chunk(chunk_id="l1", text="Check EtherCAT wiring.", source="alarms.md")]
