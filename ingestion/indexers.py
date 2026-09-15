@@ -43,7 +43,10 @@ def _unified_embed(chunks: list[RawChunk], model: BGEM3FlagModel) -> dict[str,li
     if settings != "unified":
         return {}
 
-    model = BGEM3FlagModel('BAAI/bge-m3', use_fp16=False) # use_fp16=False when running on CPU
+    model: BGEM3FlagModel = BGEM3FlagModel('BAAI/bge-m3', use_fp16=False) # use_fp16=False when running on CPU
+    output = model.encode([chunk.text for chunk in chunks], return_dense=True, return_sparse=True)
+
+    return {"dense": output["dense_vecs"].tolist(), "sparse": output["lexical_weights"]}
     
 def _write_embeddings(chunks: list[RawChunk], dense_embeddings: list[list[float]], sparse_embeddings: list[dict[str,float]]) -> None:
     settings = get_settings()
@@ -86,7 +89,7 @@ def embed_and_index(chunks: list[RawChunk]) -> None:  # pragma: no cover - integ
             sparse_embeddings = _sparse_embed(chunks=chunks, client=client)
     else:
         embeds = _unified_embed(chunks=chunks)
-        dense_embeddings = embeds["dense"]
-        sparse_embeddings = embeds["sparse"]
+        dense_embeddings: list[list[float]] = embeds["dense"]
+        sparse_embeddings: list[dict[str,float]] = embeds["sparse"]
 
     _write_embeddings(dense_embeddings=dense_embeddings, sparse_embeddings=sparse_embeddings)
