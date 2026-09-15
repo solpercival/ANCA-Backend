@@ -13,7 +13,7 @@ from ingestion.chunker import RawChunk
 from rag_engine.config import get_settings
 
 
-def _embed(chunks: list[RawChunk], client: httpx.Client) -> list[list[float]]:
+def _dense_embed(chunks: list[RawChunk], client: httpx.Client) -> list[list[float]]:
     settings = get_settings()
     response = client.post(
         f"{settings.ollama_base_url.rstrip('/')}/api/embed",
@@ -22,49 +22,50 @@ def _embed(chunks: list[RawChunk], client: httpx.Client) -> list[list[float]]:
     response.raise_for_status()
     return response.json()["embeddings"]
 
+def _sparse_embed(chunks: list[RawChunk], client: httpx.Client) -> list[dict[str,float]]:
+    settings = get_settings()
+    response = client.post(f"", # add api endpoint for sparse model
+                           json = {"input": [chunk.text for chunk in chunks]})
+    response.raise_for_status()
+    result = response.json() # array of array of dicts
 
-def _write_vectors(chunks: list[RawChunk], embeddings: list[list[float]]) -> None:
+    return [{entry["index"]: entry["value"] for entry in sparse_chunk} for sparse_chunk in result]
+
+def _write_embeddings(chunks: list[RawChunk], dense_embeddings: list[list[float]], sparse_embeddings: list[dict[str,float]]) -> None:
     settings = get_settings()
     with psycopg.connect(settings.postgres_dsn) as connection:
         register_vector(connection)
         with connection.cursor() as cursor:
+            # check if table created
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS document_chunks (
-                    chunk_id TEXT PRIMARY KEY,
+                    chunk_id BIGINT PRIMARY KEY,
                     content TEXT NOT NULL,
-                    source TEXT NOT NULL,
                     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-                    embedding vector NOT NULL
+                    dc_type CHUNK_TYPE NOT NULL DEFAULT 'text',
+                    document_chunkscol VARCHAR(45) NOT NULL,
+                    lexical_embedding sparsevec(250002) NOT NULL,
+                    semantic_embedding vector(1024) NOT NULL
                 )
                 """
             )
-            cursor.executemany(
+
+            insert_data = [(chunk.text, '{}', chunk.kind, "", sparse, dense) for 
+                           chunk, sparse, dense in zip(chunks, sparse_embeddings, dense_embeddings)]
+
+            cursor.execute(
                 """
-                INSERT INTO document_chunks (chunk_id, content, source, embedding)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (chunk_id) DO UPDATE SET
-                    content = EXCLUDED.content,
-                    source = EXCLUDED.source,
-                    embedding = EXCLUDED.embedding
-                """,
-                [
-                    (chunk.chunk_id, chunk.text, chunk.source, embedding)
-                    for chunk, embedding in zip(chunks, embeddings, strict=True)
-                ],
+                INSERT INTO document_chunks (content, metadata, dc_type, document_chunkscol, lexical_embedding, semantic_embedding)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """
             )
-
-
-def _write_lexical(chunks):
-    backend = get_lexical_backend()
-    if hasattr(backend, "index_documents"):
-        backend.index_documents(chunks)
-
 
 def embed_and_index(chunks: list[RawChunk]) -> None:  # pragma: no cover - integration
     if not chunks:
         return
     with httpx.Client(timeout=120.0) as client:
-        embeddings = _embed(chunks, client)
-    _write_vectors(chunks, embeddings)
-    _write_lexical(chunks)
+        dense_embeddings = _dense_embed(chunks, client)
+        sparse_embeddings = _sparse_embed(chunks, client)
+
+    _write_embeddings(dense_embeddings=dense_embeddings, sparse_embeddings=sparse_embeddings)
