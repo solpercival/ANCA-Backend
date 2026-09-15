@@ -6,7 +6,7 @@ Onboarding note:
   concrete runtime wiring is still the main integration task left to finish
 - current status: tests use fake implementations; production wiring still needs a
   valid vector store, lexical index, and provider-backed generation path
-- follow-up work: replace placeholder runtime objects with real Postgres/BM25
+- follow-up work: replace placeholder runtime objects with real Postgres
   integrations and validate a full end-to-end query path
 """
 from rag_engine.api.auth import Tier
@@ -17,7 +17,7 @@ from rag_engine.api.schemas import (
     ResolveRequest,
     ResolveResponse,
 )
-from rag_engine.providers import get_generation_backend
+from rag_engine.providers import get_generation_backend, get_lexical_backend
 from rag_engine.retrieval.hybrid import HybridRetriever
 from rag_engine.retrieval.interfaces import Chunk, Generator, Reranker
 

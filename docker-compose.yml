@@ -12,15 +12,12 @@ services:
     ports: ["8080:8080"]
     depends_on: [postgres, redis]
 
-  # One-shot job: writes embeddings to PostgreSQL and the lexical index to the
-  # named BM25 volume. Run with `make ingest` after the model profile is up.
+  # One-shot job: writes embeddings to PostgreSQL. Run with `make ingest` after the model profile is up.
   ingestion:
     build:
       context: .
       dockerfile: docker/ingestion.Dockerfile
     env_file: .env
-    volumes:
-      - bm25data:/var/lib/rag/bm25
     depends_on: [postgres, ollama]
 
   postgres:
@@ -58,5 +55,4 @@ services:
 volumes:
   pgdata:
   redisdata:
-  bm25data:
   ollamadata:

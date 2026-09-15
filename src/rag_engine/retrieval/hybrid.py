@@ -1,4 +1,4 @@
-"""Hybrid retrieval: dense (pgvector) + lexical (BM25) fused with RRF."""
+"""Hybrid retrieval: dense + lexical (pgvector) fused with RRF."""
 from rag_engine.retrieval.interfaces import (
     Chunk,
     Embedder,

@@ -1,4 +1,4 @@
-"""Model-backed embedding plus PostgreSQL/pgvector and BM25 indexing."""
+"""Model-backed embedding plus PostgreSQL/pgvector."""
 import json
 from pathlib import Path
 

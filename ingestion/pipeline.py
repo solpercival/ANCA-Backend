@@ -1,4 +1,4 @@
-"""Ingestion entrypoint: docs submodule -> chunk -> embed -> pgvector + BM25.
+"""Ingestion entrypoint: docs submodule -> chunk -> embed -> pgvector.
 
 Run offline (make ingest / scheduled job / on docs-submodule bump), not in the
 serving path. Model-backed embedding is imported lazily.

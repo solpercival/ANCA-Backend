@@ -4,7 +4,7 @@ Onboarding note:
 - this file is the source of truth for runtime provider selection
 - keep provider names and URLs here; do not hard-code model endpoints elsewhere
 - required follow-up work: wire the selected provider into real embedding and
-  generation adapters, then validate against Postgres + BM25 + Redis in a local
+  generation adapters, then validate against Postgres + Redis in a local
   docker stack
 """
 from functools import lru_cache
@@ -36,7 +36,7 @@ class Settings(BaseSettings):
 
     # provider selection
     embedding_provider: str = "ollama"
-    lexical_provider: str = "bm25"
+    lexical_provider: str = "postgres"
     llm_provider: str = "ollama"
 
     # ollama
@@ -59,7 +59,6 @@ class Settings(BaseSettings):
     retrieval_top_k: int = 50
     rerank_top_n: int = 8
     rrf_k: int = 60
-    bm25_index_dir: str = "/var/lib/rag/bm25"
 
     # langfuse
     langfuse_host: str = "http://langfuse:3000"
