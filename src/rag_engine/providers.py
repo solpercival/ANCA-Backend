@@ -15,6 +15,7 @@ from typing import Any
 from pathlib import Path
 
 import httpx
+from FlagEmbedding import BGEM3FlagModel
 
 from rag_engine.config import get_settings
 from rag_engine.retrieval.interfaces import Chunk
@@ -131,6 +132,13 @@ class AnthropicEmbedder:
     async def embed(self, texts: list[str]) -> list[list[float]]:
         raise NotImplementedError("Anthropic does not expose embeddings in the current provider layer.")
 
+class BAAIEmbedder:
+    def __init__(self):
+        self.model = BGEM3FlagModel('BAAI/bge-m3', use_fp16=False) # use_fp16=False when running on CPU
+        
+    async def embed(self, texts: list[str]) -> dict[list]:
+        output = self.model.encode(texts, return_dense=True, return_sparse=True)
+        return {"dense": output["dense_vecs"].tolist(), "sparse": output["lexical_weights"]}
 
 class OllamaGenerator:
     async def generate(self, prompt: str) -> str:

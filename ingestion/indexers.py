@@ -1,6 +1,6 @@
 """Model-backed embedding plus PostgreSQL/pgvector and BM25 indexing."""
 import json
-import FlagEmbedding
+from FlagEmbedding import BGEM3FlagModel
 from pathlib import Path
 
 # ingestion/indexers.py
@@ -16,6 +16,9 @@ from rag_engine.config import get_settings
 
 def _dense_embed(chunks: list[RawChunk], client: httpx.Client) -> list[list[float]]:
     settings = get_settings()
+    if settings != "dual":
+        return [[]]
+    
     response = client.post(
         f"{settings.ollama_base_url.rstrip('/')}/api/embed",
         json={"model": settings.embedding_model, "input": [chunk.text for chunk in chunks]},
@@ -25,6 +28,9 @@ def _dense_embed(chunks: list[RawChunk], client: httpx.Client) -> list[list[floa
 
 def _sparse_embed(chunks: list[RawChunk], client: httpx.Client) -> list[dict[str,float]]:
     settings = get_settings()
+    if settings != "dual":
+        return [[]]
+    
     response = client.post(f"", # add api endpoint for sparse model
                            json = {"input": [chunk.text for chunk in chunks]})
     response.raise_for_status()
@@ -32,6 +38,13 @@ def _sparse_embed(chunks: list[RawChunk], client: httpx.Client) -> list[dict[str
 
     return [{entry["index"]: entry["value"] for entry in sparse_chunk} for sparse_chunk in result]
 
+def _unified_embed(chunks: list[RawChunk], model: BGEM3FlagModel) -> dict[str,list]:
+    settings = get_settings()
+    if settings != "unified":
+        return {}
+
+    model = BGEM3FlagModel('BAAI/bge-m3', use_fp16=False) # use_fp16=False when running on CPU
+    
 def _write_embeddings(chunks: list[RawChunk], dense_embeddings: list[list[float]], sparse_embeddings: list[dict[str,float]]) -> None:
     settings = get_settings()
     with psycopg.connect(settings.postgres_dsn) as connection:
@@ -65,8 +78,15 @@ def _write_embeddings(chunks: list[RawChunk], dense_embeddings: list[list[float]
 def embed_and_index(chunks: list[RawChunk]) -> None:  # pragma: no cover - integration
     if not chunks:
         return
-    with httpx.Client(timeout=120.0) as client:
-        dense_embeddings = _dense_embed(chunks, client)
-        sparse_embeddings = _sparse_embed(chunks, client)
+
+    settings = get_settings()
+    if settings == "dual":
+        with httpx.Client(timeout=120.0) as client:
+            dense_embeddings = _dense_embed(chunks=chunks, client=client)
+            sparse_embeddings = _sparse_embed(chunks=chunks, client=client)
+    else:
+        embeds = _unified_embed(chunks=chunks)
+        dense_embeddings = embeds["dense"]
+        sparse_embeddings = embeds["sparse"]
 
     _write_embeddings(dense_embeddings=dense_embeddings, sparse_embeddings=sparse_embeddings)
