@@ -9,8 +9,10 @@ from rag_engine.api.errors import AppError, ErrorBody, ErrorCode, ErrorDetail, E
 log = logging.getLogger("rag_engine.errors")
 
 
-def _json(status_code: int, body: ErrorBody) -> JSONResponse:
-    return JSONResponse(status_code=status_code, content=ErrorResponse(error=body).model_dump())
+def _json(status_code: int, body: ErrorBody, headers: dict[str, str] | None = None) -> JSONResponse:
+    return JSONResponse(
+        status_code=status_code, content=ErrorResponse(error=body).model_dump(), headers=headers
+    )
 
 
 def _request_id(request: Request) -> str | None:
@@ -26,15 +28,15 @@ def register_error_handlers(app: FastAPI) -> None:
         return _json(exc.status_code, ErrorBody(
             code=exc.code, message=exc.message,
             request_id=_request_id(request), details=exc.details,
-        ))
+        ), exc.headers)
 
     @app.exception_handler(StarletteHTTPException)
     async def _http(request: Request, exc: StarletteHTTPException):
         code = {401: ErrorCode.unauthorized, 403: ErrorCode.forbidden,
-                404: ErrorCode.not_found, 429: ErrorCode.rate_limited}.get(
-                    exc.status_code, ErrorCode.internal_error)
+                404: ErrorCode.not_found, 409: ErrorCode.conflict,
+                429: ErrorCode.rate_limited}.get(exc.status_code, ErrorCode.internal_error)
         return _json(exc.status_code, ErrorBody(
-            code=code, message=str(exc.detail), request_id=_request_id(request)))
+            code=code, message=str(exc.detail), request_id=_request_id(request)), exc.headers)
 
     @app.exception_handler(RequestValidationError)
     async def _validation(request: Request, exc: RequestValidationError):
