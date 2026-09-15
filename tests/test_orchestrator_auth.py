@@ -1,8 +1,10 @@
+import jwt
 import pytest
-from jose import jwt
 
-from rag_engine.api.auth import Tier, decode_token
+from rag_engine.api.errors import Unauthorized
 from rag_engine.api.schemas import ChatRequest, ResolveRequest
+from rag_engine.auth.tiers import Tier
+from rag_engine.auth.tokens import create_access_token, decode_access_token
 from rag_engine.config import get_settings
 from rag_engine.orchestrator import Orchestrator
 
@@ -15,21 +17,26 @@ def reset_settings_cache():
 
 
 def test_decode_token_accepts_valid_worker_tier():
-    settings = get_settings()
-    token = jwt.encode({"sub": "user-42", "tier": Tier.technician.value}, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+    token, _ = create_access_token(user_id=42, tier=Tier.technician)
 
-    principal = decode_token(token)
+    principal = decode_access_token(token)
 
-    assert principal.subject == "user-42"
+    assert principal.subject == "42"
     assert principal.tier == Tier.technician
 
 
 def test_decode_token_rejects_invalid_tier():
     settings = get_settings()
-    token = jwt.encode({"sub": "user-42", "tier": "not-a-tier"}, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+    token, _ = create_access_token(user_id=42, tier=Tier.technician)
+    claims = jwt.decode(
+        token, settings.jwt_secret, algorithms=[settings.jwt_algorithm],
+        audience=settings.jwt_audience,
+    )
+    claims["tier"] = "not-a-tier"
+    forged = jwt.encode(claims, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
-    with pytest.raises(Exception):
-        decode_token(token)
+    with pytest.raises(Unauthorized):
+        decode_access_token(forged)
 
 
 def test_orchestrator_resolve_uses_query_and_returns_top_results():
