@@ -1,5 +1,6 @@
 """Model-backed embedding plus PostgreSQL/pgvector and BM25 indexing."""
 import json
+import FlagEmbedding
 from pathlib import Path
 
 # ingestion/indexers.py

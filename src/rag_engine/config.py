@@ -61,6 +61,11 @@ class Settings(BaseSettings):
     rrf_k: int = 60
     bm25_index_dir: str = "/var/lib/rag/bm25"
 
+    # embeddings
+    embedding_setup: str = "unified" # unified or dual
+    dense_n: int = 1024
+    sparse_n: int = 250002
+
     # langfuse
     langfuse_host: str = "http://langfuse:3000"
     langfuse_public_key: str = ""

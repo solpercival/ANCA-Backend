@@ -22,6 +22,7 @@ dependencies = [
 models = [
     "sentence-transformers>=3.3",       # Qwen3-Embedding / Qwen3-Reranker
     "torch>=2.5",
+    "FlagEmbedding>=1.4.2"              # unified embedding model
 ]
 eval = [
     "ragas>=0.2",
