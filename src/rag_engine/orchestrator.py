@@ -11,7 +11,7 @@ Onboarding note:
 """
 from functools import lru_cache
 
-from rag_engine.api.auth import Tier
+from rag_engine.auth.tiers import Tier
 from rag_engine.api.schemas import (
     ChatRequest,
     ChatResponse,
@@ -70,6 +70,7 @@ class Orchestrator:
             code=req.code,
             steps=[c.text for c in top[:3]],
             citations=[Citation(source=c.source, chunk_id=c.chunk_id) for c in top[:3]],
+            tier=tier,
             confidence=top[0].score if top else 0.0,
         )
 
