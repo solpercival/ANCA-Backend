@@ -16,6 +16,10 @@ from rag_engine.config import get_settings
 
 
 def _dense_embed(chunks: list[RawChunk], client: httpx.Client) -> list[list[float]]:
+    """
+    Function for generating dense vector embeddings using ollama API. Returns a
+    list of list of floats representing embeddings corresponding to input chunks.
+    """
     settings = get_settings()
     if settings != "dual":
         return [[]]
@@ -28,6 +32,10 @@ def _dense_embed(chunks: list[RawChunk], client: httpx.Client) -> list[list[floa
     return response.json()["embeddings"]
 
 def _sparse_embed(chunks: list[RawChunk], client: httpx.Client) -> list[dict[str,float]]:
+    """
+    Function for generating sparse vector embeddings using ollama API. Returns a
+    list of dictionaries representing embeddings corresponding to input chunks.
+    """
     settings = get_settings()
     if settings != "dual":
         return [[]]
@@ -40,6 +48,10 @@ def _sparse_embed(chunks: list[RawChunk], client: httpx.Client) -> list[dict[str
     return [{entry["index"]: entry["value"] for entry in sparse_chunk} for sparse_chunk in result]
 
 def _unified_embed(chunks: list[RawChunk], model: BGEM3FlagModel) -> dict[str,list]:
+    """
+    Function for generating dense and sparse vector embeddings using BAAI's FlagEmbedding library. Returns a
+    dictionary of lists storing the corresponding embeddings.
+    """
     settings = get_settings()
     if settings != "unified":
         return {}
@@ -50,6 +62,7 @@ def _unified_embed(chunks: list[RawChunk], model: BGEM3FlagModel) -> dict[str,li
     return {"dense": output["dense_vecs"].tolist(), "sparse": output["lexical_weights"]}
 
 def insert_document(cursor, version: str, hash: str, file_path: str) -> int:
+    """Inserts single document into documents table"""
     res = cursor.execute(
         """
         INSERT INTO document (current_version, hash, file_path)
@@ -61,20 +74,8 @@ def insert_document(cursor, version: str, hash: str, file_path: str) -> int:
 
     return res[0]
 
-def insert_headings(cursor, headers: list[str], doc_id: int) -> list[int]:
-    heading_ids = []
-    for header in headers:
-        res = cursor.execute(
-            """
-            INSERT INTO heading (order, hierarchy, document_id)
-            VALUES (%s, %s, %s)
-            RETURNING heading_id
-            """
-        )
-
-        heading_ids.append(res[0])
-
 def insert_chunk(cursor, data: dict, doc_id: int, heading_cache: dict[tuple, int]) -> None:
+    """Insert chunks into document_chunks table and insert headings if not exists"""
     heading_ids = []
 
     for header in chunk.headers:
@@ -163,8 +164,9 @@ def validate_tables(cursor) -> None:
     
 
 def _write_embeddings(chunks: list[RawChunk], dense_embeddings: list[list[float]], sparse_embeddings: list[dict[str,float]]) -> None:
-    doc_chunks: dict[str, dict] = defaultdict(list)
+    doc_chunks: dict[str, list[dict[str,list|RawChunk]]] = defaultdict(list)
 
+    # Group chunks, dense and sparse embeddings together using source document as key
     for i in range(len(chunks)):
         doc_chunks[chunks[i].source].append({"chunk": chunks[i], "dense": dense_embeddings[i], "sparse": sparse_embeddings[i]})
 
@@ -176,9 +178,11 @@ def _write_embeddings(chunks: list[RawChunk], dense_embeddings: list[list[float]
             validate_tables(cursor=cursor)
             heading_cache = {}
 
+            # insert document into table
             for doc in doc_chunks:
                 doc_id = insert_document(cursor=cursor, version=1, hash="", file_path=doc)
-                insert_chunk(cursor=cursor, data=doc_chunks[doc], doc_id=doc_id, heading_cache=heading_cache)
+                for chunk_group in doc_chunks[doc]:
+                    insert_chunk(cursor=cursor, data=chunk_group, doc_id=doc_id, heading_cache=heading_cache)
 
             connection.commit()                                
 
