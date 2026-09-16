@@ -43,6 +43,6 @@ class HybridRetriever:
         self, query: str, top_k: int, where: dict[str, str] | None = None
     ) -> list[Chunk]:
         vector = (await self._embedder.embed([query]))[0]
-        dense = await self._vs.search(vector, top_k=top_k, where=where)
-        sparse = await self._lex.search(query, top_k=top_k)
+        dense = await self._vs.semantic_search(vector, top_k=top_k, where=where)
+        sparse = await self._lex.lexical_search(query, top_k=top_k)
         return reciprocal_rank_fusion([dense, sparse], k=self._rrf_k)

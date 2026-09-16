@@ -22,13 +22,13 @@ class Embedder(Protocol):
 
 
 class VectorStore(Protocol):
-    async def search(
+    async def semantic_search(
         self, vector: list[float], top_k: int, where: dict[str, str] | None = None
     ) -> list[Chunk]: ...
 
 
 class LexicalIndex(Protocol):
-    async def search(self, query: str, top_k: int) -> list[Chunk]: ...
+    async def lexical_search(self, vector: dict[int,float], top_k: int) -> list[Chunk]: ...
 
 
 class Reranker(Protocol):
