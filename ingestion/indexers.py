@@ -10,6 +10,7 @@ from rag_engine.providers import get_lexical_backend
 import httpx
 import psycopg
 from pgvector.psycopg import register_vector
+from psycopg.rows import dict_row
 
 from ingestion.chunker import RawChunk
 from rag_engine.config import get_settings
@@ -21,7 +22,7 @@ def _dense_embed(chunks: list[RawChunk], client: httpx.Client) -> list[list[floa
     list of list of floats representing embeddings corresponding to input chunks.
     """
     settings = get_settings()
-    if settings != "dual":
+    if settings.embedding_setup != "dual":
         return [[]]
     
     response = client.post(
@@ -37,7 +38,7 @@ def _sparse_embed(chunks: list[RawChunk], client: httpx.Client) -> list[dict[str
     list of dictionaries representing embeddings corresponding to input chunks.
     """
     settings = get_settings()
-    if settings != "dual":
+    if settings.embedding_setup != "dual":
         return [[]]
     
     response = client.post(f"", # add api endpoint for sparse model
@@ -47,7 +48,7 @@ def _sparse_embed(chunks: list[RawChunk], client: httpx.Client) -> list[dict[str
 
     return [{entry["index"]: entry["value"] for entry in sparse_chunk} for sparse_chunk in result]
 
-def _unified_embed(chunks: list[RawChunk], model: BGEM3FlagModel) -> dict[str,list]:
+def _unified_embed(chunks: list[RawChunk]) -> dict[str,list]:
     """
     Function for generating dense and sparse vector embeddings using BAAI's FlagEmbedding library. Returns a
     dictionary of lists storing the corresponding embeddings.
@@ -67,16 +68,21 @@ def insert_document(cursor, version: str, hash: str, file_path: str) -> int:
         """
         INSERT INTO document (current_version, hash, file_path)
         VALUES (%s, %s, %s)
+        ON CONFLICT (file_path)
+        DO UPDATE SET current_version = EXCLUDED.current_version, hash = EXCLUDED.hash
         RETURNING doc_id
         """,
         (version, hash, file_path)
     ).fetchone()
 
-    return res[0]
+    return res["doc_id"]
 
 def insert_chunk(cursor, data: dict, doc_id: int, heading_cache: dict[tuple, int]) -> None:
     """Insert chunks into document_chunks table and insert headings if not exists"""
     heading_ids = []
+    chunk = data["chunk"]
+    dense = data["dense"]
+    sparse = data["sparse"]
 
     for header in chunk.headers:
         header_key = (str(header), "h1", doc_id)
@@ -86,6 +92,8 @@ def insert_chunk(cursor, data: dict, doc_id: int, heading_cache: dict[tuple, int
                 """
                 INSERT INTO heading (order, hierarchy, document_id)
                 VALUES (%s, %s, %s)
+                ON CONFLICT (hierarchy, document_id)
+                DO UPDATE SET hierarchy = EXCLUDED.hierarchy
                 RETURNING heading_id
                 """,
                 header_key
@@ -95,9 +103,6 @@ def insert_chunk(cursor, data: dict, doc_id: int, heading_cache: dict[tuple, int
 
         heading_ids.append(heading_cache[header_key])
 
-    chunk = data["chunk"]
-    dense = data["dense"]
-    sparse = data["sparse"]
     cursor.execute(
         """
         INSERT INTO document_chunks
@@ -171,7 +176,7 @@ def _write_embeddings(chunks: list[RawChunk], dense_embeddings: list[list[float]
         doc_chunks[chunks[i].source].append({"chunk": chunks[i], "dense": dense_embeddings[i], "sparse": sparse_embeddings[i]})
 
     settings = get_settings()
-    with psycopg.connect(settings.postgres_dsn) as connection:
+    with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
         register_vector(connection)
         with connection.cursor() as cursor:
             # check if tables created
@@ -200,4 +205,4 @@ def embed_and_index(chunks: list[RawChunk]) -> None:  # pragma: no cover - integ
         dense_embeddings: list[list[float]] = embeds["dense"]
         sparse_embeddings: list[dict[str,float]] = embeds["sparse"]
 
-    _write_embeddings(dense_embeddings=dense_embeddings, sparse_embeddings=sparse_embeddings)
+    _write_embeddings(chunks=chunks, dense_embeddings=dense_embeddings, sparse_embeddings=sparse_embeddings)
