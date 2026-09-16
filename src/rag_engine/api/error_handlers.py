@@ -10,11 +10,7 @@ from rag_engine.api.errors import AppError, ErrorBody, ErrorCode, ErrorDetail, E
 log = logging.getLogger("rag_engine.errors")
 
 
-def _json(
-    status_code: int,
-    body: ErrorBody,
-    headers: dict[str, str] | None = None,
-) -> JSONResponse:
+def _json(status_code: int, body: ErrorBody, headers: dict[str, str] | None = None,) -> JSONResponse:
     return JSONResponse(
         status_code=status_code,
         content=ErrorResponse(error=body).model_dump(),

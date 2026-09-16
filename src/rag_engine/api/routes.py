@@ -31,8 +31,7 @@ def get_orchestrator_from_request(request: Request):
             request.app.state.orchestrator = orch
         except Exception as exc:  # placeholder runtime: DB/provider wiring still pending
             raise RetrievalUnavailable(
-                "Orchestrator is not available yet; DB and retrieval backends are still "
-                "being wired in."
+                "Orchestrator is not available yet; DB and retrieval backends are still being wired in."
             ) from exc
     return orch
 
