@@ -17,11 +17,15 @@ from pathlib import Path
 import httpx
 
 from rag_engine.config import get_settings
-from rag_engine.retrieval.interfaces import Chunk
+from rag_engine.stores.search import PostgresDBConnection
+
 
 def get_lexical_backend() -> Any:
     settings = get_settings()
     provider = settings.lexical_provider.lower()
+
+    if provider == "postgres":
+        return PostgresDBConnection()
     
     raise ValueError(f"Unsupported lexical provider: {provider}")
 

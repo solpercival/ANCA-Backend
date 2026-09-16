@@ -1,5 +1,3 @@
-from dataclasses import dataclass
-import psycopg
 from rag_engine.retrieval.interfaces import Chunk, Embedder, LexicalIndex, VectorStore
 from db import get_conn
 from rag_engine.config import get_settings

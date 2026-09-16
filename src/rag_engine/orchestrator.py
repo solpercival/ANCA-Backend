@@ -10,6 +10,7 @@ Onboarding note:
   integrations and validate a full end-to-end query path
 """
 from functools import lru_cache
+from typing import Any
 
 from rag_engine.auth.tiers import Tier
 from rag_engine.api.schemas import (
@@ -22,12 +23,11 @@ from rag_engine.api.schemas import (
 from rag_engine.providers import get_generation_backend, get_lexical_backend
 from rag_engine.retrieval.hybrid import HybridRetriever
 from rag_engine.retrieval.interfaces import Chunk, Generator, Reranker
+from rag_engine.stores.search import PostgresDBConnection
 
 
-def get_vector_store_backend():
-    """Placeholder until the pgvector adapter is implemented."""
-    return None
-
+def get_vector_store_backend() -> Any:
+    return PostgresDBConnection
 
 def get_reranker_backend():
     """Placeholder until the production reranker is implemented."""
