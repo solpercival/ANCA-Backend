@@ -17,10 +17,12 @@ class Chunk:
     score: float = 0.0
 
 
-class Embedder(Protocol):
-    async def embed(self, texts: list[str]) -> list[list[float]]: ...
+class DenseEmbedder(Protocol):
+    async def dense_embed(self, texts: list[str]) -> list[list[float]]: ...
 
-
+class SparseEmbedder(Protocol):
+    async def sparse_embed(self, texts: list[str]) -> list[dict[int, float]]: ...
+    
 class VectorStore(Protocol):
     async def semantic_search(
         self, vector: list[float], top_k: int, where: dict[str, str] | None = None

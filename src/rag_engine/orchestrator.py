@@ -91,13 +91,14 @@ def get_orchestrator() -> Orchestrator:  # pragma: no cover - wired at runtime
     Real wiring. Switches the generation backend based on the configured provider.
     App is only built once (singleton)
     """
-    from rag_engine.providers import get_embedding_backend, get_generation_backend, get_lexical_backend
+    from rag_engine.providers import get_dense_embedding_backend, get_sparse_embedding_backend, get_generation_backend, get_lexical_backend
     from rag_engine.retrieval.hybrid import HybridRetriever
 
-    embedder = get_embedding_backend(client=None)
-    vector_store = get_vector_store_backend()   # returns None until pgvector adapter lands
+    dense_embedder = get_dense_embedding_backend(client=None)
+    vector_store = get_vector_store_backend()  
+    sparse_embedder = get_sparse_embedding_backend(client=None)
     lexical = get_lexical_backend()
-    retriever = HybridRetriever(embedder, vector_store, lexical)
+    retriever = HybridRetriever(dense_embedder, sparse_embedder, vector_store, lexical)
     return Orchestrator(
         retriever,
         reranker=get_reranker_backend(),        # None until reranker lands
