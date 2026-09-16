@@ -66,6 +66,9 @@ class AnthropicEmbedder:
 
 
 class OllamaGenerator:
+    def __init__(self, client: httpx.AsyncClient):
+        self._client = client
+
     async def generate(self, prompt: str) -> str:
         settings = get_settings()
         response = await self._client.post(
@@ -79,6 +82,9 @@ class OllamaGenerator:
 
 
 class OpenAIGenerator:
+    def __init__(self, client: httpx.AsyncClient):
+        self._client = client
+
     async def generate(self, prompt: str) -> str:
         settings = get_settings()
         if not settings.openai_api_key:
@@ -99,6 +105,9 @@ class OpenAIGenerator:
 
 
 class AnthropicGenerator:
+    def __init__(self, client: httpx.AsyncClient):
+        self._client = client
+
     async def generate(self, prompt: str) -> str:
         settings = get_settings()
         if not settings.anthropic_api_key:
