@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from rag_engine.api.error_handlers import register_error_handlers
 from rag_engine.api.routes import router
+from rag_engine.auth.routes import router as auth_router
 from rag_engine.config import get_settings
 from rag_engine.orchestrator import get_orchestrator
 
@@ -46,6 +47,11 @@ async def lifespan(app: FastAPI):
         app.state.redis = None
         log.warning("Redis connection not initialized yet; placeholder only.", exc_info=True)
 
+    # Auth storage: attach adapters implementing auth.interfaces.UserRepository (Postgres)
+    # and SessionStore (Redis). /auth endpoints return 503 auth_unavailable until both are set.
+    app.state.user_repository = None
+    app.state.session_store = None
+
     yield
 
     # shutdown
@@ -70,12 +76,13 @@ async def add_request_id(request: Request, call_next):
 register_error_handlers(app)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=settings.cors_allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 app.include_router(router)
+app.include_router(auth_router)
 
 def get_httpx_client(request: Request) -> httpx.AsyncClient:
     return request.app.state.httpx_client
