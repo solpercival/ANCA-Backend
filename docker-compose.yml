@@ -47,6 +47,14 @@ services:
     volumes:
       - ollamadata:/root/.ollama
 
+  # --- optional: tei for bge-m3 ---
+  tei:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
+    ports: ["8000:80"]
+    volumes: ["model-cache:/data"]
+    environment: ["MODEL_ID=BAAI/bge-m3"]
+    command: --model-id BAAI/bge-m3
+
   # --- optional: observability ---
   langfuse:
     profiles: ["observability"]
@@ -60,3 +68,4 @@ volumes:
   redisdata:
   bm25data:
   ollamadata:
+  model-cache:

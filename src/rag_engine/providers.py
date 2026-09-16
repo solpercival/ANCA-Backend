@@ -15,7 +15,6 @@ from typing import Any
 from pathlib import Path
 
 import httpx
-from FlagEmbedding import BGEM3FlagModel
 
 from rag_engine.config import get_settings
 from rag_engine.retrieval.interfaces import Chunk
@@ -133,13 +132,26 @@ class AnthropicEmbedder:
         raise NotImplementedError("Anthropic does not expose embeddings in the current provider layer.")
 
 class BAAIEmbedder:
-    def __init__(self):
-        self.model = BGEM3FlagModel('BAAI/bge-m3', use_fp16=False) # use_fp16=False when running on CPU
-        
-    async def embed(self, texts: list[str]) -> dict[list]:
-        output = self.model.encode(texts, return_dense=True, return_sparse=True)
-        return {"dense": output["dense_vecs"].tolist(), "sparse": output["lexical_weights"]}
+    async def dense_embed(self, texts: list[str]) -> dict[list]:
+        settings = get_settings()
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(
+                f"{settings.tei_endpoint.rstrip('/')}/embed",
+                json={"inputs": texts},
+            )
+        response.raise_for_status()
+        return response.json()
 
+    async def sparse_embed(self, texts: list[str]) -> dict[list]:
+        settings = get_settings()
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(
+                f"{settings.tei_endpoint.rstrip('/')}/embed-sparse",
+                json={"inputs": texts},
+            )
+        response.raise_for_status()
+        return response.json()
+    
 class OllamaGenerator:
     async def generate(self, prompt: str) -> str:
         settings = get_settings()

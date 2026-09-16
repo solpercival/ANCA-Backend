@@ -55,6 +55,10 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_llm_model: str = "claude-3-5-sonnet-20241022"
 
+    # tei
+    tei_endpoint: str = "http://localhost:8000"
+    tei_model: str = "BAAI/bge-m3"
+
     # retrieval
     retrieval_top_k: int = 50
     rerank_top_n: int = 8
