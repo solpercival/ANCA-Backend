@@ -87,6 +87,8 @@ class Settings(BaseSettings):
     embedding_provider: str = "tei"
     embedding_setup: str = "dual" # unified or dual
     hf_token: str = ""
+    lexical_dim: int = 30522
+    semantic_dim: int = 1024
     
     # langfuse
     langfuse_host: str = "http://langfuse:3000"
