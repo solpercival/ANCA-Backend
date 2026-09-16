@@ -50,7 +50,8 @@ class Settings(BaseSettings):
     redis_port: int = 6379
 
     # provider selection
-    embedding_provider: str = "ollama"
+    dense_embedding_provider: str = "ollama"
+    sparse_embedding_provider: str = "huggingface_tei"
     lexical_provider: str = "postgres"
     llm_provider: str = "ollama"
 
@@ -70,9 +71,9 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_llm_model: str = "claude-3-5-sonnet-20241022"
 
-    # tei
+    # huggingface tei
     tei_endpoint: str = "http://localhost:7100"
-    tei_model: str = "BAAI/bge-m3"
+    tei_model: str = "naver/splade-v3"
 
     # retrieval
     retrieval_top_k: int = 50
