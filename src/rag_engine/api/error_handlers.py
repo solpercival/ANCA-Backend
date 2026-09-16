@@ -1,4 +1,5 @@
 import logging
+
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -9,9 +10,11 @@ from rag_engine.api.errors import AppError, ErrorBody, ErrorCode, ErrorDetail, E
 log = logging.getLogger("rag_engine.errors")
 
 
-def _json(status_code: int, body: ErrorBody, headers: dict[str, str] | None = None) -> JSONResponse:
+def _json(status_code: int, body: ErrorBody, headers: dict[str, str] | None = None,) -> JSONResponse:
     return JSONResponse(
-        status_code=status_code, content=ErrorResponse(error=body).model_dump(), headers=headers
+        status_code=status_code,
+        content=ErrorResponse(error=body).model_dump(),
+        headers=headers,
     )
 
 
@@ -36,7 +39,8 @@ def register_error_handlers(app: FastAPI) -> None:
                 404: ErrorCode.not_found, 409: ErrorCode.conflict,
                 429: ErrorCode.rate_limited}.get(exc.status_code, ErrorCode.internal_error)
         return _json(exc.status_code, ErrorBody(
-            code=code, message=str(exc.detail), request_id=_request_id(request)), exc.headers)
+            code=code, message=str(exc.detail), request_id=_request_id(request)),
+            headers=dict(exc.headers or {}))
 
     @app.exception_handler(RequestValidationError)
     async def _validation(request: Request, exc: RequestValidationError):

@@ -1,4 +1,5 @@
 from enum import StrEnum
+
 from pydantic import BaseModel, Field
 
 
@@ -19,6 +20,7 @@ class ErrorCode(StrEnum):
     auth_unavailable = "auth_unavailable"
     upstream_timeout = "upstream_timeout"
     rate_limited = "rate_limited"
+    rate_limit_unavailable = "rate_limit_unavailable"
     # catch-all
     internal_error = "internal_error"
 
@@ -74,6 +76,8 @@ class Forbidden(AppError):
 class UnknownAlarmCode(AppError):
     status_code, code, message = 404, ErrorCode.unknown_alarm_code, "Alarm code not found"
 
+class RetrievalUnavailable(AppError): 
+    status_code, code, message = (503, ErrorCode.retrieval_unavailable, "Retrieval backend unavailable", )
 class Conflict(AppError):
     status_code, code, message = 409, ErrorCode.conflict, "Resource already exists"
 
@@ -82,9 +86,6 @@ class RateLimited(AppError):
 
     def __init__(self, retry_after: int):
         super().__init__(headers={"Retry-After": str(retry_after)})
-
-class RetrievalUnavailable(AppError):
-    status_code, code, message = 503, ErrorCode.retrieval_unavailable, "Retrieval backend unavailable"
 
 class ModelUnavailable(AppError):
     status_code, code, message = 503, ErrorCode.model_unavailable, "Model backend unavailable"
@@ -95,4 +96,7 @@ class AuthUnavailable(AppError):
 
 class UpstreamTimeout(AppError):
     status_code, code, message = 504, ErrorCode.upstream_timeout, "Upstream request timed out"
+
+class RateLimitUnavailable(AppError):
+    status_code, code, message = (503,ErrorCode.rate_limit_unavailable,"Rate-limit backend unavailable", )
 

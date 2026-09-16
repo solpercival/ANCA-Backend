@@ -3,6 +3,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from rag_engine.api.errors import RetrievalUnavailable
+from rag_engine.api.rate_limit import rate_limit_dependency
 from rag_engine.api.schemas import (
     ChatRequest,
     ChatResponse,
@@ -16,6 +17,12 @@ from rag_engine.orchestrator import Orchestrator, get_orchestrator
 
 router = APIRouter()
 settings = get_settings()
+resolve_rate_limit = rate_limit_dependency(
+    "resolve", "resolve_rate_limit_per_ip", "resolve_rate_limit_per_tier"
+)
+chat_rate_limit = rate_limit_dependency(
+    "chat", "chat_rate_limit_per_ip", "chat_rate_limit_per_tier"
+)
 
 def get_orchestrator_from_request(request: Request):
     orch = getattr(request.app.state, "orchestrator", None)
@@ -25,7 +32,7 @@ def get_orchestrator_from_request(request: Request):
             request.app.state.orchestrator = orch
         except Exception as exc:  # placeholder runtime: DB/provider wiring still pending
             raise RetrievalUnavailable(
-                "Orchestrator is not available yet; the DB and retrieval backends are still being wired in."
+                "Orchestrator is not available yet; DB and retrieval backends are still being wired in."
             ) from exc
     return orch
 
@@ -53,7 +60,7 @@ async def ready(request: Request) -> dict[str, object]:
             checks["postgres"] = False
 
     # Redis
-    redis_client = getattr(app.state, "redis", None)
+    redis_client = getattr(request.app.state, "redis", None)
     if redis_client is not None:
         try:
             checks["redis"] = await redis_client.ping()
@@ -81,6 +88,7 @@ async def ready(request: Request) -> dict[str, object]:
 async def resolve(
     req: ResolveRequest,
     principal: Principal = Depends(current_principal),
+    _: None = Depends(resolve_rate_limit),
     orch: Orchestrator = Depends(get_orchestrator),
 ) -> ResolveResponse:
     resp = await orch.resolve(req, tier=principal.tier)
@@ -95,7 +103,8 @@ async def resolve(
 @router.post("/api/v1/chat", response_model=ChatResponse, tags=["chat"])
 async def chat(
     req: ChatRequest,
-    principal: Principal = Depends(require(can_use_chat)),
+    principal: Principal = Depends(current_principal),
+    _: None = Depends(chat_rate_limit),
     orch: Orchestrator = Depends(get_orchestrator),
 ) -> ChatResponse:
     return await orch.chat(req, tier=principal.tier)
