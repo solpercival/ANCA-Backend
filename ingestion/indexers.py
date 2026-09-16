@@ -32,41 +32,19 @@ def _dense_embed(chunks: list[RawChunk], client: httpx.Client) -> list[list[floa
 
 def _sparse_embed(chunks: list[RawChunk], client: httpx.Client) -> list[dict[str,float]]:
     """
-    Function for generating sparse vector embeddings using ollama API. Returns a
+    Function for generating sparse vector embeddings using tei container. Returns a
     list of dictionaries representing embeddings corresponding to input chunks.
     """
     settings = get_settings()
     if settings.embedding_setup != "dual":
         return [[]]
+
+    sparse_vecs = client.post(
+        f"{settings.tei_endpoint.rstrip('/')}/embed_sparse",
+        json={"inputs": [chunk.text for chunk in chunks]},
+    ).raise_for_status().json()
     
-    response = client.post(f"", # add api endpoint for sparse model
-                           json = {"input": [chunk.text for chunk in chunks]})
-    response.raise_for_status()
-    result = response.json() # array of array of dicts
-
-    return [{entry["index"]: entry["value"] for entry in sparse_chunk} for sparse_chunk in result]
-
-def _unified_embed(chunks: list[RawChunk]) -> dict[str,list]:
-    """
-    Function for generating dense and sparse vector embeddings using a tei container. Returns a
-    dictionary of lists storing the corresponding embeddings.
-    """
-    settings = get_settings()
-    if settings.embedding_setup != "unified":
-        return {}
-
-    with httpx.Client(timeout=120.0) as client:
-        dense_vecs = client.post(
-            f"{settings.tei_endpoint.rstrip('/')}/embed",
-            json={"inputs": [chunk.text for chunk in chunks]},
-        ).raise_for_status().json()
-
-        sparse_vecs = client.post(
-            f"{settings.tei_endpoint.rstrip('/')}/embed_sparse",
-            json={"inputs": [chunk.text for chunk in chunks]},
-        ).raise_for_status().json()
-    
-    return {"dense": dense_vecs, "sparse": [{str(entry["index"]): entry["value"] for entry in sparse_chunk} for sparse_chunk in sparse_vecs]}
+    return [{int(entry["index"]): float(entry["value"]) for entry in sparse_chunk} for sparse_chunk in sparse_vecs]
 
 def insert_document(cursor, version: str, hash: str, file_path: str) -> int:
     """Inserts single document into documents table"""
@@ -88,6 +66,7 @@ def insert_chunk(cursor, data: dict, doc_id: int, heading_cache: dict[tuple, int
     heading_ids = []
     chunk = data["chunk"]
     dense = data["dense"]
+    print(f"DENSE: {len(dense)}")
     sparse = data["sparse"]
 
     for header in chunk.headers:
@@ -96,10 +75,8 @@ def insert_chunk(cursor, data: dict, doc_id: int, heading_cache: dict[tuple, int
         if header_key not in heading_cache:
             cursor.execute(
                 """
-                INSERT INTO heading (order, hierarchy, document_id)
+                INSERT INTO heading (heading_order, hierarchy, document_id)
                 VALUES (%s, %s, %s)
-                ON CONFLICT (hierarchy, document_id)
-                DO UPDATE SET hierarchy = EXCLUDED.hierarchy
                 RETURNING heading_id
                 """,
                 header_key
@@ -116,7 +93,7 @@ def insert_chunk(cursor, data: dict, doc_id: int, heading_cache: dict[tuple, int
         VALUES (%s, %s, %s, %s, %s, %s)
         RETURNING chunk_id
         """,
-        (chunk.text, "{}", chunk.kind, chunk.source, sparse, dense)
+        (chunk.text, "{}", chunk.kind, chunk.source, f"{sparse}/30522", dense)
     )
     chunk_id = cursor.fetchone()["chunk_id"]
 
@@ -133,13 +110,13 @@ def validate_tables(cursor) -> None:
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS document_chunks (
-            chunk_id BIGINT PRIMARY KEY,
+            chunk_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
             content TEXT NOT NULL,
             metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
             dc_type CHUNK_TYPE NOT NULL DEFAULT 'text',
             document_chunkscol VARCHAR(45) NOT NULL,
-            lexical_embedding sparsevec(250002) NOT NULL,
-            semantic_embedding vector(1024) NOT NULL
+            lexical_embedding sparsevec(30522) NOT NULL,
+            semantic_embedding vector(768) NOT NULL
         )
         """
     )
@@ -149,7 +126,7 @@ def validate_tables(cursor) -> None:
             doc_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
             current_version VARCHAR(16) NOT NULL,
             hash CHAR(64) NOT NULL,
-            file_path VARCHAR(120) NOT NULL
+            file_path VARCHAR(120) NOT NULL UNIQUE
         )
         """
     )
@@ -157,9 +134,10 @@ def validate_tables(cursor) -> None:
         """
         CREATE TABLE IF NOT EXISTS heading (
             heading_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-            order VARCHAR(45) NOT NULL,
+            heading_order VARCHAR(45) NOT NULL,
             hierarchy VARCHAR(45) NOT NULL,
-            document_id INTEGER REFERENCES document(doc_id) NOT NULL
+            document_id INTEGER REFERENCES document(doc_id) NOT NULL,
+            CONSTRAINT prevent_duplicate_heading UNIQUE(heading_order, document_id)
         )
         """
     )
@@ -173,7 +151,6 @@ def validate_tables(cursor) -> None:
         """
     )
     
-
 def _write_embeddings(chunks: list[RawChunk], dense_embeddings: list[list[float]], sparse_embeddings: list[dict[str,float]]) -> None:
     doc_chunks: dict[str, list[dict[str,list|RawChunk]]] = defaultdict(list)
 
@@ -202,13 +179,8 @@ def embed_and_index(chunks: list[RawChunk]) -> None:  # pragma: no cover - integ
         return
 
     settings = get_settings()
-    if settings.embedding_setup == "dual":
-        with httpx.Client(timeout=120.0) as client:
-            dense_embeddings = _dense_embed(chunks=chunks, client=client)
-            sparse_embeddings = _sparse_embed(chunks=chunks, client=client)
-    else:
-        embeds = _unified_embed(chunks=chunks)
-        dense_embeddings: list[list[float]] = embeds["dense"]
-        sparse_embeddings: list[dict[str,float]] = embeds["sparse"]
-
+    with httpx.Client(timeout=120.0) as client:
+        dense_embeddings = _dense_embed(chunks=chunks, client=client)
+        sparse_embeddings = _sparse_embed(chunks=chunks, client=client)
+    
     _write_embeddings(chunks=chunks, dense_embeddings=dense_embeddings, sparse_embeddings=sparse_embeddings)
