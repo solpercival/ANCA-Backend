@@ -1,6 +1,5 @@
 """Model-backed embedding plus PostgreSQL/pgvector and BM25 indexing."""
 import json
-from FlagEmbedding import BGEM3FlagModel
 from pathlib import Path
 from collections import defaultdict
 
@@ -14,7 +13,6 @@ from psycopg.rows import dict_row
 
 from ingestion.chunker import RawChunk
 from rag_engine.config import get_settings
-
 
 def _dense_embed(chunks: list[RawChunk], client: httpx.Client) -> list[list[float]]:
     """
@@ -50,17 +48,25 @@ def _sparse_embed(chunks: list[RawChunk], client: httpx.Client) -> list[dict[str
 
 def _unified_embed(chunks: list[RawChunk]) -> dict[str,list]:
     """
-    Function for generating dense and sparse vector embeddings using BAAI's FlagEmbedding library. Returns a
+    Function for generating dense and sparse vector embeddings using a tei container. Returns a
     dictionary of lists storing the corresponding embeddings.
     """
     settings = get_settings()
-    if settings != "unified":
+    if settings.embedding_setup != "unified":
         return {}
 
-    model: BGEM3FlagModel = BGEM3FlagModel('BAAI/bge-m3', use_fp16=False) # use_fp16=False when running on CPU
-    output = model.encode([chunk.text for chunk in chunks], return_dense=True, return_sparse=True)
+    with httpx.Client(timeout=120.0) as client:
+        dense_vecs = client.post(
+            f"{settings.tei_endpoint.rstrip('/')}/embed",
+            json={"inputs": [chunk.text for chunk in chunks]},
+        ).raise_for_status().json()
 
-    return {"dense": output["dense_vecs"].tolist(), "sparse": output["lexical_weights"]}
+        sparse_vecs = client.post(
+            f"{settings.tei_endpoint.rstrip('/')}/embed_sparse",
+            json={"inputs": [chunk.text for chunk in chunks]},
+        ).raise_for_status().json()
+    
+    return {"dense": dense_vecs, "sparse": [{str(entry["index"]): entry["value"] for entry in sparse_chunk} for sparse_chunk in sparse_vecs]}
 
 def insert_document(cursor, version: str, hash: str, file_path: str) -> int:
     """Inserts single document into documents table"""
@@ -196,7 +202,7 @@ def embed_and_index(chunks: list[RawChunk]) -> None:  # pragma: no cover - integ
         return
 
     settings = get_settings()
-    if settings == "dual":
+    if settings.embedding_setup == "dual":
         with httpx.Client(timeout=120.0) as client:
             dense_embeddings = _dense_embed(chunks=chunks, client=client)
             sparse_embeddings = _sparse_embed(chunks=chunks, client=client)

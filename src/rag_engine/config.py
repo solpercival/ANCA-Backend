@@ -66,9 +66,10 @@ class Settings(BaseSettings):
     bm25_index_dir: str = "/var/lib/rag/bm25"
 
     # embeddings
-    tei_endpoint: str = "http://tei:80"
+    tei_endpoint: str = "http://localhost:7100"
     embedding_provider: str = "tei"
-    embedding_setup: str = "unified" # unified or dual
+    embedding_setup: str = "dual" # unified or dual
+    hf_token: str = ""
     
     # langfuse
     langfuse_host: str = "http://langfuse:3000"

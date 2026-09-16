@@ -50,9 +50,12 @@ services:
   # --- optional: tei for bge-m3 ---
   tei:
     image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.6
+    env_file: .env
     ports: ["7100:80"]
     volumes: ["model-cache:/data"]
-    command: --model-id BAAI/bge-m3 --auto-truncate
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
+    command: --model-id naver/splade-v3 --pooling splade
 
   # --- optional: observability ---
   langfuse:
