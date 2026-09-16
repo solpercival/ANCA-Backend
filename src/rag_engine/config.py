@@ -58,6 +58,8 @@ class Settings(BaseSettings):
     # retrieval
     retrieval_top_k: int = 50
     rerank_top_n: int = 8
+    rerank_provider: str = "none"
+    rerank_model: str = "Qwen/Qwen3-Reranker-0.6B"
     rrf_k: int = 60
 
     # langfuse

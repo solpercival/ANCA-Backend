@@ -1,8 +1,7 @@
-"""Placeholder implementation of the Reranker protocol.
+"""Placeholder reranker.
 
-Returns candidates in the order they arrived, truncated to top_n. This exists so
-the retrieval pipeline can be wired and tested before a model is introduced, and
-serves as the baseline the real reranker will be measured against.
+Returns the first top_n chunks unchanged, without scoring them. 
+Gives a baseline to compare the real reranker against.
 """
 from rag_engine.retrieval.interfaces import Chunk
 
