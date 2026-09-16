@@ -21,7 +21,7 @@ def _dense_embed(chunks: list[RawChunk], client: httpx.Client) -> list[list[floa
     """
     settings = get_settings()
     if settings.embedding_setup != "dual":
-        return [[]]
+        return []
     
     response = client.post(
         f"{settings.ollama_base_url.rstrip('/')}/api/embed",
@@ -37,7 +37,7 @@ def _sparse_embed(chunks: list[RawChunk], client: httpx.Client) -> list[dict[str
     """
     settings = get_settings()
     if settings.embedding_setup != "dual":
-        return [[]]
+        return []
 
     sparse_vecs = client.post(
         f"{settings.tei_endpoint.rstrip('/')}/embed_sparse",

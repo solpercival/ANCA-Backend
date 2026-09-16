@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS document_chunks (
 	dc_type CHUNK_TYPE NOT NULL DEFAULT 'text',
 	document_chunkscol VARCHAR(45) NOT NULL,
 	lexical_embedding sparsevec(30522) NOT NULL,
-	semantic_embedding vector(768) NOT NULL
+	semantic_embedding vector(1024) NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS alarm_code (
