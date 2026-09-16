@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     anthropic_llm_model: str = "claude-3-5-sonnet-20241022"
 
     # tei
-    tei_endpoint: str = "http://localhost:8000"
+    tei_endpoint: str = "http://localhost:7100"
     tei_model: str = "BAAI/bge-m3"
 
     # retrieval
@@ -67,9 +67,7 @@ class Settings(BaseSettings):
 
     # embeddings
     embedding_setup: str = "unified" # unified or dual
-    dense_n: int = 1024
-    sparse_n: int = 250002
-
+    
     # langfuse
     langfuse_host: str = "http://langfuse:3000"
     langfuse_public_key: str = ""
