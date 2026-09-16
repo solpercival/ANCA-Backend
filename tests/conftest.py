@@ -1,9 +1,8 @@
 import pytest
 from fastapi.testclient import TestClient
-from jose import jwt
 
-from rag_engine.api.auth import Tier
-from rag_engine.config import get_settings
+from rag_engine.auth.tiers import Tier
+from rag_engine.auth.tokens import create_access_token
 from rag_engine.main import app
 from rag_engine.orchestrator import Orchestrator, get_orchestrator
 from rag_engine.retrieval.hybrid import HybridRetriever
@@ -62,7 +61,5 @@ def client():
 
 @pytest.fixture
 def bearer():
-    s = get_settings()
-    token = jwt.encode({"sub": "u1", "tier": Tier.technician.value}, s.jwt_secret,
-                       algorithm=s.jwt_algorithm)
+    token, _ = create_access_token(user_id=1, tier=Tier.technician)
     return {"Authorization": f"Bearer {token}"}

@@ -12,7 +12,9 @@ dependencies = [
     "psycopg[binary]>=3.2",
     "pgvector>=0.3",
     "redis>=5.2",
-    "python-jose[cryptography]>=3.3",   # OAuth2 / JWT
+    "pyjwt>=2.10",
+    "pwdlib[argon2]>=0.2",
+    "python-multipart>=0.0.20",
     "langfuse>=2.53",                   # runtime tracing
     "langchain-text-splitters>=1.1.2",
 ]

@@ -2,7 +2,6 @@
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from rag_engine.api.auth import Principal, Tier, current_principal
 from rag_engine.api.errors import RetrievalUnavailable
 from rag_engine.api.rate_limit import rate_limit_dependency
 from rag_engine.api.schemas import (
@@ -11,6 +10,8 @@ from rag_engine.api.schemas import (
     ResolveRequest,
     ResolveResponse,
 )
+from rag_engine.auth.dependencies import current_principal, require
+from rag_engine.auth.tiers import Principal, can_view_likely_causes, can_use_chat
 from rag_engine.config import get_settings
 from rag_engine.orchestrator import Orchestrator, get_orchestrator
 
@@ -91,9 +92,11 @@ async def resolve(
     orch: Orchestrator = Depends(get_orchestrator),
 ) -> ResolveResponse:
     resp = await orch.resolve(req, tier=principal.tier)
-    # Tier gate: only technician/partner see likely_causes.
-    if principal.tier == Tier.operator:
+    # Tier rules are applied here rather than in the orchestrator, so access never
+    # depends on what generation happened to return.
+    if not can_view_likely_causes(principal.tier):
         resp.likely_causes = []
+    resp.ai_chat_available = can_use_chat(principal.tier)
     return resp
 
 
