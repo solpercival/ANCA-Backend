@@ -64,7 +64,27 @@ class AnthropicEmbedder:
     async def embed(self, texts: list[str]) -> list[list[float]]:
         raise NotImplementedError("Anthropic does not expose embeddings in the current provider layer.")
 
+class BAAIEmbedder:
+    async def dense_embed(self, texts: list[str]) -> dict[list]:
+        settings = get_settings()
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(
+                f"{settings.tei_endpoint.rstrip('/')}/embed",
+                json={"inputs": texts},
+            )
+        response.raise_for_status()
+        return response.json()
 
+    async def sparse_embed(self, texts: list[str]) -> dict[list]:
+        settings = get_settings()
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(
+                f"{settings.tei_endpoint.rstrip('/')}/embed-sparse",
+                json={"inputs": texts},
+            )
+        response.raise_for_status()
+        return response.json()
+    
 class OllamaGenerator:
     def __init__(self, client: httpx.AsyncClient):
         self._client = client

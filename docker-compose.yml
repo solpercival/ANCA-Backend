@@ -71,6 +71,16 @@ services:
     volumes:
       - ollamadata:/root/.ollama
 
+  # --- optional: tei for bge-m3 ---
+  tei:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.6
+    env_file: .env
+    ports: ["7100:80"]
+    volumes: ["model-cache:/data"]
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
+    command: --model-id naver/splade-v3 --pooling splade
+
   # --- optional: observability ---
   langfuse:
     profiles: ["observability"]
@@ -83,3 +93,4 @@ volumes:
   pgdata:
   redisdata:
   ollamadata:
+  model-cache:
