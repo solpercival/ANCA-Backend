@@ -34,6 +34,13 @@ class Settings(BaseSettings):
     redis_host: str = "redis"
     redis_port: int = 6379
 
+    # rate limiting
+    rate_limit_window_seconds: int = 60
+    resolve_rate_limit_per_ip: int = 30
+    resolve_rate_limit_per_tier: int = 120
+    chat_rate_limit_per_ip: int = 10
+    chat_rate_limit_per_tier: int = 60
+
     # provider selection
     embedding_provider: str = "ollama"
     lexical_provider: str = "postgres"

@@ -3,7 +3,12 @@ from dataclasses import dataclass
 from typing import Protocol
 
 import redis.exceptions
+from fastapi import Depends, HTTPException, Request
 from redis.asyncio import Redis
+
+from rag_engine.api.auth import Principal, current_principal
+from rag_engine.api.errors import RateLimitUnavailable
+from rag_engine.config import get_settings
 
 
 @dataclass(frozen=True)
@@ -38,6 +43,8 @@ class FixedWindowLimiter:
         count, ttl = await self._backend.increment(key, window_seconds)
         if count <= limit:
             return RateLimitDecision(allowed=True)
+        if ttl < 0:
+            raise RateLimitBackendError("Rate-limit bucket has no valid TTL")
         return RateLimitDecision(allowed=False, retry_after_seconds=max(1, ttl))
 
 
@@ -69,3 +76,42 @@ return {current, ttl}
 
         count, ttl = result
         return int(count), int(ttl)
+
+
+def rate_limit_dependency(route_name: str, ip_limit_setting: str, tier_limit_setting: str):
+    """Build an authenticated FastAPI dependency for one route's buckets."""
+    async def enforce_rate_limit(
+        request: Request,
+        principal: Principal = Depends(current_principal),
+    ) -> None:
+        settings = get_settings()
+        backend = getattr(request.app.state, "rate_limit_backend", None)
+        if backend is None:
+            redis_client = getattr(request.app.state, "redis", None)
+            if redis_client is not None:
+                backend = RedisRateLimitBackend(redis_client)
+        if backend is None:
+            raise RateLimitUnavailable()
+
+        limiter = FixedWindowLimiter(backend)
+        client_ip = request.client.host if request.client else "unknown"
+        buckets = (
+            (f"rate-limit:{route_name}:ip:{client_ip}", getattr(settings, ip_limit_setting)),
+            (
+                f"rate-limit:{route_name}:tier:{principal.tier}",
+                getattr(settings, tier_limit_setting),
+            ),
+        )
+        try:
+            for key, limit in buckets:
+                decision = await limiter.check(key, limit, settings.rate_limit_window_seconds)
+                if not decision.allowed:
+                    raise HTTPException(
+                        status_code=429,
+                        detail="Rate limit exceeded",
+                        headers={"Retry-After": str(decision.retry_after_seconds)},
+                    )
+        except RateLimitBackendError as exc:
+            raise RateLimitUnavailable() from exc
+
+    return enforce_rate_limit

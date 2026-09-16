@@ -129,3 +129,14 @@ async def test_invalid_limits_are_rejected(backend):
         await limiter.check("bucket", limit=0, window_seconds=60)
     with pytest.raises(ValueError, match="window_seconds"):
         await limiter.check("bucket", limit=1, window_seconds=0)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ttl", [-1, -2])
+async def test_invalid_ttl_is_reported_as_backend_error(ttl):
+    class InvalidTtlBackend:
+        async def increment(self, key: str, window_seconds: int) -> tuple[int, int]:
+            return 2, ttl
+
+    with pytest.raises(RateLimitBackendError, match="valid TTL"):
+        await FixedWindowLimiter(InvalidTtlBackend()).check("bucket", limit=1, window_seconds=60)
