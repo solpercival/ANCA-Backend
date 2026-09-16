@@ -49,11 +49,10 @@ services:
 
   # --- optional: tei for bge-m3 ---
   tei:
-    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
-    ports: ["8000:80"]
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.6
+    ports: ["7100:80"]
     volumes: ["model-cache:/data"]
-    environment: ["MODEL_ID=BAAI/bge-m3"]
-    command: --model-id BAAI/bge-m3
+    command: --model-id BAAI/bge-m3 --auto-truncate
 
   # --- optional: observability ---
   langfuse:

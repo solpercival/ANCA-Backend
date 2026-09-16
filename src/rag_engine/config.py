@@ -66,6 +66,8 @@ class Settings(BaseSettings):
     bm25_index_dir: str = "/var/lib/rag/bm25"
 
     # embeddings
+    tei_endpoint: str = "http://tei:80"
+    embedding_provider: str = "tei"
     embedding_setup: str = "unified" # unified or dual
     
     # langfuse
