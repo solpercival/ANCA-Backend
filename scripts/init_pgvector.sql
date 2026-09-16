@@ -67,3 +67,8 @@ CREATE TABLE IF NOT EXISTS response_sources (
 	response_id BIGINT REFERENCES response(response_id) NOT NULL,
 	PRIMARY KEY (doc_chunks_id, response_id)
 );
+
+-- HNSW index
+CREATE INDEX ON document_chunks
+USING hnsw (semantic_embedding vector_cosine_ops)
+WITH (m = 16, ef_construction = 64); -- Parameters can be tuned
