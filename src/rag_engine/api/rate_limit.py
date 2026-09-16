@@ -90,6 +90,7 @@ def rate_limit_dependency(route_name: str, ip_limit_setting: str, tier_limit_set
             redis_client = getattr(request.app.state, "redis", None)
             if redis_client is not None:
                 backend = RedisRateLimitBackend(redis_client)
+                request.app.state.rate_limit_backend = backend
         if backend is None:
             raise RateLimitUnavailable()
 
