@@ -1,9 +1,9 @@
 from pathlib import Path
 
 import ingestion.indexers as indexers
-from ingestion.chunker import chunk_markdown
+from ingestion.chunker import chunk_markdown, RawChunk
 from ingestion.pipeline import collect_markdown
-
+import httpx
 
 def test_chunk_markdown_splits_on_headers_and_keeps_content():
     markdown = """# Intro
@@ -43,3 +43,24 @@ def test_collect_markdown_reads_nested_markdown_files(tmp_path):
     texts = {chunk.text for chunk in chunks}
     assert any("# A" in text for text in texts)
     assert any("# B" in text for text in texts)
+
+def test_sparse_embedding():
+    chunks = [RawChunk(text="test script", source="", headers=[], kind="text"),
+              RawChunk(text="motion", source="", headers=[], kind="text")]
+
+    with httpx.Client(timeout=120.0) as client:
+        sparse_vecs = indexers._sparse_embed(chunks=chunks, client=client)
+
+    assert(len(sparse_vecs) == len(chunks)) # verify same length
+    assert(sparse_vecs[i] for i in sparse_vecs) # verify non-empty embeddings
+    assert(len(sparse_vecs[i]) <= 30522 for i in sparse_vecs)
+
+def test_dense_embedding():    
+    chunks = [RawChunk(text="test script", source="", headers=[], kind="text"),
+              RawChunk(text="motion", source="", headers=[], kind="text")]
+
+    with httpx.Client(timeout=120.0) as client:
+        dense_vecs = indexers._dense_embed(chunks=chunks, client=client)
+
+    assert(len(dense_vecs) == len(chunks)) # verify same length
+    assert(len(i) == 1024 for i in dense_vecs)
