@@ -2,8 +2,8 @@
 -- (SQLAlchemy + Alembic) and are owned by the RAG team.
 CREATE EXTENSION IF NOT EXISTS vector;
 
-CREATE TYPE CHUNK_TYPE IF NOT EXISTS AS ENUM('table', 'list', 'code', 'text')
-CREATE TYPE SEVERITY IF NOT EXISTS AS ENUM('debug', 'info', 'warning', 'error', 'fatal')
+CREATE TYPE CHUNK_TYPE AS ENUM('table', 'list', 'code', 'text');
+CREATE TYPE SEVERITY AS ENUM('debug', 'info', 'warning', 'error', 'fatal');
 
 CREATE TABLE IF NOT EXISTS alarm_module (
 	id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS document (
 	doc_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
 	current_version VARCHAR(16) NOT NULL,
 	hash CHAR(64) NOT NULL,
-	file_path VARCHAR(120) NOT NULL
+	file_path VARCHAR(120) NOT UNIQUE
 );
 
 CREATE TABLE IF NOT EXISTS document_chunks (
@@ -24,8 +24,8 @@ CREATE TABLE IF NOT EXISTS document_chunks (
 	metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
 	dc_type CHUNK_TYPE NOT NULL DEFAULT 'text',
 	document_chunkscol VARCHAR(45) NOT NULL,
-	lexical_embedding sparsevec(250002) NOT NULL,
-	semantic_embedding vector(1024) NOT NULL
+	lexical_embedding sparsevec(30522) NOT NULL,
+	semantic_embedding vector(768) NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS alarm_code (
@@ -42,10 +42,10 @@ CREATE TABLE IF NOT EXISTS alarm_code (
 
 CREATE TABLE IF NOT EXISTS heading (
 	heading_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-	order VARCHAR(45) NOT NULL,
+	heading_order VARCHAR(45) NOT NULL,
 	hierarchy VARCHAR(45) NOT NULL,
-	document_id INTEGER REFERENCES document(doc_id) NOT NULL
-	CONSTRAINT prevent_duplicate_heading UNIQUE(order, document_id)
+	document_id INTEGER REFERENCES document(doc_id) NOT NULL,
+	CONSTRAINT prevent_duplicate_heading UNIQUE(heading_order, document_id)
 );
 
 CREATE TABLE IF NOT EXISTS response (
