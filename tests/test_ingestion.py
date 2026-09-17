@@ -63,4 +63,5 @@ def test_dense_embedding():
         dense_vecs = indexers._dense_embed(chunks=chunks, client=client)
 
     assert(len(dense_vecs) == len(chunks)) # verify same length
-    assert(len(i) == 1024 for i in dense_vecs)
+    assert(len(i) == 1024 for i in dense_vecs)   
+    

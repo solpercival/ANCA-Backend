@@ -65,6 +65,9 @@ class OpenAIEmbedder:
 
 
 class AnthropicEmbedder:
+    def __init__(self, client: httpx.AsyncClient):
+            self._client = client
+            
     async def embed(self, texts: list[str]) -> list[list[float]]:
         raise NotImplementedError("Anthropic does not expose embeddings in the current provider layer.")
 
