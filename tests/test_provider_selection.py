@@ -16,7 +16,7 @@ from rag_engine.providers import (
     get_generation_backend,
 )
 from rag_engine.retrieval.hybrid import HybridRetriever, reciprocal_rank_fusion
-from rag_engine.retrieval.interfaces import Chunk
+from rag_engine.retrieval.interfaces import Chunk, DenseEmbedder, SparseEmbedder
 
 
 @pytest.fixture(autouse=True)
@@ -146,3 +146,35 @@ def test_hybrid_retriever_uses_dense_and_lexical_lists():
     chunk_ids = {chunk.chunk_id for chunk in result}
     assert {"v1", "v2", "l1"}.issubset(chunk_ids)
     assert result[0].chunk_id in {"v1", "l1", "v2"}
+
+def test_dense_embedding_backend_output():
+    settings = get_settings()
+    with httpx.Client(timeout=120.0) as client: 
+        backend = get_dense_embedding_backend(client)
+
+        assert (backend != None)
+        assert hasattr(backend, "dense_embed") and callable(backend.dense_embed)
+
+        queries = ["test query 1", "anca motion"]
+        embeddings = backend.dense_embed(queries)
+
+    assert (len(embeddings) == 2)
+    assert (embeddings[0] != embeddings[1])
+    assert all(len(i) == settings.semantic_dim for i in embeddings)
+    assert all(any(x != 0 for x in emb) for emb in embeddings)
+
+async def test_sparse_embedding_backend_output():
+    settings = get_settings()
+    with httpx.Client(timeout=120.0) as client:
+        backend = get_sparse_embedding_backend(client)
+
+        assert (backend != None)
+        assert hasattr(backend, "sparse_embed") and callable(backend.sparse_embed)
+
+        queries = ["test query 1", "anca motion"]
+        embeddings = await backend.sparse_embed(queries)
+
+    assert (len(embeddings) == 2)
+    assert (embeddings[0] != embeddings[1])
+    assert all(len(i) <= settings.lexical_dim for i in embeddings)
+    assert all(len(i) > 0 for i in embeddings)
