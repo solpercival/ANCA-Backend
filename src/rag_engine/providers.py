@@ -61,6 +61,9 @@ class OpenAIEmbedder:
 
 
 class AnthropicEmbedder:
+    def __init__(self, client: httpx.AsyncClient):
+        self._client = client
+
     async def embed(self, texts: list[str]) -> list[list[float]]:
         raise NotImplementedError("Anthropic does not expose embeddings in the current provider layer.")
 
@@ -132,7 +135,7 @@ class AnthropicGenerator:
         return payload["content"][0]["text"]
 
 
-def get_embedding_backend(client: httpx.AsyncClient) -> Any:
+def get_embedding_backend(client: httpx.AsyncClient | None = None) -> Any:
     settings = get_settings()
     provider = settings.embedding_provider.lower()
 
@@ -148,7 +151,7 @@ def get_embedding_backend(client: httpx.AsyncClient) -> Any:
     raise ValueError(f"Unsupported embedding provider: {provider}")
 
 
-def get_generation_backend(client: httpx.AsyncClient) -> Any:
+def get_generation_backend(client: httpx.AsyncClient | None = None) -> Any:
     settings = get_settings()
     provider = settings.llm_provider.lower()
     if provider == "ollama":

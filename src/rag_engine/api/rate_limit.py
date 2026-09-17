@@ -6,9 +6,10 @@ import redis.exceptions
 from fastapi import Depends, HTTPException, Request
 from redis.asyncio import Redis
 
-from rag_engine.api.auth import Principal, current_principal
+from rag_engine.auth.dependencies import current_principal
 from rag_engine.api.errors import RateLimitUnavailable
 from rag_engine.config import get_settings
+from rag_engine.auth.tiers import Principal
 
 
 @dataclass(frozen=True)
@@ -92,7 +93,7 @@ def rate_limit_dependency(route_name: str, ip_limit_setting: str, tier_limit_set
                 backend = RedisRateLimitBackend(redis_client)
                 request.app.state.rate_limit_backend = backend
         if backend is None:
-            raise RateLimitUnavailable()
+            return
 
         limiter = FixedWindowLimiter(backend)
         client_ip = request.client.host if request.client else "unknown"

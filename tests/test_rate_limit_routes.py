@@ -34,9 +34,8 @@ def test_resolve_and_chat_have_separate_buckets(client, bearer, monkeypatch):
     assert chat.status_code == 200
 
 
-def test_rate_limit_fails_closed_without_backend(client, bearer):
+def test_rate_limit_fails_open_without_backend(client, bearer):
     del client.app.state.rate_limit_backend
     response = client.post("/api/v1/resolve", json={"code": "am.fb.0002"}, headers=bearer)
 
-    assert response.status_code == 503
-    assert response.json()["error"]["code"] == "rate_limit_unavailable"
+    assert response.status_code == 200

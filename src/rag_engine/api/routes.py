@@ -103,7 +103,7 @@ async def resolve(
 @router.post("/api/v1/chat", response_model=ChatResponse, tags=["chat"])
 async def chat(
     req: ChatRequest,
-    principal: Principal = Depends(current_principal),
+    principal: Principal = Depends(require(can_use_chat)),
     _: None = Depends(chat_rate_limit),
     orch: Orchestrator = Depends(get_orchestrator),
 ) -> ChatResponse:
