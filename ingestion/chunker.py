@@ -26,8 +26,14 @@ HEADER_SPLITTER = MarkdownHeaderTextSplitter(headers_to_split_on=SPLIT_HEADERS, 
 class RawChunk:
     text: str
     source: str
-    headers: list[str] = field(default_factory=list)
+    headers: dict[str, str] = field(default_factory=dict)
     kind: str = "text"
+
+    @property
+    def header_level(self) -> int | None:
+        """Deepest (most specific) header level present for this chunk."""
+        levels = [int(k[1:]) for k in self.headers if k.startswith("h") and k[1:].isdigit()]
+        return max(levels) if levels else None
 
     @property
     def chunk_id(self) -> str:
@@ -65,7 +71,7 @@ def chunk_markdown(text: str, source: str) -> list[RawChunk]:
     for segment in buf:
         new_chunk = RawChunk(text=segment[IDX_TEXT],
                              source=source,
-                             headers=list(json.loads(segment[IDX_HEADERS]).values()),
+                             headers=json.loads(segment[IDX_HEADERS]),
                              kind=segment[IDX_TAG])
         chunks.append(new_chunk)
 
