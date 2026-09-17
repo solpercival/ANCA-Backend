@@ -4,7 +4,6 @@ import pytest
 
 from rag_engine.config import get_settings
 from rag_engine.providers import (
-    AnthropicEmbedder,
     AnthropicGenerator,
     OllamaEmbedder,
     OllamaGenerator,
@@ -45,11 +44,7 @@ def test_settings_env_overrides_are_applied(monkeypatch):
 
 @pytest.mark.parametrize(
     ("provider", "expected_type"),
-    [
-        ("ollama", OllamaEmbedder),
-        ("openai", OpenAIEmbedder),
-        ("anthropic", AnthropicEmbedder),
-    ],
+    [("ollama", OllamaEmbedder), ("openai", OpenAIEmbedder)],
 )
 def test_dense_embedding_backend_factory_returns_expected_provider(monkeypatch, provider, expected_type):
     monkeypatch.setenv("DENSE_EMBEDDING_PROVIDER", provider)
@@ -58,6 +53,14 @@ def test_dense_embedding_backend_factory_returns_expected_provider(monkeypatch, 
         backend = get_dense_embedding_backend(client)
 
     assert isinstance(backend, expected_type)
+
+
+def test_anthropic_embedding_provider_fails_at_factory(monkeypatch):
+    monkeypatch.setenv("DENSE_EMBEDDING_PROVIDER", "anthropic")
+
+    with httpx.Client(timeout=120.0) as client:
+        with pytest.raises(ValueError, match="Anthropic does not provide embeddings"):
+            get_dense_embedding_backend(client)
 
 @pytest.mark.parametrize(
     ("provider", "expected_type"),

@@ -4,24 +4,21 @@ import uuid
 from contextlib import asynccontextmanager
 
 import httpx
-import redis.asyncio
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from rag_engine.api.error_handlers import register_error_handlers
 from rag_engine.api.routes import router
 from rag_engine.auth.routes import router as auth_router
+from rag_engine.auth.session_store import RedisSessionStore
 from rag_engine.config import get_settings
 from rag_engine.orchestrator import get_orchestrator
+from rag_engine.stores.cache import close_cache_pool, init_cache_pool
+from rag_engine.stores.db import close_db_pool, init_db_pool
 
 settings = get_settings()
 logging.basicConfig(level=settings.log_level)
 log = logging.getLogger("rag_engine.main")
-
-
-async def create_postgres_pool():
-    """Placeholder for later Postgres integration."""
-    return None
 
 
 @asynccontextmanager
@@ -33,34 +30,29 @@ async def lifespan(app: FastAPI):
         app.state.orchestrator = get_orchestrator()
     except Exception:
         app.state.orchestrator = None
-        log.warning("Orchestrator runtime not ready; keeping placeholder app state until DB/provider wiring lands.", exc_info=True)
+        log.warning(
+            "Orchestrator runtime not ready; keeping placeholder app state until "
+            "DB/provider wiring lands.",
+            exc_info=True,
+        )
 
     try:
-        app.state.pg_pool = await create_postgres_pool()
+        init_db_pool()
+        init_cache_pool()
     except Exception:
-        app.state.pg_pool = None
-        log.warning("Postgres pool not initialized yet; placeholder only.", exc_info=True)
+        log.warning("Storage pools not initialized; auth storage is unavailable.", exc_info=True)
 
-    try:
-        app.state.redis = redis.asyncio.Redis.from_url("redis://redis:6379/0")
-    except Exception:
-        app.state.redis = None
-        log.warning("Redis connection not initialized yet; placeholder only.", exc_info=True)
-
-    # Auth storage: attach adapters implementing auth.interfaces.UserRepository (Postgres)
-    # and SessionStore (Redis). /auth endpoints return 503 auth_unavailable until both are set.
+    # Attach the Postgres UserRepository here once the datamapper lands.
     app.state.user_repository = None
-    app.state.session_store = None
+    app.state.session_store = RedisSessionStore()
 
     yield
 
     # shutdown
     if getattr(app.state, "httpx_client", None) is not None:
         await app.state.httpx_client.aclose()
-    if getattr(app.state, "redis", None) is not None:
-        await app.state.redis.aclose()
-    if getattr(app.state, "pg_pool", None) is not None:
-        await app.state.pg_pool.close()
+    close_cache_pool()
+    close_db_pool()
 
 app = FastAPI(lifespan=lifespan)
 

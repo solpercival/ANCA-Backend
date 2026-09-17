@@ -160,7 +160,10 @@ def get_dense_embedding_backend(client: httpx.AsyncClient) -> Any:
         return OpenAIEmbedder(client)
 
     if provider == "anthropic":
-        return AnthropicEmbedder(client)
+        raise ValueError(
+            "Anthropic does not provide embeddings; choose 'ollama' or 'openai' "
+            "for DENSE_EMBEDDING_PROVIDER"
+        )
     
     raise ValueError(f"Unsupported embedding provider: {provider}")
 
@@ -173,7 +176,7 @@ def get_sparse_embedding_backend(client: httpx.AsyncClient) -> Any:
 
     raise ValueError(f"Unsupported embedding provider: {provider}")
 
-def get_generation_backend(client: httpx.AsyncClient | None = None) -> Any:
+def get_generation_backend(client: httpx.AsyncClient) -> Any:
     settings = get_settings()
     provider = settings.llm_provider.lower()
     if provider == "ollama":
@@ -185,6 +188,6 @@ def get_generation_backend(client: httpx.AsyncClient | None = None) -> Any:
     raise ValueError(f"Unsupported LLM provider: {provider}")
 
 
-async def generate_text(prompt: str) -> str:
-    backend = get_generation_backend()
+async def generate_text(prompt: str, client: httpx.AsyncClient) -> str:
+    backend = get_generation_backend(client)
     return await backend.generate(prompt)

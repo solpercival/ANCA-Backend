@@ -15,8 +15,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      ollama:
-        condition: service_healthy
+      model-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8080/ready >/dev/null || exit 1"]
       interval: 10s
@@ -30,7 +30,11 @@ services:
       context: .
       dockerfile: docker/ingestion.Dockerfile
     env_file: .env
-    depends_on: [postgres, ollama]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      model-init:
+        condition: service_completed_successfully
 
   postgres:
     image: pgvector/pgvector:pg16   # postgres + pgvector extension
@@ -70,6 +74,19 @@ services:
     ports: ["11434:11434"]
     volumes:
       - ollamadata:/root/.ollama
+
+  model-init:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: ollama:11434
+    volumes:
+      - ollamadata:/root/.ollama
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - ollama pull qwen3-embedding:0.6b && ollama pull qwen3:4b
 
   # --- optional: tei for bge-m3 ---
   tei:

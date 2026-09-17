@@ -72,8 +72,10 @@ def test_orchestrator_resolve_uses_query_and_returns_top_results():
 
     class FakeGenerator:
         prompt = None
+        calls = 0
 
         async def generate(self, prompt):
+            self.calls += 1
             self.prompt = prompt
             return "answer"
 
@@ -90,6 +92,7 @@ def test_orchestrator_resolve_uses_query_and_returns_top_results():
     assert response.steps == ["answer"]
     assert response.citations[0].chunk_id == "c1"
     assert response.confidence == 0.91
+    assert orch._generator.calls == 1
     assert "am.fb.0002" in orch._generator.prompt
     assert "Step 1" in orch._generator.prompt
 
@@ -111,8 +114,10 @@ def test_orchestrator_chat_returns_retrieved_citations():
 
     class FakeGenerator:
         prompt = None
+        calls = 0
 
         async def generate(self, prompt):
+            self.calls += 1
             self.prompt = prompt
             return "final reply"
 
@@ -123,6 +128,7 @@ def test_orchestrator_chat_returns_retrieved_citations():
 
     assert response.conversation_id == "c-1"
     assert response.reply == "final reply"
+    assert orch._generator.calls == 1
     assert response.citations[0].chunk_id == "c1"
     assert "what happened?" in orch._generator.prompt
     assert "text" in orch._generator.prompt

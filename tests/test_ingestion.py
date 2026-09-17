@@ -1,3 +1,4 @@
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -31,7 +32,7 @@ charlie
     assert all(chunk.source == "sample.md" for chunk in chunks)
 
 def test_chunk_markdown_splits_code():
-    markdown = """
+    markdown = textwrap.dedent("""
     ## Content
     ```python
     print("hello world!")
@@ -42,7 +43,7 @@ def test_chunk_markdown_splits_code():
     ```
 
     Extra text content as text
-    """
+    """)
     chunks = chunk_markdown(markdown, "sample.md")
 
     assert len(chunks) >= 2
@@ -50,12 +51,12 @@ def test_chunk_markdown_splits_code():
     assert any("code" == chunk.kind for chunk in chunks)
     assert any("text" == chunk.kind for chunk in chunks)
     assert any("for i in range(5)" in chunk.text for chunk in chunks)
-    assert all("Content" in chunk.headers for chunk in chunks)
+    assert all("Content" in chunk.headers.values() for chunk in chunks)
     assert all(chunk.source == "sample.md" for chunk in chunks)
 
 
 def test_chunk_markdown_splits_list():
-    markdown="""
+    markdown = textwrap.dedent("""
     ## Content
 
     ### List 1 (Numbered)
@@ -74,24 +75,24 @@ def test_chunk_markdown_splits_list():
     * epsilon
     * zeta
     * gamma
-    
 
-    Extra text content as text  
-    """
+
+    Extra text content as text
+    """)
     chunks = chunk_markdown(markdown, "sample.md")
-    
+
     assert len(chunks) >= 3
     assert (len(list(filter(lambda x: x.kind == "list", chunks))) == 2)
     assert any("list" == chunk.kind for chunk in chunks)
     assert any("text" == chunk.kind for chunk in chunks)
     assert any("beta-1" in chunk.text for chunk in chunks)
-    assert all("Content" in chunk.headers for chunk in chunks)
-    assert any("List 1 (Numbered)" in chunk.headers for chunk in chunks)
+    assert all("Content" in chunk.headers.values() for chunk in chunks)
+    assert any("List 1 (Numbered)" in chunk.headers.values() for chunk in chunks)
     assert all(chunk.source == "sample.md" for chunk in chunks)
-    
+
 
 def test_chunk_markdown_splits_table():
-    markdown="""
+    markdown = textwrap.dedent("""
     ## Content
 
     ### Table Sample
@@ -103,9 +104,9 @@ def test_chunk_markdown_splits_table():
     | T-104 | Automated Testing Suite | High | Not Started | 2026-07-05 |
     | T-105 | Performance Optimization | Low | On Hold | 2026-07-15 |
 
-    Extra text content as text  
-    """
-    
+    Extra text content as text
+    """)
+
     chunks = chunk_markdown(markdown, "sample.md")
 
     assert len(chunks) >= 2
@@ -113,8 +114,8 @@ def test_chunk_markdown_splits_table():
     assert any("table" == chunk.kind for chunk in chunks)
     assert any("text" == chunk.kind for chunk in chunks)
     assert any("Task ID" in chunk.text for chunk in chunks)
-    assert all("Content" in chunk.headers for chunk in chunks)
-    assert any("Table Sample" in chunk.headers for chunk in chunks)
+    assert all("Content" in chunk.headers.values() for chunk in chunks)
+    assert any("Table Sample" in chunk.headers.values() for chunk in chunks)
     assert all(chunk.source == "sample.md" for chunk in chunks)
 
 def test_collect_markdown_reads_nested_markdown_files(tmp_path):
@@ -156,4 +157,3 @@ def test_dense_embedding():
 
     assert len(dense_vecs) == len(chunks)
     assert all(len(vec) == settings.semantic_dim for vec in dense_vecs)
-    
