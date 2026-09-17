@@ -3,9 +3,6 @@
 Onboarding note:
 - this file is the source of truth for runtime provider selection
 - keep provider names and URLs here; do not hard-code model endpoints elsewhere
-- required follow-up work: wire the selected provider into real embedding and
-  generation adapters, then validate against Postgres + Redis in a local
-  docker stack
 """
 from functools import lru_cache
 from typing import Literal, Self
@@ -48,6 +45,10 @@ class Settings(BaseSettings):
     # redis
     redis_host: str = "redis"
     redis_port: int = 6379
+    chunks_prefix: str = "chunks:"
+    chunks_ttl: int = 3600
+    response_prefix: str = "response:"
+    response_ttl: int = 86400
 
     # rate limiting
     rate_limit_window_seconds: int = 60
@@ -57,7 +58,8 @@ class Settings(BaseSettings):
     chat_rate_limit_per_tier: int = 60
 
     # provider selection
-    embedding_provider: str = "ollama"
+    dense_embedding_provider: str = "ollama"
+    sparse_embedding_provider: str = "huggingface_tei"
     lexical_provider: str = "postgres"
     llm_provider: str = "ollama"
 
@@ -77,12 +79,22 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_llm_model: str = "claude-3-5-sonnet-20241022"
 
+    # huggingface tei (sparse / SPLADE)
+    tei_endpoint: str = "http://localhost:7100"
+    tei_model: str = "naver/splade-v3"
+    hf_token: str = ""
+
     # retrieval
     retrieval_top_k: int = 50
     rerank_top_n: int = 8
     rerank_provider: str = "none"
     rerank_model: str = "Qwen/Qwen3-Reranker-0.6B"
     rrf_k: int = 60
+
+    # embeddings
+    embedding_setup: str = "dual"  # unified or dual
+    lexical_dim: int = 30522
+    semantic_dim: int = 1024
 
     # langfuse
     langfuse_host: str = "http://langfuse:3000"

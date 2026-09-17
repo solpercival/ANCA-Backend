@@ -20,17 +20,23 @@ class FakeRateLimitBackend:
         return count, ttl
 
 
-class FakeEmbedder:
-    async def embed(self, texts):
+class FakeDenseEmbedder:
+    async def dense_embed(self, texts):
         return [[0.1, 0.2, 0.3] for _ in texts]
 
 
+class FakeSparseEmbedder:
+    async def sparse_embed(self, texts):
+        return [{2: 0.12, 93: 0.4367, 254: 0.111} for _ in texts]
+
+
 class FakeVectorStore:
-    async def search(self, vector, top_k, where=None):
+    async def semantic_search(self, vector, top_k, where=None):
         return [Chunk(chunk_id="v1", text="Reset the drive.", source="manual.md")]
 
+
 class FakeLexical:
-    async def search(self, query, top_k):
+    async def lexical_search(self, vector, top_k):
         return [Chunk(chunk_id="l1", text="Check EtherCAT wiring.", source="alarms.md")]
 
 
@@ -45,7 +51,9 @@ class FakeGenerator:
 
 
 def _fake_orchestrator() -> Orchestrator:
-    retriever = HybridRetriever(FakeEmbedder(), FakeVectorStore(), FakeLexical())
+    retriever = HybridRetriever(
+        FakeDenseEmbedder(), FakeSparseEmbedder(), FakeVectorStore(), FakeLexical()
+    )
     return Orchestrator(retriever, FakeReranker(), FakeGenerator())
 
 

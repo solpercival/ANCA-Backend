@@ -17,11 +17,15 @@ from pathlib import Path
 import httpx
 
 from rag_engine.config import get_settings
-from rag_engine.retrieval.interfaces import Chunk
+from rag_engine.stores.search import PostgresDBConnection
+
 
 def get_lexical_backend() -> Any:
     settings = get_settings()
     provider = settings.lexical_provider.lower()
+
+    if provider == "postgres":
+        return PostgresDBConnection()
     
     raise ValueError(f"Unsupported lexical provider: {provider}")
 
@@ -29,7 +33,7 @@ class OllamaEmbedder:
     def __init__(self, client: httpx.AsyncClient):
         self._client = client
 
-    async def embed(self, texts: list[str]) -> list[list[float]]:
+    async def dense_embed(self, texts: list[str]) -> list[list[float]]:
         settings = get_settings()
         response = await self._client.post(
             f"{settings.ollama_base_url.rstrip('/')}/api/embed",
@@ -45,7 +49,7 @@ class OpenAIEmbedder:
     def __init__(self, client: httpx.AsyncClient):
         self._client = client
         
-    async def embed(self, texts: list[str]) -> list[list[float]]:
+    async def dense_embed(self, texts: list[str]) -> list[list[float]]:
         settings = get_settings()
         if not settings.openai_api_key:
             raise ValueError("OPENAI_API_KEY is required when embedding_provider=openai")
@@ -67,7 +71,20 @@ class AnthropicEmbedder:
     async def embed(self, texts: list[str]) -> list[list[float]]:
         raise NotImplementedError("Anthropic does not expose embeddings in the current provider layer.")
 
+class TEIEmbedder:
+    def __init__(self, client: httpx.AsyncClient):
+        self._client = client
 
+    async def sparse_embed(self, texts: list[str]) -> list[dict[int, float]]:
+        settings = get_settings()
+        response = await self._client.post(
+            f"{settings.tei_endpoint.rstrip('/')}/embed_sparse",
+            json={"inputs": texts},
+        )
+        sparse_vecs = response.raise_for_status().json()
+
+        return [{int(entry["index"]): float(entry["value"]) for entry in sparse_chunk} for sparse_chunk in sparse_vecs]
+    
 class OllamaGenerator:
     def __init__(self, client: httpx.AsyncClient):
         self._client = client
@@ -134,10 +151,9 @@ class AnthropicGenerator:
         payload = response.json()
         return payload["content"][0]["text"]
 
-
-def get_embedding_backend(client: httpx.AsyncClient | None = None) -> Any:
+def get_dense_embedding_backend(client: httpx.AsyncClient) -> Any:
     settings = get_settings()
-    provider = settings.embedding_provider.lower()
+    provider = settings.dense_embedding_provider.lower()
 
     if provider == "ollama":
         return OllamaEmbedder(client)
@@ -147,9 +163,17 @@ def get_embedding_backend(client: httpx.AsyncClient | None = None) -> Any:
 
     if provider == "anthropic":
         return AnthropicEmbedder(client)
-
+    
     raise ValueError(f"Unsupported embedding provider: {provider}")
 
+def get_sparse_embedding_backend(client: httpx.AsyncClient) -> Any:
+    settings = get_settings()
+    provider = settings.sparse_embedding_provider.lower()
+
+    if provider == "huggingface_tei":
+        return TEIEmbedder(client)
+
+    raise ValueError(f"Unsupported embedding provider: {provider}")
 
 def get_generation_backend(client: httpx.AsyncClient | None = None) -> Any:
     settings = get_settings()
@@ -163,9 +187,14 @@ def get_generation_backend(client: httpx.AsyncClient | None = None) -> Any:
     raise ValueError(f"Unsupported LLM provider: {provider}")
 
 
-async def embed_texts(texts: list[str]) -> list[list[float]]:
-    backend = get_embedding_backend()
-    return await backend.embed(texts)
+async def embed_texts(texts: list[str]) -> dict[str,list]:
+    dense_backend = get_dense_embedding_backend()
+    dense_vectors = await dense_backend.dense_embed(texts)
+
+    sparse_backend = get_sparse_embedding_backend()
+    sparse_vectors = await sparse_backend.sparse_embed(texts)
+
+    return await {"dense": dense_vectors, "sparse": sparse_vectors}
 
 
 async def generate_text(prompt: str) -> str:

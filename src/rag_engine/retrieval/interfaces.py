@@ -6,7 +6,7 @@ runtime inside the model containers.
 """
 from dataclasses import dataclass, field
 from typing import Protocol
-
+import json
 
 @dataclass
 class Chunk:
@@ -16,19 +16,23 @@ class Chunk:
     metadata: dict[str, str] = field(default_factory=dict)
     score: float = 0.0
 
+    def __str__(self):
+        return json.dumps(self.__dict__, default=str)
 
-class Embedder(Protocol):
-    async def embed(self, texts: list[str]) -> list[list[float]]: ...
+class DenseEmbedder(Protocol):
+    async def dense_embed(self, texts: list[str]) -> list[list[float]]: ...
 
-
+class SparseEmbedder(Protocol):
+    async def sparse_embed(self, texts: list[str]) -> list[dict[int, float]]: ...
+    
 class VectorStore(Protocol):
-    async def search(
+    async def semantic_search(
         self, vector: list[float], top_k: int, where: dict[str, str] | None = None
     ) -> list[Chunk]: ...
 
 
 class LexicalIndex(Protocol):
-    async def search(self, query: str, top_k: int) -> list[Chunk]: ...
+    async def lexical_search(self, vector: dict[int,float], top_k: int) -> list[Chunk]: ...
 
 
 class Reranker(Protocol):

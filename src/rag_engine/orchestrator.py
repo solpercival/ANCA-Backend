@@ -2,14 +2,13 @@
 
 Onboarding note:
 - this is the main runtime orchestration layer for a single request turn
-- the app is designed to keep retrieval and generation behind interfaces, but the
-  concrete runtime wiring is still the main integration task left to finish
-- current status: tests use fake implementations; production wiring still needs a
-  valid vector store, lexical index, and provider-backed generation path
-- follow-up work: replace placeholder runtime objects with real Postgres
-  integrations and validate a full end-to-end query path
+- retrieval and generation stay behind interfaces; runtime wiring is the last
+  integration task
+- current status: tests use fakes; production wiring needs a valid vector store,
+  lexical index, and provider-backed generation path
 """
 from functools import lru_cache
+from typing import Any
 
 from rag_engine.auth.tiers import Tier
 from rag_engine.api.schemas import (
@@ -19,18 +18,17 @@ from rag_engine.api.schemas import (
     ResolveRequest,
     ResolveResponse,
 )
-from rag_engine.providers import get_generation_backend, get_lexical_backend
 from rag_engine.retrieval.hybrid import HybridRetriever
 from rag_engine.retrieval.interfaces import Chunk, Generator, Reranker
+from rag_engine.stores.search import PostgresDBConnection
 
 
-def get_vector_store_backend():
-    """Placeholder until the pgvector adapter is implemented."""
-    return None
+def get_vector_store_backend() -> Any:
+    return PostgresDBConnection()
 
 
 def get_reranker_backend():
-    """Placeholder until the production reranker is implemented."""
+    """Placeholder until the production reranker is wired to rerank_provider."""
     return None
 
 
@@ -65,7 +63,6 @@ class Orchestrator:
         candidates = await self._retriever.retrieve(query, top_k=self._top_k, where=where or None)
         top = await self._reranker.rerank(query, candidates, top_n=self._top_n)
         _ = self._build_prompt(req, top, tier)  # fed to generator in the real impl
-        # Placeholder assembly; real generation happens in the model container.
         return ResolveResponse(
             code=req.code,
             steps=[c.text for c in top[:3]],
@@ -75,7 +72,6 @@ class Orchestrator:
         )
 
     async def chat(self, req: ChatRequest, tier: Tier) -> ChatResponse:
-        # Rewrite + session handling live here in the full build.
         candidates = await self._retriever.retrieve(req.message, top_k=self._top_k)
         top = await self._reranker.rerank(req.message, candidates, top_n=self._top_n)
         reply = await self._generator.generate(req.message)
@@ -85,21 +81,23 @@ class Orchestrator:
             citations=[Citation(source=c.source, chunk_id=c.chunk_id) for c in top[:3]],
         )
 
+
 @lru_cache(maxsize=1)
 def get_orchestrator() -> Orchestrator:  # pragma: no cover - wired at runtime
-    """
-    Real wiring. Switches the generation backend based on the configured provider.
-    App is only built once (singleton)
-    """
-    from rag_engine.providers import get_embedding_backend, get_generation_backend, get_lexical_backend
-    from rag_engine.retrieval.hybrid import HybridRetriever
+    from rag_engine.providers import (
+        get_dense_embedding_backend,
+        get_sparse_embedding_backend,
+        get_generation_backend,
+        get_lexical_backend,
+    )
 
-    embedder = get_embedding_backend(client=None)
-    vector_store = get_vector_store_backend()   # returns None until pgvector adapter lands
+    dense_embedder = get_dense_embedding_backend(client=None)
+    sparse_embedder = get_sparse_embedding_backend(client=None)
+    vector_store = get_vector_store_backend()
     lexical = get_lexical_backend()
-    retriever = HybridRetriever(embedder, vector_store, lexical)
+    retriever = HybridRetriever(dense_embedder, sparse_embedder, vector_store, lexical)
     return Orchestrator(
         retriever,
-        reranker=get_reranker_backend(),        # None until reranker lands
+        reranker=get_reranker_backend(),
         generator=get_generation_backend(client=None),
     )
