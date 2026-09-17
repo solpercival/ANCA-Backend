@@ -1,6 +1,9 @@
 from rag_engine.retrieval.interfaces import Chunk, Embedder, LexicalIndex, VectorStore
 from db import get_conn
+from cache import get_cache_conn
 from rag_engine.config import get_settings
+import json
+import hashlib
 
 class PostgresDBConnection:
     # VectorStore search
@@ -64,3 +67,31 @@ class PostgresDBConnection:
                 result_chunks.append(Chunk(chunk_id=entry["chunk_id"], text=entry["content"], source=entry["file_path"], metadata=entry["metadata"]))
 
             return result_chunks
+
+class RedisConnection:
+    def _create_key(text: str) -> str:
+        return hashlib.sha256(text.encode()).hexdigest()
+    
+    async def add_chunk(self, chunk: Chunk) -> None:
+        with get_cache_conn() as client:
+            if not client:
+                return
+            settings = get_settings()
+            client.set(self._create_key(f"{settings.chunks_prefix}{chunk.chunk_id}"), json.dumps(chunk.__str__), ex=settings.chunks_ttl)
+
+    async def retrieve_chunk(self, chunk_id: str) -> Chunk | None:
+        with get_cache_conn() as client:
+            if not client:
+                return None
+
+            settings = get_settings()
+            result = client.get(self._create_key(f"{settings.chunks_prefix}{chunk_id}"))
+            if not result:
+                return 
+            
+            json_result = json.loads(result)
+            return Chunk(chunk_id=json_result["chunk_id"], 
+                         text=json_result["text"], 
+                         source=json_result["source"],
+                         metadata=json_result["metadata"],
+                         score=json_result["score"])
