@@ -168,7 +168,7 @@ def _write_embeddings(chunks: list[RawChunk], dense_embeddings: list[list[float]
 
             # insert document into table
             for doc in doc_chunks:
-                doc_id = insert_document(cursor=cursor, version=1, hash="", file_path=doc)
+                doc_id = insert_document(cursor=cursor, version=1, hash=b"", file_path=doc)
                 for chunk_group in doc_chunks[doc]:
                     insert_chunk(cursor=cursor, data=chunk_group, doc_id=doc_id, heading_cache=heading_cache)
 
