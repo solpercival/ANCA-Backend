@@ -6,7 +6,7 @@ runtime inside the model containers.
 """
 from dataclasses import dataclass, field
 from typing import Protocol
-
+import json
 
 @dataclass
 class Chunk:
@@ -16,6 +16,8 @@ class Chunk:
     metadata: dict[str, str] = field(default_factory=dict)
     score: float = 0.0
 
+    def __str__(self):
+        return json.dumps(self.__dict__, default=str)
 
 class DenseEmbedder(Protocol):
     async def dense_embed(self, texts: list[str]) -> list[list[float]]: ...
