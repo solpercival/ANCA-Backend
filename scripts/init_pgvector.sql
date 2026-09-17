@@ -16,6 +16,16 @@ EXCEPTION
     WHEN duplicate_object THEN null;
 END $$;
 
+-- -----------------------------------------------------
+-- Table document
+-- -----------------------------------------------------
+-- Storing hashes as binary using the BYTEA data type is optimum
+CREATE TABLE IF NOT EXISTS document (
+	doc_id SERIAL PRIMARY KEY,
+	current_version VARCHAR(16) NOT NULL,
+	hash BYTEA NOT NULL,
+	file_path VARCHAR(120) NOT NULL UNIQUE
+);
 
 -- -----------------------------------------------------
 -- Table alarm_module
@@ -27,15 +37,29 @@ CREATE TABLE IF NOT EXISTS alarm_module (
 );
 
 -- -----------------------------------------------------
--- Table document
+-- Table heading
 -- -----------------------------------------------------
--- Storing hashes as binary using the BYTEA data type is optimum
-CREATE TABLE IF NOT EXISTS document (
-	doc_id SERIAL PRIMARY KEY,
-	current_version VARCHAR(16) NOT NULL,
-	hash BYTEA NOT NULL,
-	file_path VARCHAR(120) NOT NULL UNIQUE
+CREATE TABLE IF NOT EXISTS heading (
+	heading_id BIGSERIAL PRIMARY KEY,
+	heading_order VARCHAR(45) NOT NULL,
+	hierarchy VARCHAR(45) NOT NULL,
+	document_id INTEGER NOT NULL,
+	parent_heading BIGINT,
+	CONSTRAINT prevent_duplicate_heading UNIQUE(document_id, parent_heading, heading_order),
+  	CONSTRAINT fk_heading_document
+		FOREIGN KEY (document_id)
+		REFERENCES document (doc_id)
+		ON DELETE NO ACTION
+		ON UPDATE NO ACTION,
+	CONSTRAINT fk_heading_parent_heading
+		FOREIGN KEY (parent_heading)
+		REFERENCES heading (heading_id)
+		ON DELETE NO ACTION
+		ON UPDATE NO ACTION
 );
+
+CREATE INDEX fk_heading_document_idx ON heading (document_id);
+CREATE INDEX fk_heading_parent_heading_idx ON heading (parent_heading);
 
 -- -----------------------------------------------------
 -- Table document_chunks
@@ -49,7 +73,7 @@ CREATE TABLE IF NOT EXISTS document_chunks (
 	document_source VARCHAR(120) NOT NULL,
 	lexical_embedding sparsevec(30522) NOT NULL,
 	semantic_embedding vector(1024) NOT NULL,
-	closest_heading BIGINT NOT NULL,
+	closest_heading BIGINT,
 	CONSTRAINT fk_document_chunks_heading
 		FOREIGN KEY (closest_heading)
 		REFERENCES heading (heading_id)
@@ -82,31 +106,6 @@ CREATE TABLE IF NOT EXISTS alarm_code (
 CREATE INDEX fk_alarm_code_module_idx ON alarm_code (module);
 
 -- -----------------------------------------------------
--- Table heading
--- -----------------------------------------------------
-CREATE TABLE IF NOT EXISTS heading (
-	heading_id BIGSERIAL PRIMARY KEY,
-	heading_order VARCHAR(45) NOT NULL,
-	hierarchy VARCHAR(45) NOT NULL,
-	document_id INTEGER NOT NULL,
-	parent_heading BIGINT,
-	CONSTRAINT prevent_duplicate_heading UNIQUE(document_id, parent_heading, heading_order),
-  	CONSTRAINT fk_heading_document
-		FOREIGN KEY (document_id)
-		REFERENCES document (doc_id)
-		ON DELETE NO ACTION
-		ON UPDATE NO ACTION,
-	CONSTRAINT fk_heading_parent_heading
-		FOREIGN KEY (parent_heading)
-		REFERENCES heading (heading_id)
-		ON DELETE NO ACTION
-		ON UPDATE NO ACTION
-);
-
-CREATE INDEX fk_heading_document_idx ON heading (document_id);
-CREATE INDEX fk_heading_parent_heading_idx ON heading (parent_heading);
-
--- -----------------------------------------------------
 -- Table response
 -- -----------------------------------------------------
 CREATE TABLE IF NOT EXISTS response (
@@ -114,7 +113,8 @@ CREATE TABLE IF NOT EXISTS response (
 	query VARCHAR(255) NOT NULL,
 	response_body TEXT,
 	time_generated TIMESTAMP NOT NULL,
-	alarm_id INTEGER REFERENCES alarm_code(alarm_code_id) NOT NULL
+	alarm_id INTEGER REFERENCES alarm_code(alarm_code_id) NOT NULL,
+	user_uid BIGINT REFERENCES users(uid)
 );
 
 CREATE INDEX fk_response_alarm_code_idx ON response (alarm_id);
