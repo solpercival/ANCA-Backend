@@ -61,71 +61,79 @@ def insert_document(cursor, version: str, hash: str, file_path: str) -> int:
 
     return res["doc_id"]
 
+def resolve_immediate_heading(cursor, chunk: RawChunk, doc_id: int,
+                               heading_cache: dict[tuple, int]) -> int | None:
+    """
+    Walk the chunk's header cascade top-down (h1 -> h2 -> h3 ...), creating any
+    heading rows that don't exist yet and chaining each one to its parent via
+    parent_heading.
+
+    Returns the id of the deepest/closest heading for this chunk
+    (or None if the chunk has no headings above it), which is what gets
+    stored directly on document_chunks.
+
+    heading_cache is keyed by (doc_id, path) where path is the accumulated
+    "h1:abc>h2:xyz" string, so repeated ancestor chains across chunks in the
+    same document reuse the same heading row instead of duplicating it.
+    """
+    prefix = ""
+    parent_id = None
+    leaf_heading_id = None
+
+    for level, text in chunk.header_cascade:
+        prefix = f"{prefix}{level}:{text}"
+        cache_key = (doc_id, prefix)
+
+        if cache_key not in heading_cache:
+            cursor.execute(
+                """
+                INSERT INTO heading (heading_order, hierarchy, document_id, parent_heading)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (document_id, parent_heading, heading_order) DO UPDATE
+                    SET heading_order = EXCLUDED.heading_order
+                RETURNING heading_id
+                """,
+                (text, level, doc_id, parent_id)
+            )
+            heading_cache[cache_key] = cursor.fetchone()["heading_id"]
+
+        parent_id = heading_cache[cache_key]
+        leaf_heading_id = parent_id
+        prefix += ">"
+
+    return leaf_heading_id
+
+
 def insert_chunk(cursor, data: dict, doc_id: int, heading_cache: dict[tuple, int]) -> None:
     """Insert chunks into document_chunks table and insert headings if not exists"""
-    heading_ids = []
+
     chunk = data["chunk"]
     dense = data["dense"]
     print(f"DENSE: {len(dense)}")
     sparse = data["sparse"]
 
-    for header in chunk.headers:
-        header_key = (str(header), "h1", doc_id)
-
-        if header_key not in heading_cache:
-            cursor.execute(
-                """
-                INSERT INTO heading (heading_order, hierarchy, document_id)
-                VALUES (%s, %s, %s)
-                RETURNING heading_id
-                """,
-                header_key
-            )
-            heading_id = cursor.fetchone()["heading_id"]
-            heading_cache[header_key] = heading_id
-
-        heading_ids.append(heading_cache[header_key])
+    heading_id = resolve_immediate_heading(
+        cursor=cursor, chunk=chunk, doc_id=doc_id, heading_cache=heading_cache
+    )
 
     cursor.execute(
         """
         INSERT INTO document_chunks
-            (content, metadata, dc_type, document_chunkscol, lexical_embedding, semantic_embedding)
-        VALUES (%s, %s, %s, %s, %s, %s)
+            (content, metadata, dc_type, document_source, lexical_embedding, semantic_embedding, closest_heading)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
         RETURNING chunk_id
         """,
-        (chunk.text, "{}", chunk.kind, chunk.source, f"{sparse}/30522", dense)
+        (chunk.text, "{}", chunk.kind, chunk.source, f"{sparse}/30522", dense, heading_id)
     )
-    chunk_id = cursor.fetchone()["chunk_id"]
-
-    if heading_ids and chunk_id:
-        cursor.executemany(
-            """
-            INSERT INTO chunk_headings (heading_id, doc_chunks_id)
-            VALUES (%s, %s)
-            """,
-            [(h_id, chunk_id) for h_id in heading_ids]
-        )
 
 def validate_tables(cursor) -> None:
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS document_chunks (
-            chunk_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-            content TEXT NOT NULL,
-            metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-            dc_type CHUNK_TYPE NOT NULL DEFAULT 'text',
-            document_chunkscol VARCHAR(45) NOT NULL,
-            lexical_embedding sparsevec(30522) NOT NULL,
-            semantic_embedding vector(768) NOT NULL
-        )
-        """
-    )
+    # FK dependencies means tables need to be created in a specific order
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS document (
-            doc_id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            doc_id SERIAL PRIMARY KEY,
             current_version VARCHAR(16) NOT NULL,
-            hash CHAR(64) NOT NULL,
+            hash BYTEA NOT NULL,
             file_path VARCHAR(120) NOT NULL UNIQUE
         )
         """
@@ -133,24 +141,45 @@ def validate_tables(cursor) -> None:
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS heading (
-            heading_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            heading_id BIGSERIAL PRIMARY KEY,
             heading_order VARCHAR(45) NOT NULL,
             hierarchy VARCHAR(45) NOT NULL,
-            document_id INTEGER REFERENCES document(doc_id) NOT NULL,
-            CONSTRAINT prevent_duplicate_heading UNIQUE(heading_order, document_id)
+            document_id INTEGER NOT NULL,
+            parent_heading BIGINT,
+            CONSTRAINT prevent_duplicate_heading UNIQUE(document_id, parent_heading, heading_order),
+            CONSTRAINT fk_heading_document
+                FOREIGN KEY (document_id)
+                REFERENCES document (doc_id)
+                ON DELETE NO ACTION
+                ON UPDATE NO ACTION,
+            CONSTRAINT fk_heading_parent_heading
+                FOREIGN KEY (parent_heading)
+                REFERENCES heading (heading_id)
+                ON DELETE NO ACTION
+                ON UPDATE NO ACTION
         )
         """
     )
     cursor.execute(
         """
-        CREATE TABLE IF NOT EXISTS chunk_headings (
-            heading_id BIGINT REFERENCES heading(heading_id) NOT NULL,
-            doc_chunks_id BIGINT REFERENCES document_chunks(chunk_id) NOT NULL,
-            PRIMARY KEY (heading_id, doc_chunks_id)
+        CREATE TABLE IF NOT EXISTS document_chunks (
+            chunk_id BIGSERIAL PRIMARY KEY,
+            content TEXT NOT NULL,
+            metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+            dc_type CHUNK_TYPE NOT NULL DEFAULT 'text',
+            document_source VARCHAR(120) NOT NULL,
+            lexical_embedding sparsevec(30522) NOT NULL,
+            semantic_embedding vector(1024) NOT NULL,
+            closest_heading BIGINT,
+            CONSTRAINT fk_document_chunks_heading
+                FOREIGN KEY (closest_heading)
+                REFERENCES heading (heading_id)
+                ON DELETE NO ACTION
+		        ON UPDATE NO ACTION
         )
         """
     )
-    
+
 def _write_embeddings(chunks: list[RawChunk], dense_embeddings: list[list[float]], sparse_embeddings: list[dict[str,float]]) -> None:
     doc_chunks: dict[str, list[dict[str,list|RawChunk]]] = defaultdict(list)
 
