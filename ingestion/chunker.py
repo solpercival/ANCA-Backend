@@ -16,7 +16,7 @@ ATOMIC_BLOCKS = {
     "code": re.compile(r"```.*?```", re.DOTALL),
     "list": re.compile(r"(?:^\s*(?:[-*+]|\d+\.)\s+.+$\n?)+", re.MULTILINE)
 }
-IDX_CODE = 0
+IDX_TAG = 0
 IDX_TEXT = 1
 IDX_HEADERS = 2
 
@@ -26,8 +26,15 @@ HEADER_SPLITTER = MarkdownHeaderTextSplitter(headers_to_split_on=SPLIT_HEADERS, 
 class RawChunk:
     text: str
     source: str
-    headers: list[str] = field(default_factory=list)
+    headers: dict[str, str] = field(default_factory=dict)
     kind: str = "text"
+
+    @property
+    def header_cascade(self) -> list[tuple[str, str]]:
+        return sorted(
+            ((lvl, txt) for lvl, txt in self.headers.items() if lvl.startswith("h")),
+            key=lambda pair: int(pair[0][1:])
+        )
 
     @property
     def chunk_id(self) -> str:
@@ -59,10 +66,10 @@ def chunk_markdown(text: str, source: str) -> list[RawChunk]:
 
     # convert segments into RawChunks
     for segment in buf:
-        new_chunk = RawChunk(text=segment[IDX_TEXT], 
-                             source=source, 
-                             headers=list(json.loads(segment[IDX_HEADERS]).values()),
-                             kind=segment[IDX_CODE])
+        new_chunk = RawChunk(text=segment[IDX_TEXT],
+                             source=source,
+                             headers=json.loads(segment[IDX_HEADERS]),
+                             kind=segment[IDX_TAG])
         chunks.append(new_chunk)
 
     return chunks
@@ -84,7 +91,7 @@ def extract_atomic_blocks(text_sections: list[tuple[str,str,str]],
 
     for text in text_sections:
         last_end = 0
-        if text[IDX_CODE] == "text":
+        if text[IDX_TAG] == "text":
             # search text sections to break up
             for match in pattern.finditer(text[IDX_TEXT]):
                 # breaks text into separate segments
