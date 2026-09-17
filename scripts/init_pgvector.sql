@@ -47,8 +47,16 @@ CREATE TABLE IF NOT EXISTS document_chunks (
 	metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
 	dc_type CHUNK_TYPE NOT NULL DEFAULT 'text',
 	lexical_embedding sparsevec(30522) NOT NULL,
-	semantic_embedding vector(1024) NOT NULL
+	semantic_embedding vector(1024) NOT NULL,
+	closest_heading BIGINT NOT NULL,
+	CONSTRAINT fk_document_chunks_heading
+		FOREIGN KEY (closest_heading)
+		REFERENCES heading (heading_id)
+		ON DELETE NO ACTION
+		ON UPDATE NO ACTION
 );
+
+CREATE INDEX fk_document_chunks_heading_idx ON document_chunks (closest_heading);
 
 -- -----------------------------------------------------
 -- Table alarm_code
@@ -80,15 +88,22 @@ CREATE TABLE IF NOT EXISTS heading (
 	heading_order VARCHAR(45) NOT NULL,
 	hierarchy VARCHAR(45) NOT NULL,
 	document_id INTEGER NOT NULL,
+	parent_heading BIGINT,
 	CONSTRAINT prevent_duplicate_heading UNIQUE(heading_order, document_id),
   	CONSTRAINT fk_heading_document
 		FOREIGN KEY (document_id)
 		REFERENCES document (doc_id)
 		ON DELETE NO ACTION
+		ON UPDATE NO ACTION,
+	CONSTRAINT fk_heading_parent_heading
+		FOREIGN KEY (parent_heading)
+		REFERENCES heading (heading_id)
+		ON DELETE NO ACTION
 		ON UPDATE NO ACTION
 );
 
 CREATE INDEX fk_heading_document_idx ON heading (document_id);
+CREATE INDEX fk_heading_parent_heading_idx ON heading (parent_heading);
 
 -- -----------------------------------------------------
 -- Table response
@@ -103,28 +118,6 @@ CREATE TABLE IF NOT EXISTS response (
 
 CREATE INDEX fk_response_alarm_code_idx ON response (alarm_id);
 CREATE INDEX fk_response_user_idx ON response (user_uid);
-
--- -----------------------------------------------------
--- Table chunk_headings
--- -----------------------------------------------------
-CREATE TABLE IF NOT EXISTS chunk_headings (
-  heading_id BIGINT NOT NULL,
-  chunk_id BIGINT NOT NULL,
-  PRIMARY KEY (heading_id, chunk_id),
-  CONSTRAINT fk_document_chunks_has_heading
-    FOREIGN KEY (heading_id)
-    REFERENCES heading (heading_id)
-    ON DELETE NO ACTION
-    ON UPDATE NO ACTION,
-  CONSTRAINT fk_heading_has_document_chunks
-    FOREIGN KEY (chunk_id)
-    REFERENCES document_chunks (chunk_id)
-    ON DELETE NO ACTION
-    ON UPDATE NO ACTION
-);
-
-CREATE INDEX fk_heading_has_document_chunks_document_chunks1_idx ON chunk_headings (chunk_id);
-CREATE INDEX fk_heading_has_document_chunks_heading1_idx ON chunk_headings (heading_id);
 
 -- -----------------------------------------------------
 -- Table response_sources
