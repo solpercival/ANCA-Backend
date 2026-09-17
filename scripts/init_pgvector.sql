@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS document_chunks (
 	content TEXT NOT NULL,
 	metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
 	dc_type CHUNK_TYPE NOT NULL DEFAULT 'text',
+	document_source VARCHAR(120) NOT NULL,
 	lexical_embedding sparsevec(30522) NOT NULL,
 	semantic_embedding vector(1024) NOT NULL,
 	closest_heading BIGINT NOT NULL,
@@ -89,7 +90,7 @@ CREATE TABLE IF NOT EXISTS heading (
 	hierarchy VARCHAR(45) NOT NULL,
 	document_id INTEGER NOT NULL,
 	parent_heading BIGINT,
-	CONSTRAINT prevent_duplicate_heading UNIQUE(heading_order, document_id),
+	CONSTRAINT prevent_duplicate_heading UNIQUE(document_id, parent_heading, heading_order),
   	CONSTRAINT fk_heading_document
 		FOREIGN KEY (document_id)
 		REFERENCES document (doc_id)
