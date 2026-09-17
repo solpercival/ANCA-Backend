@@ -1,6 +1,6 @@
 from rag_engine.retrieval.interfaces import Chunk
-from db import get_db_conn
-from cache import get_cache_conn
+from rag_engine.stores.db import get_db_conn
+from rag_engine.stores.cache import get_cache_conn
 from rag_engine.config import get_settings
 import json
 import hashlib
