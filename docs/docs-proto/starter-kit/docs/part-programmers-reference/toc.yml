@@ -1,0 +1,38 @@
+- name: Introduction
+  href: 00-introduction.md
+- name: Language Fundamentals
+  href: 01-language-fundamentals.md
+- name: Program Flow Control
+  href: 02-program-flow-control.md
+- name: Preparatory Words (G-Codes)
+  href: 03-prepwords-gcodes.md
+- name: Miscellaneous Words (M-Codes)
+  href: 04-misc-mcodes.md
+- name: Functions
+  href: 05-functions.md
+- name: Variables
+  href: 06-variables.md
+- name: Constants
+  href: 07-constants.md
+- name: Topics
+  href: 08-topics.md
+- name: "Guide: Feedrate"
+  href: 20-guide-feedrate.md
+- name: "Guide: Cutter Radius Compensation"
+  href: 21-guide-cutter-radius-compensation.md
+- name: "Guide: Spindle Commands"
+  href: 22-guide-spindle-commands.md
+- name: "Guide: Input and Output"
+  href: 23-guide-input-output.md
+- name: "Guide: Frame Transformations"
+  href: 24-guide-frame-transformations.md
+- name: "Guide: Lookahead"
+  href: 25-guide-lookahead.md
+- name: "Guide: Velocity Profiling (VPI)"
+  href: 26-guide-velocity-profiling.md
+- name: "Appendix A1: TCG Functions"
+  href: A1-tcg-functions.md
+- name: "Appendix A2: TCG Constants"
+  href: A2-tcg-constants.md
+- name: "Appendix B: Concepts"
+  href: B-concepts.md

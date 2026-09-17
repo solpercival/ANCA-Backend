@@ -1,0 +1,278 @@
+{
+  "_note": "Curated 'gold' answers for the sample alarms — an EXAMPLE of the output ANCA Mate should produce (it will draw fuller detail from the documentation at run time). Two uses: (1) a ground-truth set students can evaluate their assistant's retrieval and answers against; (2) the canned responses the mock API returns. Keyed by alarm code (see alarms.sample.json). Codes follow the draft-v2 identifier convention <origin>.<module>.<sequence>.",
+  "_fields": {
+    "summary": "one-line plain-language explanation for the operator",
+    "likely_causes": "array",
+    "resolution_steps": "array, ordered",
+    "doc_refs": "array of { doc, path, section } the answer is grounded in",
+    "doc_coverage": "full = the cited docs contain enough to resolve; partial = docs support diagnosis but not the full fix (a documentation gap)",
+    "notes": "provenance / caveats"
+  },
+  "_known_doc_issues": [
+    "coe-device-errors.md gives log paths as %amcore%/PCC/dsa.log and %amcore%/PCC/ecatmaster.log. These are reproduced verbatim in the answers below for fidelity with the supplied docs, but are believed to be incorrect — flagged for the documentation team.",
+    "coe-device-errors.md and several other pages are marked DRAFT / contain TODOs."
+  ],
+  "answers": {
+    "am.nc.0001": {
+      "summary": "The two axes you're linking with an electronic cam must belong to the same logical machine.",
+      "likely_causes": [
+        "The cam axes are attached to different logical machines"
+      ],
+      "resolution_steps": [
+        "Check which logical machine each of the two axes is attached to.",
+        "Either update the database so both axes belong to the same logical machine, or transfer one axis at run time so both share a logical machine before enabling the cam.",
+        "Re-enable the electronic cam once both axes are on the same logical machine."
+      ],
+      "doc_refs": [
+        {
+          "doc": "Part Programmer's Reference",
+          "path": "part-programmers-reference/05-functions.md",
+          "section": "electronic_cam"
+        },
+        {
+          "doc": "Part Programmer's Reference",
+          "path": "part-programmers-reference/08-topics.md",
+          "section": "Logical machines"
+        }
+      ],
+      "doc_coverage": "full",
+      "notes": "Scenario and fix provided by engineering (AMCore Core Alarm Design page); confirm exact section anchors during build."
+    },
+    "am.nc.0002": {
+      "summary": "An axis can only be attached to one logical machine at a time; it must be released before it can be attached elsewhere.",
+      "likely_causes": [
+        "The axis was not released from its current logical machine before ATTACH"
+      ],
+      "resolution_steps": [
+        "Release the axis from its current logical machine before attaching it to another.",
+        "Coordinate the transfer using DETACH, BARRIER and ATTACH in the correct order.",
+        "Use a BARRIER to synchronise the logical machines so the axis is free at the point of ATTACH."
+      ],
+      "doc_refs": [
+        {
+          "doc": "Part Programmer's Reference",
+          "path": "part-programmers-reference/05-functions.md",
+          "section": "attach / detach / barrier"
+        },
+        {
+          "doc": "Part Programmer's Reference",
+          "path": "part-programmers-reference/08-topics.md",
+          "section": "Logical machines"
+        }
+      ],
+      "doc_coverage": "full",
+      "notes": "Scenario and fix provided by engineering."
+    },
+    "am.nc.0003": {
+      "summary": "The M-code is set to run an EPPL part program, but that program file can't be found.",
+      "likely_causes": [
+        "M-code configured as mode 4 (EPPL) but the part program is missing",
+        "M-code should be handled by PLC but is configured as mode 4"
+      ],
+      "resolution_steps": [
+        "Decide whether M101 should be implemented in PLC or as an EPPL part program.",
+        "If PLC: configure the M-code to a PLC mode (1–3 or 5–7), e.g. mcode.101.mode = 5.",
+        "If EPPL: place m101.pp in one of the folders on the part program search hierarchy.",
+        "Confirm the search hierarchy includes that folder."
+      ],
+      "doc_refs": [
+        {
+          "doc": "Part Programmer's Reference",
+          "path": "part-programmers-reference/04-misc-mcodes.md",
+          "section": "M-code modes"
+        },
+        {
+          "doc": "AMCore User Guide",
+          "path": "user-guide/configure-amcore/define-a-part-program-search-hierarchy.md",
+          "section": "Define a part program search hierarchy"
+        }
+      ],
+      "doc_coverage": "full",
+      "notes": "Scenario and fix provided by engineering; both mode configuration and search hierarchy are documented."
+    },
+    "am.nc.0004": {
+      "summary": "A spline needs at least three control points between splineon and splineoff.",
+      "likely_causes": [
+        "Fewer than 3 control points programmed",
+        "Confusing start/end points with control points"
+      ],
+      "resolution_steps": [
+        "Ensure there are at least 3 control points between splineon and splineoff.",
+        "Distinguish control points from the start/end points.",
+        "Add control points as needed and re-run."
+      ],
+      "doc_refs": [
+        {
+          "doc": "Part Programmer's Reference",
+          "path": "part-programmers-reference/03-prepwords-gcodes.md",
+          "section": "splineon / splineoff"
+        },
+        {
+          "doc": "Part Programmer's Reference",
+          "path": "part-programmers-reference/05-functions.md",
+          "section": "spline"
+        }
+      ],
+      "doc_coverage": "full",
+      "notes": "Scenario and fix provided by engineering; ANCA Mate can explain control vs dummy points from the docs."
+    },
+    "am.nc.0005": {
+      "summary": "A single program block may contain only one class 1 preparatory word.",
+      "likely_causes": [
+        "Two or more class 1 preparatory words placed in one block"
+      ],
+      "resolution_steps": [
+        "Identify the class 1 preparatory words in the block (see the class 1 list in the preparatory-word reference).",
+        "Split them across separate blocks so each block has at most one class 1 word.",
+        "Re-run the program."
+      ],
+      "doc_refs": [
+        {
+          "doc": "Part Programmer's Reference",
+          "path": "part-programmers-reference/03-prepwords-gcodes.md",
+          "section": "Class 1 preparatory words"
+        }
+      ],
+      "doc_coverage": "full",
+      "notes": "Value-add: the docs contain the list of class 1 words, which isn't obvious from the message."
+    },
+    "am.cfg.0001": {
+      "summary": "Two joints are configured to use the same device (logical address); each must be unique.",
+      "likely_causes": [
+        "Duplicate device address across two joints in the configuration"
+      ],
+      "resolution_steps": [
+        "Find the joints/axes that share the same device (logical address).",
+        "Reconfigure one of them to use a different device address.",
+        "Restart AMCore and confirm startup completes without the assertion."
+      ],
+      "doc_refs": [
+        {
+          "doc": "AMCore User Guide",
+          "path": "user-guide/configure-amcore/set-up-your-axes.md",
+          "section": "Set up your axes"
+        },
+        {
+          "doc": "AMCore User Guide",
+          "path": "user-guide/reference/parameter-reference.md",
+          "section": "device"
+        }
+      ],
+      "doc_coverage": "full",
+      "notes": "Scenario and fix provided by engineering; ANCA Mate can explain the device/joint parameters."
+    },
+    "am.lic.0001": {
+      "summary": "The OPC UA server is enabled but your license doesn't include it; either disable it or purchase the option.",
+      "likely_causes": [
+        "opcua.enable = true without a license that includes the OPC UA option"
+      ],
+      "resolution_steps": [
+        "If you don't need the OPC UA server, set the configuration property opcua.enable = false.",
+        "If you do need it, contact ANCA to add the OPC UA option to your license."
+      ],
+      "doc_refs": [
+        {
+          "doc": "AMCore User Guide",
+          "path": "user-guide/configure-amcore/set-up-opc-ua/set-up-opc-ua.md",
+          "section": "Set up OPC UA"
+        },
+        {
+          "doc": "AMCore User Guide",
+          "path": "user-guide/reference/configuration-property-reference.md",
+          "section": "opcua.enable"
+        }
+      ],
+      "doc_coverage": "full",
+      "notes": "Deliberately chosen so the documented fix is the configuration property (opcua.enable); changing the license itself is out of scope of the supplied docs."
+    },
+    "am.fb.0001": {
+      "summary": "A device dropped out of the operational state; the machine has stopped.",
+      "likely_causes": [
+        "A device fell out of the OP state",
+        "EtherCAT bus disturbance",
+        "A drive fault forced a state change"
+      ],
+      "resolution_steps": [
+        "Note the device name and station address in the message.",
+        "Restart the system to re-initialise the EtherCAT bus.",
+        "If the same device drops out again, restart (power-cycle) that drive specifically."
+      ],
+      "doc_refs": [
+        {
+          "doc": "AMCore User Guide",
+          "path": "user-guide/troubleshoot/coe-device-errors.md",
+          "section": "Device Unexpected State Error"
+        }
+      ],
+      "doc_coverage": "full",
+      "notes": "Resolution is verbatim doc guidance: 'Almost always requires a system restart, and in some cases, a drive restart.' Source doc is DRAFT."
+    },
+    "am.fb.0002": {
+      "summary": "A drive raised an emergency and is stuck in an error state.",
+      "likely_causes": [
+        "Drive-reported fault (over-current, over-temperature, feedback loss, etc.)",
+        "Repeated frame response errors escalating to an emergency"
+      ],
+      "resolution_steps": [
+        "Record the error code (0x1001:00) and error register (0x1004:00).",
+        "If it's an error (non-zero code), recover by reinitialising the EtherCAT bus or restarting the system.",
+        "Interpret the 5 bytes of manufacturer-specific error data using the drive manufacturer's manual.",
+        "An emergency with error code zero is informational (the drive recovered) — just acknowledge it."
+      ],
+      "doc_refs": [
+        {
+          "doc": "AMCore User Guide",
+          "path": "user-guide/troubleshoot/coe-device-errors.md",
+          "section": "Emergency Error"
+        }
+      ],
+      "doc_coverage": "full",
+      "notes": "Doc-grounded; note the doc itself points to the external drive manufacturer manual for the error data."
+    },
+    "am.fb.0003": {
+      "summary": "An EtherCAT frame was malformed or unexpected; often transient.",
+      "likely_causes": [
+        "Transient bus disturbance",
+        "A device failing to respond in time"
+      ],
+      "resolution_steps": [
+        "Check the error type (No Response, CRC, Retry Fail, etc.) for the nature of the fault.",
+        "Single spurious errors often self-recover — no action needed.",
+        "If they repeat, they usually escalate to a drive emergency; a system restart is then required.",
+        "For detail, review the logs at %amcore%/PCC/dsa.log and %amcore%/PCC/ecatmaster.log."
+      ],
+      "doc_refs": [
+        {
+          "doc": "AMCore User Guide",
+          "path": "user-guide/troubleshoot/coe-device-errors.md",
+          "section": "Frame Response Error"
+        }
+      ],
+      "doc_coverage": "full",
+      "notes": "Log paths reproduced verbatim from the doc — see _known_doc_issues (paths believed incorrect). The 'inspect cabling' advice from an earlier draft was removed because it is not in the doc."
+    },
+    "am.fb.0004": {
+      "summary": "The device's firmware doesn't match the expected version and should be upgraded.",
+      "likely_causes": [
+        "Device shipped/replaced with a different firmware revision",
+        "Pending firmware upgrade not applied"
+      ],
+      "resolution_steps": [
+        "Firmware upload requires the fieldbus in INIT or PREOP (not SAFEOP/OP).",
+        "Start AMCore with 'AMCore.exe -start device' to bring the fieldbus to PREOP via the Device Administrator.",
+        "Upload the firmware (interactive device-firmware-upload tool, automatic mode, or the CNCC SDK / FoE).",
+        "On success run 'AMCore.exe -start' to continue to OP; on failure run 'AMCore.exe -stop'.",
+        "Note: skipping '-start device' goes straight to OP and uploads are rejected with CNCCRESULT_INVALID_FIELDBUS_STATE."
+      ],
+      "doc_refs": [
+        {
+          "doc": "AMCore User Guide",
+          "path": "user-guide/use-amcore/device-firmware-upgrade.md",
+          "section": "Device firmware upgrade"
+        }
+      ],
+      "doc_coverage": "full",
+      "notes": "Well documented — a strong example."
+    }
+  }
+}

@@ -1,0 +1,202 @@
+openapi: 3.0.3
+info:
+  title: ANCA Mate API
+  version: "1.0.0"
+  description: >
+    Interface contract for the ANCA Mate alarm-resolution assistant.
+    Every team builds against this shape so the operator app, the retrieval
+    engine, and the mock are interchangeable. The mock returns curated
+    reference answers; a real engine answers the same requests by retrieving
+    from the documentation.
+
+    Key principles:
+      * The alarm `code` (GG-NNNN) is the stable, language-independent key.
+        `text` is localised by the machine's OS and is only an optional hint.
+      * Every request carries an `env` block (software versions, OS, locale,
+        machine variant, serial) so answers can be tailored and triaged.
+      * The QR code / URL has a tight size budget: v1 needs only `code` + `env`.
+        Smart per-alarm `context` and multi-frame QR streaming are stretch goals.
+      * Access is controlled by the X-ANCA-Tier header (operator | technician |
+        partner), which changes answer depth and whether AI chat is offered —
+        it does not hide whole alarms.
+
+servers:
+  - url: http://localhost:8000/api/v1
+
+paths:
+  /resolve:
+    post:
+      summary: Resolve an alarm into operator guidance
+      parameters:
+        - $ref: "#/components/parameters/Tier"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ResolveRequest" }
+            examples:
+              partProgram:
+                summary: A part-program alarm with smart context (stretch)
+                value:
+                  code: "am.nc.0001"
+                  env:
+                    versions: { core: "1.11.0", oem: "3.2.1" }
+                    os: "Windows 10 / INtime 6.4"
+                    locale: "en-US"
+                    machine_variant: "GCX"
+                    serial: "ANCA-2023-0421"
+                  context: { program: "mdi1.pp", line: 2, pp_snippet: ["N1 electronic_cam_enable(\"X\",\"A\")"] }
+                  text: "PPI Execution Error — ... same logical machine ..."
+      responses:
+        "200":
+          description: Guidance for the alarm
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ResolveResponse" }
+        "404": { description: Unknown alarm code }
+
+  /alarms:
+    get:
+      summary: List the sample alarm catalogue (handy for demos / QR generation)
+      responses:
+        "200":
+          description: The alarm catalogue
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AlarmSummary" }
+
+  /search:
+    get:
+      summary: Free-text search over the documentation / alarm knowledge
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string }
+        - $ref: "#/components/parameters/Tier"
+      responses:
+        "200":
+          description: Ranked matches
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/SearchResult" }
+
+components:
+  parameters:
+    Tier:
+      name: X-ANCA-Tier
+      in: header
+      required: false
+      description: Access tier; controls answer depth and whether AI chat is offered. Defaults to operator.
+      schema:
+        type: string
+        enum: [operator, technician, partner]
+        default: operator
+
+  schemas:
+    ResolveRequest:
+      type: object
+      required: [code, env]
+      properties:
+        code:
+          type: string
+          description: Stable alarm code (<origin>.<module>.<sequence>). The primary key for resolution.
+          example: "am.fb.0002"
+        env:
+          $ref: "#/components/schemas/Env"
+        context:
+          type: object
+          description: Optional, alarm-specific data the machine collected (STRETCH). E.g. preceding PP lines, relevant config values.
+          additionalProperties: true
+        text:
+          type: string
+          description: Optional localised alarm text — a hint only, never the key.
+
+    Env:
+      type: object
+      description: Environment / identity carried by every alarm.
+      required: [versions, locale]
+      properties:
+        versions:
+          type: object
+          description: Software versions, e.g. Core and OEM. Extensible.
+          additionalProperties: { type: string }
+          example: { core: "1.11.0", oem: "3.2.1" }
+        os: { type: string, example: "Windows 10 / INtime 6.4" }
+        locale:
+          type: string
+          description: Locale of the on-screen alarm text (BCP-47).
+          example: "en-US"
+        machine_variant: { type: string, example: "GCX" }
+        serial: { type: string, example: "ANCA-2023-0421" }
+
+    ResolveResponse:
+      type: object
+      required: [code, summary, steps, citations, tier]
+      properties:
+        code: { type: string, example: "am.fb.0002" }
+        title: { type: string }
+        severity:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          description: "Severity 1-1000. Bands (defaults): Debug 1, Info 167, Warning 500, Error 833, Fatal 1000."
+          example: 833
+        severity_category:
+          type: string
+          enum: [Debug, Info, Warning, Error, Fatal]
+          example: Error
+        domain: { type: string, example: "Fieldbus" }
+        summary:
+          type: string
+          description: One-line plain-language explanation.
+        steps:
+          type: array
+          items: { type: string }
+          description: Ordered resolution steps. Trimmed for operator tier; fuller for technician/partner.
+        likely_causes:
+          type: array
+          items: { type: string }
+          description: Included for technician / partner tiers.
+        citations:
+          type: array
+          items: { $ref: "#/components/schemas/Citation" }
+        tier: { type: string, enum: [operator, technician, partner] }
+        ai_chat_available:
+          type: boolean
+          description: Whether follow-up AI chat is offered at this tier (false for operator).
+        confidence:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+
+    Citation:
+      type: object
+      required: [doc, path, section]
+      properties:
+        doc: { type: string, example: "AMCore User Guide" }
+        path: { type: string, example: "user-guide/troubleshoot/coe-device-errors.md" }
+        section: { type: string, example: "Emergency Error" }
+
+    AlarmSummary:
+      type: object
+      properties:
+        code: { type: string }
+        title: { type: string }
+        domain: { type: string }
+        severity: { type: integer, example: 833 }
+        severity_category: { type: string, enum: [Debug, Info, Warning, Error, Fatal], example: Error }
+        alarm_text: { type: string }
+
+    SearchResult:
+      type: object
+      properties:
+        score: { type: number, format: float }
+        title: { type: string }
+        snippet: { type: string }
+        citation: { $ref: "#/components/schemas/Citation" }

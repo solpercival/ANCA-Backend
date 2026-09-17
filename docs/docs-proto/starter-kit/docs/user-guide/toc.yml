@@ -1,0 +1,132 @@
+- name: Overview
+  href: overview.md
+- name: What is AmCore?
+  href: what-is-amcore.md
+- name: Concepts
+  href: concepts.md
+- name: Use AMCore
+  href: use-amcore/use-amcore.md
+  expanded: true
+  items:
+  - name: Create part programs
+    href: use-amcore/create-part-programs/create-part-programs.md
+    expanded: true
+    items:
+    - name: Write your first program
+      href: use-amcore/create-part-programs/write-your-first-program.md
+    - name: Program simple movements
+      href: use-amcore/create-part-programs/program-simple-movements.md
+  - name: Run part programs
+    href: use-amcore/run-part-programs.md
+  - name: Define your own alarms
+    href: use-amcore/define-your-own-alarms.md
+  - name: Receive alarms
+    href: use-amcore/receive-alarms/receive-alarms.md
+    expanded: true
+    items:
+    - name: Build your first event sink
+      href: use-amcore/receive-alarms/build-your-first-event-sink.md
+  - name: Drive enabling
+    href: use-amcore/drive-enabling.md
+  - name: High speed synchronised I/O
+    href: use-amcore/high-speed-synchronised-io.md
+  - name: Data block mapping
+    href: use-amcore/data-block-mapping.md
+- name: Get started
+  href: get-started/get-started.md
+  expanded: true
+  items:
+  - name: System requirements
+    href: get-started/system-requirements.md
+  - name: Install AMCore
+    href: get-started/install-amcore.md
+  - name: Set up your environment
+    href: get-started/set-up-your-environment.md
+  - name: Activate your license
+    href: get-started/activate-your-license.md
+  - name: Start AMCore
+    href: get-started/start-amcore.md
+- name: Configure AMCore
+  href: configure-amcore/configure-amcore.md
+  expanded: true
+  items:
+  - name: Set up your axes
+    href: configure-amcore/set-up-your-axes.md
+  - name: Set up your devices
+    href: configure-amcore/set-up-your-devices/set-up-your-devices.md
+    expanded: true
+    items:
+    - name: set-up-a-drive
+      href: configure-amcore/set-up-your-devices/set-up-a-drive.md
+    - name: set-up-an-io-device
+      href: configure-amcore/set-up-your-devices/set-up-an-io-device.md
+  - name: Customise look and feel
+    href: configure-amcore/customise-look-and-feel.md
+  - name: Configure machine motion
+    href: configure-amcore/configure-machine-motion/configure-machine-motion.md
+    expanded: true
+    items:
+    - name: Smoothing filter
+      href: configure-amcore/configure-machine-motion/smoothing-filter/smoothing-filter.md
+      expanded: true
+      items:
+      - name: Configure the filter
+        href: configure-amcore/configure-machine-motion/smoothing-filter/configure-the-filter.md
+      - name: Effects of the filter
+        href: configure-amcore/configure-machine-motion/smoothing-filter/effects-of-the-filter.md
+    - name: Block lookahead
+      href: configure-amcore/configure-machine-motion/block-lookahead.md
+    - name: Jerk settings
+      href: configure-amcore/configure-machine-motion/jerk-settings.md
+  - name: Understand configuration properties
+    href: configure-amcore/understand-configuration-properties.md
+  - name: Understand parameters
+    href: configure-amcore/understand-parameters.md
+  - name: Configure kinematics
+    href: configure-amcore/configure-kinematics/configure-kinematics.md
+    expanded: true
+    items:
+    - name: Bevel head type 1
+      href: configure-amcore/configure-kinematics/bevel-head-type-1.md
+    - name: 4-axis cylindrical grinder
+      href: configure-amcore/configure-kinematics/4-axis-cylindrical-grinder.md
+    - name: Incline cylindrical grinder
+      href: configure-amcore/configure-kinematics/incline-cylindrical-grinder.md
+    - name: Rotary table AC
+      href: configure-amcore/configure-kinematics/rotary-table-ac.md
+    - name: 6-axis grinder
+      href: configure-amcore/configure-kinematics/6-axis-grinder.md
+  - name: Set up your spindles
+    href: configure-amcore/set-up-your-spindles.md
+  - name: Define a part program search heirarchy
+    href: configure-amcore/define-a-part-program-search-hierarchy.md
+  - name: Set up OPC-UA
+    href: configure-amcore/set-up-opc-ua/set-up-opc-ua.md
+    expanded: true
+    items:
+    - name: Configure the address space
+      href: configure-amcore/set-up-opc-ua/configure-the-address-space.md
+- name: Tools
+  href: tools/tools.md
+  expanded: true
+  items:
+  - name: am-license
+    href: tools/am-license.md
+- name: Reference
+  href: reference/reference.md
+  expanded: true
+  items:
+  - name: Configuration property reference
+    href: reference/configuration-property-reference.md
+  - name: Variable reference
+    href: reference/variable-reference.md
+  - name: Parameter reference
+    href: reference/parameter-reference.md
+- name: Troubleshoot
+  href: troubleshoot/troubleshoot.md 
+  expanded: true
+  items:
+  - name: AMCore.exe exit codes
+    href: troubleshoot/amcore-exe-exit-codes.md
+  - name: CoE device errors
+    href: troubleshoot/coe-device-errors.md
