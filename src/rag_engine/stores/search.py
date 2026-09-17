@@ -1,5 +1,5 @@
 from rag_engine.retrieval.interfaces import Chunk
-from db import get_conn
+from db import get_db_conn
 from cache import get_cache_conn
 from rag_engine.config import get_settings
 import json
@@ -13,7 +13,7 @@ class PostgresDBConnection:
         if not vector or top_k < 1:
             return []
         
-        with get_conn() as cursor:
+        with get_db_conn() as cursor:
             cursor.execute(
                 """
                 SELECT dc.chunk_id, dc.content, dc.metadata, doc.file_path, dc.distance
@@ -44,7 +44,7 @@ class PostgresDBConnection:
         if not vector or top_k < 1:
             return []
         
-        with get_conn() as cursor:
+        with get_db_conn() as cursor:
             cursor.execute(
                 """
                 SELECT dc.chunk_id, dc.content, dc.metadata, doc.file_path, dc.distance
