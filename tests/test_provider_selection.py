@@ -161,6 +161,7 @@ async def test_dense_embedding_backend_output():
     assert all(len(i) == settings.semantic_dim for i in embeddings)
     assert all(any(x != 0 for x in emb) for emb in embeddings)
 
+@pytest.mark.integration
 async def test_sparse_embedding_backend_output():
     settings = get_settings()
     with httpx.Client(timeout=120.0) as client:

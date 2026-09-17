@@ -12,8 +12,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from pathlib import Path
-
 import httpx
 
 from rag_engine.config import get_settings
@@ -185,16 +183,6 @@ def get_generation_backend(client: httpx.AsyncClient | None = None) -> Any:
     if provider == "anthropic":
         return AnthropicGenerator(client)
     raise ValueError(f"Unsupported LLM provider: {provider}")
-
-
-async def embed_texts(texts: list[str]) -> dict[str,list]:
-    dense_backend = get_dense_embedding_backend()
-    dense_vectors = await dense_backend.dense_embed(texts)
-
-    sparse_backend = get_sparse_embedding_backend()
-    sparse_vectors = await sparse_backend.sparse_embed(texts)
-
-    return await {"dense": dense_vectors, "sparse": sparse_vectors}
 
 
 async def generate_text(prompt: str) -> str:

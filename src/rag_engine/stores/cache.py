@@ -24,7 +24,8 @@ def close_cache_pool() -> None:
 @contextmanager
 def get_cache_conn():
     if not _cache_pool:
-        return None
+        yield None
+        return
 
     conn = Redis(connection_pool=_cache_pool)
     try:

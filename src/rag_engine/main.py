@@ -27,13 +27,13 @@ async def create_postgres_pool():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # startup
+    app.state.httpx_client = httpx.AsyncClient(timeout=120.0)
+
     try:
         app.state.orchestrator = get_orchestrator()
     except Exception:
         app.state.orchestrator = None
         log.warning("Orchestrator runtime not ready; keeping placeholder app state until DB/provider wiring lands.", exc_info=True)
-
-    app.state.httpx_client = httpx.AsyncClient(timeout=120.0)
 
     try:
         app.state.pg_pool = await create_postgres_pool()
@@ -86,14 +86,6 @@ app.include_router(auth_router)
 
 def get_httpx_client(request: Request) -> httpx.AsyncClient:
     return request.app.state.httpx_client
-
-def get_embedder(request: Request):
-    client = request.app.state.httpx_client
-    return get_embedding_backend(client)
-
-def get_generator(request: Request):
-    client = request.app.state.httpx_client
-    return get_generation_backend(client)
 
 @app.get("/", tags=["ops"])
 async def root() -> dict[str, str]:

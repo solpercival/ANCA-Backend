@@ -69,7 +69,7 @@ class PostgresDBConnection:
             return result_chunks
 
 class RedisConnection:
-    def _create_key(text: str) -> str:
+    def _create_key(self, text: str) -> str:
         return hashlib.sha256(text.encode()).hexdigest()
     
     async def add_chunk(self, chunk: Chunk) -> None:
@@ -77,7 +77,7 @@ class RedisConnection:
             if not client:
                 return
             settings = get_settings()
-            client.set(self._create_key(f"{settings.chunks_prefix}{chunk.chunk_id}"), chunk.__str__, ex=settings.chunks_ttl)
+            client.set(self._create_key(f"{settings.chunks_prefix}{chunk.chunk_id}"), str(chunk), ex=settings.chunks_ttl)
 
     async def retrieve_chunk(self, chunk_id: str) -> Chunk | None:
         with get_cache_conn() as client:

@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 import ingestion.indexers as indexers
 from ingestion.chunker import chunk_markdown, RawChunk
 from ingestion.pipeline import collect_markdown
