@@ -130,7 +130,7 @@ def test_collect_markdown_reads_nested_markdown_files(tmp_path):
     texts = {chunk.text for chunk in chunks}
     assert any("# A" in text for text in texts)
     assert any("# B" in text for text in texts)
-
+@pytest.mark.integration
 def test_sparse_embedding():
     chunks = [RawChunk(text="test script", source="", headers=[], kind="text"),
               RawChunk(text="motion", source="", headers=[], kind="text")]
@@ -139,11 +139,13 @@ def test_sparse_embedding():
     with httpx.Client(timeout=120.0) as client:
         sparse_vecs = indexers._sparse_embed(chunks=chunks, client=client)
 
-    assert(len(sparse_vecs) == len(chunks)) # verify same length
-    assert(sparse_vecs[i] for i in sparse_vecs) # verify non-empty embeddings
-    assert(len(sparse_vecs[i]) <= settings.lexical_dim for i in sparse_vecs)
+    assert len(sparse_vecs) == len(chunks)
+    assert all(sparse_vecs)                                   # non-empty embeddings
+    assert all(len(vec) <= settings.lexical_dim for vec in sparse_vecs)
 
-def test_dense_embedding():    
+
+@pytest.mark.integration
+def test_dense_embedding():
     chunks = [RawChunk(text="test script", source="", headers=[], kind="text"),
               RawChunk(text="motion", source="", headers=[], kind="text")]
 
@@ -151,6 +153,6 @@ def test_dense_embedding():
     with httpx.Client(timeout=120.0) as client:
         dense_vecs = indexers._dense_embed(chunks=chunks, client=client)
 
-    assert(len(dense_vecs) == len(chunks)) # verify same length
-    assert(len(i) == settings.semantic_dim for i in dense_vecs)   
+    assert len(dense_vecs) == len(chunks)
+    assert all(len(vec) == settings.semantic_dim for vec in dense_vecs)
     

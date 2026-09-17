@@ -36,8 +36,8 @@ class HybridRetriever:
         lexical: LexicalIndex,
         rrf_k: int = 60,
     ):
-        self._sparse_embedder = sparse_embedder
         self._dense_embedder = dense_embedder
+        self._sparse_embedder = sparse_embedder
         self._vs = vector_store
         self._lex = lexical
         self._rrf_k = rrf_k

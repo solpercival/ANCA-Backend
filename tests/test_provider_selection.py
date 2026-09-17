@@ -147,19 +147,17 @@ def test_hybrid_retriever_uses_dense_and_lexical_lists():
     assert {"v1", "v2", "l1"}.issubset(chunk_ids)
     assert result[0].chunk_id in {"v1", "l1", "v2"}
 
-def test_dense_embedding_backend_output():
+@pytest.mark.integration
+async def test_dense_embedding_backend_output():
     settings = get_settings()
-    with httpx.Client(timeout=120.0) as client: 
+    with httpx.Client(timeout=120.0) as client:
         backend = get_dense_embedding_backend(client)
-
-        assert (backend != None)
+        assert backend is not None
         assert hasattr(backend, "dense_embed") and callable(backend.dense_embed)
-
         queries = ["test query 1", "anca motion"]
-        embeddings = backend.dense_embed(queries)
-
-    assert (len(embeddings) == 2)
-    assert (embeddings[0] != embeddings[1])
+        embeddings = await backend.dense_embed(queries)
+    assert len(embeddings) == 2
+    assert embeddings[0] != embeddings[1]
     assert all(len(i) == settings.semantic_dim for i in embeddings)
     assert all(any(x != 0 for x in emb) for emb in embeddings)
 

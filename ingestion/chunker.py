@@ -52,7 +52,7 @@ def chunk_markdown(text: str, source: str) -> list[RawChunk]:
     # apply splitting using atomic blocks re
     for section in headers_split_text:
         segments = [("text", section.page_content, json.dumps(section.metadata))]
-        for k,v in ATOMIC_BLOCKS.items():
+        for k, v in ATOMIC_BLOCKS.items():
             segments = extract_atomic_blocks(text_sections=segments, pattern=v, title=k)
 
         buf.extend(segments)
