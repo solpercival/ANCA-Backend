@@ -48,6 +48,10 @@ class Settings(BaseSettings):
     # redis
     redis_host: str = "redis"
     redis_port: int = 6379
+    chunks_prefix: str = "chunks:"
+    chunks_ttl: int = 3600
+    response_prefix: str = "response:"
+    response_ttl: int = 86400
 
     # provider selection
     dense_embedding_provider: str = "ollama"
