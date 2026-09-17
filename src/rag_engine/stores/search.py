@@ -1,4 +1,4 @@
-from rag_engine.retrieval.interfaces import Chunk, Embedder, LexicalIndex, VectorStore
+from rag_engine.retrieval.interfaces import Chunk
 from db import get_conn
 from cache import get_cache_conn
 from rag_engine.config import get_settings
@@ -77,7 +77,7 @@ class RedisConnection:
             if not client:
                 return
             settings = get_settings()
-            client.set(self._create_key(f"{settings.chunks_prefix}{chunk.chunk_id}"), json.dumps(chunk.__str__), ex=settings.chunks_ttl)
+            client.set(self._create_key(f"{settings.chunks_prefix}{chunk.chunk_id}"), chunk.__str__, ex=settings.chunks_ttl)
 
     async def retrieve_chunk(self, chunk_id: str) -> Chunk | None:
         with get_cache_conn() as client:
@@ -95,3 +95,22 @@ class RedisConnection:
                          source=json_result["source"],
                          metadata=json_result["metadata"],
                          score=json_result["score"])
+
+    async def add_response(self, query: str, response: str) -> None:
+        with get_cache_conn() as client:
+            if not client:
+                return
+            settings = get_settings()
+            client.set(self._create_key(f"{settings.response_prefix}{query}"), json.dumps({"response": response}, default=str), ex=settings.response_ttl)
+
+    async def retrieve_response(self, query: str) -> str | None:
+        with get_cache_conn() as client:
+            if not client:
+                return None
+
+            settings = get_settings()
+            result = client.get(self._create_key(f"{settings.response_prefix}{query}"))
+            if not result:
+                return 
+            
+            return json.loads(result)
