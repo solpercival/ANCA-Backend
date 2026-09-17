@@ -16,7 +16,7 @@ ATOMIC_BLOCKS = {
     "code": re.compile(r"```.*?```", re.DOTALL),
     "list": re.compile(r"(?:^\s*(?:[-*+]|\d+\.)\s+.+$\n?)+", re.MULTILINE)
 }
-IDX_CODE = 0
+IDX_TAG = 0
 IDX_TEXT = 1
 IDX_HEADERS = 2
 
@@ -52,17 +52,21 @@ def chunk_markdown(text: str, source: str) -> list[RawChunk]:
     # apply splitting using atomic blocks re
     for section in headers_split_text:
         segments = [("text", section.page_content, json.dumps(section.metadata))]
+<<<<<<< HEAD
         for k, v in ATOMIC_BLOCKS.items():
+=======
+        for k,v in ATOMIC_BLOCKS.items():
+>>>>>>> 741cbb1 (Fix dictionary iterator bug and rename markdown format tag variable)
             segments = extract_atomic_blocks(text_sections=segments, pattern=v, title=k)
 
         buf.extend(segments)
 
     # convert segments into RawChunks
     for segment in buf:
-        new_chunk = RawChunk(text=segment[IDX_TEXT], 
-                             source=source, 
+        new_chunk = RawChunk(text=segment[IDX_TEXT],
+                             source=source,
                              headers=list(json.loads(segment[IDX_HEADERS]).values()),
-                             kind=segment[IDX_CODE])
+                             kind=segment[IDX_TAG])
         chunks.append(new_chunk)
 
     return chunks
@@ -84,7 +88,7 @@ def extract_atomic_blocks(text_sections: list[tuple[str,str,str]],
 
     for text in text_sections:
         last_end = 0
-        if text[IDX_CODE] == "text":
+        if text[IDX_TAG] == "text":
             # search text sections to break up
             for match in pattern.finditer(text[IDX_TEXT]):
                 # breaks text into separate segments
