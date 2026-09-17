@@ -30,10 +30,11 @@ class RawChunk:
     kind: str = "text"
 
     @property
-    def header_level(self) -> int | None:
-        """Deepest (most specific) header level present for this chunk."""
-        levels = [int(k[1:]) for k in self.headers if k.startswith("h") and k[1:].isdigit()]
-        return max(levels) if levels else None
+    def header_cascade(self) -> list[tuple[str, str]]:
+        return sorted(
+            ((lvl, txt) for lvl, txt in self.headers.items() if lvl.startswith("h")),
+            key=lambda pair: int(pair[0][1:])
+        )
 
     @property
     def chunk_id(self) -> str:
@@ -58,11 +59,7 @@ def chunk_markdown(text: str, source: str) -> list[RawChunk]:
     # apply splitting using atomic blocks re
     for section in headers_split_text:
         segments = [("text", section.page_content, json.dumps(section.metadata))]
-<<<<<<< HEAD
         for k, v in ATOMIC_BLOCKS.items():
-=======
-        for k,v in ATOMIC_BLOCKS.items():
->>>>>>> 741cbb1 (Fix dictionary iterator bug and rename markdown format tag variable)
             segments = extract_atomic_blocks(text_sections=segments, pattern=v, title=k)
 
         buf.extend(segments)
