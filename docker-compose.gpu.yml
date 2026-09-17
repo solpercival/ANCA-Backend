@@ -1,0 +1,12 @@
+# GPU override: reserves the NVIDIA GPU for Ollama.
+# Applied automatically by the Makefile when nvidia-smi is present, e.g.:
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d ollama
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: ["gpu"]

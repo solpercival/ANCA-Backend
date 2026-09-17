@@ -11,6 +11,7 @@ from rag_engine.api.error_handlers import register_error_handlers
 from rag_engine.api.routes import router
 from rag_engine.auth.routes import router as auth_router
 from rag_engine.auth.session_store import RedisSessionStore
+from rag_engine.auth.user_repository import PostgresUserRepository, ensure_auth_schema
 from rag_engine.config import get_settings
 from rag_engine.orchestrator import get_orchestrator
 from rag_engine.stores.cache import close_cache_pool, init_cache_pool
@@ -36,14 +37,16 @@ async def lifespan(app: FastAPI):
             exc_info=True,
         )
 
+    storage_ready = False
     try:
         init_db_pool()
         init_cache_pool()
+        ensure_auth_schema()
+        storage_ready = True
     except Exception:
         log.warning("Storage pools not initialized; auth storage is unavailable.", exc_info=True)
 
-    # Attach the Postgres UserRepository here once the datamapper lands.
-    app.state.user_repository = None
+    app.state.user_repository = PostgresUserRepository() if storage_ready else None
     app.state.session_store = RedisSessionStore()
 
     yield

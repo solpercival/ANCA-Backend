@@ -67,10 +67,12 @@ services:
   ollama:
     image: ollama/ollama:latest
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:11434/api/tags >/dev/null || exit 1"]
+      # the ollama image ships no curl; use its own CLI, which needs the daemon up
+      test: ["CMD", "ollama", "list"]
       interval: 10s
       timeout: 5s
       retries: 10
+      start_period: 60s
     ports: ["11434:11434"]
     volumes:
       - ollamadata:/root/.ollama
@@ -88,15 +90,16 @@ services:
     command:
       - ollama pull qwen3-embedding:0.6b && ollama pull qwen3:4b
 
-  # --- optional: tei for bge-m3 ---
+  # --- optional: tei for sparse/SPLADE embeddings (start with: docker compose --profile sparse up) ---
   tei:
+    profiles: ["sparse"]
     image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.6
     env_file: .env
     ports: ["7100:80"]
     volumes: ["model-cache:/data"]
     environment:
       - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
-    command: --model-id naver/splade-v3 --pooling splade
+    command: --model-id naver/splade-cocondenser-ensembledistil --pooling splade
 
   # --- optional: observability ---
   langfuse:

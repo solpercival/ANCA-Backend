@@ -120,7 +120,8 @@ def test_reciprocal_rank_fusion_prefers_agreement_and_dedupes():
     assert len({chunk.chunk_id for chunk in fused}) == 2
 
 
-def test_hybrid_retriever_uses_dense_and_lexical_lists():
+def test_hybrid_retriever_uses_dense_and_lexical_lists(monkeypatch):
+    monkeypatch.setenv("EMBEDDING_SETUP", "dual")
     class FakeDenseEmbedder:
         async def dense_embed(self, texts):
             return [[0.1, 0.2, 0.3] for _ in texts]
@@ -149,6 +150,37 @@ def test_hybrid_retriever_uses_dense_and_lexical_lists():
     chunk_ids = {chunk.chunk_id for chunk in result}
     assert {"v1", "v2", "l1"}.issubset(chunk_ids)
     assert result[0].chunk_id in {"v1", "l1", "v2"}
+
+
+def test_retriever_uses_dense_only_without_sparse_or_lexical(monkeypatch):
+    monkeypatch.setenv("EMBEDDING_SETUP", "unified")
+
+    class FakeDenseEmbedder:
+        async def dense_embed(self, texts):
+            return [[0.1, 0.2, 0.3] for _ in texts]
+
+    class FailingSparseEmbedder:
+        async def sparse_embed(self, texts):
+            raise AssertionError("sparse embedding must not be called")
+
+    class FailingLexical:
+        async def lexical_search(self, vector, top_k):
+            raise AssertionError("lexical search must not be called")
+
+    class FakeVectorStore:
+        async def semantic_search(self, vector, top_k, where=None):
+            return [Chunk(chunk_id="dense", text="dense result", source="manual.md")]
+
+    retriever = HybridRetriever(
+        FakeDenseEmbedder(),
+        FailingSparseEmbedder(),
+        FakeVectorStore(),
+        FailingLexical(),
+    )
+
+    result = asyncio.run(retriever.retrieve("dense query", top_k=5))
+
+    assert [chunk.chunk_id for chunk in result] == ["dense"]
 
 @pytest.mark.integration
 async def test_dense_embedding_backend_output():

@@ -6,5 +6,6 @@ WORKDIR /app
 COPY pyproject.toml ./
 COPY src/ ./src/
 COPY ingestion/ ./ingestion/
+COPY docs/docs-proto/ ./docs/docs-proto/
 RUN pip install --no-cache-dir -e ".[models]" && rm -rf /root/.cache
 CMD ["python", "-m", "ingestion.pipeline"]

@@ -92,7 +92,7 @@ class Settings(BaseSettings):
     rrf_k: int = 60
 
     # embeddings
-    embedding_setup: str = "dual"  # unified or dual
+    embedding_setup: str = "unified"  # unified (dense-only) or dual
     lexical_dim: int = 30522
     semantic_dim: int = 1024
 

@@ -108,9 +108,13 @@ def get_orchestrator() -> Orchestrator:  # pragma: no cover - wired at runtime
     )
 
     dense_embedder = get_dense_embedding_backend(client=client)
-    sparse_embedder = get_sparse_embedding_backend(client=client)
     vector_store = get_vector_store_backend()
-    lexical = get_lexical_backend()
+    if get_settings().embedding_setup == "dual":
+        sparse_embedder = get_sparse_embedding_backend(client=client)
+        lexical = get_lexical_backend()
+    else:
+        sparse_embedder = None
+        lexical = None
     retriever = HybridRetriever(dense_embedder, sparse_embedder, vector_store, lexical)
     return Orchestrator(
         retriever,

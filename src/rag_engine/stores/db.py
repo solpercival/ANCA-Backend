@@ -1,4 +1,5 @@
 import psycopg
+from pgvector.psycopg import register_vector
 from psycopg_pool import ConnectionPool
 from psycopg.rows import dict_row
 from contextlib import contextmanager
@@ -13,7 +14,9 @@ def init_db_pool() -> None:
         settings.postgres_dsn,
         min_size=1,
         max_size=100,
-        kwargs={"row_factory": dict_row}
+        kwargs={"row_factory": dict_row},
+        # so a Python list of floats binds as `vector`, not `double precision[]`
+        configure=register_vector,
     )
 
 def close_db_pool() -> None:

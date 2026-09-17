@@ -1,4 +1,5 @@
-"""Hybrid retrieval: dense + lexical (pgvector) fused with RRF."""
+"""Dense or hybrid retrieval, depending on the embedding setup."""
+from rag_engine.config import get_settings
 from rag_engine.retrieval.interfaces import (
     Chunk,
     DenseEmbedder,
@@ -31,9 +32,9 @@ class HybridRetriever:
     def __init__(
         self,
         dense_embedder: DenseEmbedder,
-        sparse_embedder: SparseEmbedder,
+        sparse_embedder: SparseEmbedder | None,
         vector_store: VectorStore,
-        lexical: LexicalIndex,
+        lexical: LexicalIndex | None,
         rrf_k: int = 60,
     ):
         self._dense_embedder = dense_embedder
@@ -47,6 +48,11 @@ class HybridRetriever:
     ) -> list[Chunk]:
         dense_vector = (await self._dense_embedder.dense_embed([query]))[0]
         dense = await self._vs.semantic_search(dense_vector, top_k=top_k, where=where)
+        if get_settings().embedding_setup != "dual":
+            return dense
+
+        if self._sparse_embedder is None or self._lex is None:
+            raise RuntimeError("Dual retrieval requires sparse and lexical backends")
         sparse_vector = await self._sparse_embedder.sparse_embed([query])
         sparse = await self._lex.lexical_search(sparse_vector, top_k=top_k)
         return reciprocal_rank_fusion([dense, sparse], k=self._rrf_k)

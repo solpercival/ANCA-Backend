@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS document (
 	doc_id SERIAL PRIMARY KEY,
 	current_version VARCHAR(16) NOT NULL,
 	hash BYTEA NOT NULL,
-	file_path VARCHAR(120) NOT NULL UNIQUE
+	file_path TEXT NOT NULL UNIQUE
 );
 
 -- -----------------------------------------------------
@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS alarm_module (
 -- -----------------------------------------------------
 CREATE TABLE IF NOT EXISTS heading (
 	heading_id BIGSERIAL PRIMARY KEY,
-	heading_order VARCHAR(45) NOT NULL,
+	heading_order TEXT NOT NULL,
 	hierarchy VARCHAR(45) NOT NULL,
 	document_id INTEGER NOT NULL,
 	parent_heading BIGINT,
@@ -70,8 +70,8 @@ CREATE TABLE IF NOT EXISTS document_chunks (
 	content TEXT NOT NULL,
 	metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
 	dc_type CHUNK_TYPE NOT NULL DEFAULT 'text',
-	document_source VARCHAR(120) NOT NULL,
-	lexical_embedding sparsevec(30522) NOT NULL,
+	document_source TEXT NOT NULL,
+	lexical_embedding sparsevec(30522),
 	semantic_embedding vector(1024) NOT NULL,
 	closest_heading BIGINT,
 	CONSTRAINT fk_document_chunks_heading
@@ -106,6 +106,41 @@ CREATE TABLE IF NOT EXISTS alarm_code (
 CREATE INDEX IF NOT EXISTS fk_alarm_code_module_idx ON alarm_code (module);
 
 -- -----------------------------------------------------
+-- Table role
+-- -----------------------------------------------------
+CREATE TABLE IF NOT EXISTS role (
+	rid INT NOT NULL PRIMARY KEY,
+	name VARCHAR(45) NOT NULL
+);
+
+-- Seed the account tiers (rag_engine.auth.tiers.Tier); users.role_rid maps to these.
+INSERT INTO role (rid, name) VALUES
+	(1, 'operator'),
+	(2, 'technician'),
+	(3, 'partner')
+ON CONFLICT (rid) DO NOTHING;
+
+-- -----------------------------------------------------
+-- Table user
+-- -----------------------------------------------------
+CREATE TABLE IF NOT EXISTS users (
+	uid SERIAL NOT NULL,
+	role_rid INT NOT NULL,
+	username VARCHAR(80) NOT NULL,
+	password BYTEA NOT NULL,
+	is_active BOOLEAN NOT NULL DEFAULT TRUE,
+	PRIMARY KEY (uid),
+	CONSTRAINT fk_user_role
+		FOREIGN KEY (role_rid)
+		REFERENCES role (rid)
+		ON DELETE NO ACTION
+		ON UPDATE NO ACTION
+);
+
+CREATE INDEX IF NOT EXISTS fk_user_role_idx ON users (role_rid);
+CREATE UNIQUE INDEX IF NOT EXISTS users_username_idx ON users (username);
+
+-- -----------------------------------------------------
 -- Table response
 -- -----------------------------------------------------
 CREATE TABLE IF NOT EXISTS response (
@@ -132,33 +167,7 @@ CREATE TABLE IF NOT EXISTS response_sources (
 CREATE INDEX IF NOT EXISTS fk_document_chunks_supports_response_idx ON response_sources (response_id);
 CREATE INDEX IF NOT EXISTS fk_response_references_document_chunk_idx ON response_sources (doc_chunks_id);
 
--- -----------------------------------------------------
--- Table role
--- -----------------------------------------------------
-CREATE TABLE IF NOT EXISTS role (
-  rid INT NOT NULL PRIMARY KEY,
-  name VARCHAR(45) NOT NULL
-);
-
--- -----------------------------------------------------
--- Table user
--- -----------------------------------------------------
-CREATE TABLE IF NOT EXISTS users (
-  uid SERIAL NOT NULL,
-  role_rid INT NOT NULL,
-  username VARCHAR(80) NOT NULL,
-  password BYTEA NOT NULL,
-  PRIMARY KEY (uid),
-  CONSTRAINT fk_user_role
-    FOREIGN KEY (role_rid)
-    REFERENCES role (rid)
-    ON DELETE NO ACTION
-    ON UPDATE NO ACTION
-);
-
-CREATE INDEX IF NOT EXISTS fk_user_role_idx ON users (role_rid);
-
 -- HNSW index
-CREATE INDEX IF NOT EXISTS ON document_chunks
+CREATE INDEX IF NOT EXISTS document_chunks_semantic_hnsw ON document_chunks
 USING hnsw (semantic_embedding vector_cosine_ops)
 WITH (m = 16, ef_construction = 64); -- Parameters can be tuned

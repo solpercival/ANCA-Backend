@@ -20,15 +20,18 @@ def _dense_embed(chunks: list[RawChunk], client: httpx.Client) -> list[list[floa
     list of list of floats representing embeddings corresponding to input chunks.
     """
     settings = get_settings()
-    if settings.embedding_setup != "dual":
-        return []
-    
-    response = client.post(
-        f"{settings.ollama_base_url.rstrip('/')}/api/embed",
-        json={"model": settings.embedding_model, "input": [chunk.text for chunk in chunks]},
-    )
-    response.raise_for_status()
-    return response.json()["embeddings"]
+    batch_size = 32
+    embeddings = []
+    for start in range(0, len(chunks), batch_size):
+        batch = chunks[start:start + batch_size]
+        response = client.post(
+            f"{settings.ollama_base_url.rstrip('/')}/api/embed",
+            json={"model": settings.embedding_model, "input": [chunk.text for chunk in batch]},
+        )
+        response.raise_for_status()
+        embeddings.extend(response.json()["embeddings"])
+        print(f"dense embed: {min(start + batch_size, len(chunks))}/{len(chunks)}", flush=True)
+    return embeddings
 
 def _sparse_embed(chunks: list[RawChunk], client: httpx.Client) -> list[dict[str,float]]:
     """
@@ -110,7 +113,7 @@ def insert_chunk(cursor, data: dict, doc_id: int, heading_cache: dict[tuple, int
     chunk = data["chunk"]
     dense = data["dense"]
     print(f"DENSE: {len(dense)}")
-    sparse = data["sparse"]
+    sparse = data["sparse"] or None
 
     heading_id = resolve_immediate_heading(
         cursor=cursor, chunk=chunk, doc_id=doc_id, heading_cache=heading_cache
@@ -123,7 +126,7 @@ def insert_chunk(cursor, data: dict, doc_id: int, heading_cache: dict[tuple, int
         VALUES (%s, %s, %s, %s, %s, %s, %s)
         RETURNING chunk_id
         """,
-        (chunk.text, "{}", chunk.kind, chunk.source, f"{sparse}/30522", dense, heading_id)
+        (chunk.text, "{}", chunk.kind, chunk.source, f"{sparse}/30522" if sparse else None, dense, heading_id)
     )
 
 def validate_tables(cursor) -> None:
@@ -134,7 +137,7 @@ def validate_tables(cursor) -> None:
             doc_id SERIAL PRIMARY KEY,
             current_version VARCHAR(16) NOT NULL,
             hash BYTEA NOT NULL,
-            file_path VARCHAR(120) NOT NULL UNIQUE
+            file_path TEXT NOT NULL UNIQUE
         )
         """
     )
@@ -142,7 +145,7 @@ def validate_tables(cursor) -> None:
         """
         CREATE TABLE IF NOT EXISTS heading (
             heading_id BIGSERIAL PRIMARY KEY,
-            heading_order VARCHAR(45) NOT NULL,
+            heading_order TEXT NOT NULL,
             hierarchy VARCHAR(45) NOT NULL,
             document_id INTEGER NOT NULL,
             parent_heading BIGINT,
@@ -167,8 +170,8 @@ def validate_tables(cursor) -> None:
             content TEXT NOT NULL,
             metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
             dc_type CHUNK_TYPE NOT NULL DEFAULT 'text',
-            document_source VARCHAR(120) NOT NULL,
-            lexical_embedding sparsevec(30522) NOT NULL,
+            document_source TEXT NOT NULL,
+            lexical_embedding sparsevec(30522),
             semantic_embedding vector(1024) NOT NULL,
             closest_heading BIGINT,
             CONSTRAINT fk_document_chunks_heading
@@ -178,6 +181,18 @@ def validate_tables(cursor) -> None:
 		        ON UPDATE NO ACTION
         )
         """
+    )
+    cursor.execute(
+        "ALTER TABLE document_chunks ALTER COLUMN lexical_embedding DROP NOT NULL"
+    )
+    cursor.execute(
+        "ALTER TABLE heading ALTER COLUMN heading_order TYPE TEXT"
+    )
+    cursor.execute(
+        "ALTER TABLE document ALTER COLUMN file_path TYPE TEXT"
+    )
+    cursor.execute(
+        "ALTER TABLE document_chunks ALTER COLUMN document_source TYPE TEXT"
     )
 
 def _write_embeddings(chunks: list[RawChunk], dense_embeddings: list[list[float]], sparse_embeddings: list[dict[str,float]]) -> None:
@@ -208,8 +223,12 @@ def embed_and_index(chunks: list[RawChunk]) -> None:  # pragma: no cover - integ
         return
 
     settings = get_settings()
-    with httpx.Client(timeout=120.0) as client:
+    with httpx.Client(timeout=600.0) as client:
         dense_embeddings = _dense_embed(chunks=chunks, client=client)
-        sparse_embeddings = _sparse_embed(chunks=chunks, client=client)
+        sparse_embeddings = (
+            _sparse_embed(chunks=chunks, client=client)
+            if settings.embedding_setup == "dual"
+            else [{} for _ in chunks]
+        )
     
     _write_embeddings(chunks=chunks, dense_embeddings=dense_embeddings, sparse_embeddings=sparse_embeddings)
