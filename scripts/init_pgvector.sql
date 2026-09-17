@@ -58,8 +58,8 @@ CREATE TABLE IF NOT EXISTS heading (
 		ON UPDATE NO ACTION
 );
 
-CREATE INDEX fk_heading_document_idx ON heading (document_id);
-CREATE INDEX fk_heading_parent_heading_idx ON heading (parent_heading);
+CREATE INDEX IF NOT EXISTS fk_heading_document_idx ON heading (document_id);
+CREATE INDEX IF NOT EXISTS fk_heading_parent_heading_idx ON heading (parent_heading);
 
 -- -----------------------------------------------------
 -- Table document_chunks
@@ -81,7 +81,7 @@ CREATE TABLE IF NOT EXISTS document_chunks (
 		ON UPDATE NO ACTION
 );
 
-CREATE INDEX fk_document_chunks_heading_idx ON document_chunks (closest_heading);
+CREATE INDEX IF NOT EXISTS fk_document_chunks_heading_idx ON document_chunks (closest_heading);
 
 -- -----------------------------------------------------
 -- Table alarm_code
@@ -103,7 +103,7 @@ CREATE TABLE IF NOT EXISTS alarm_code (
 		ON UPDATE NO ACTION
 );
 
-CREATE INDEX fk_alarm_code_module_idx ON alarm_code (module);
+CREATE INDEX IF NOT EXISTS fk_alarm_code_module_idx ON alarm_code (module);
 
 -- -----------------------------------------------------
 -- Table response
@@ -117,8 +117,8 @@ CREATE TABLE IF NOT EXISTS response (
 	user_uid BIGINT REFERENCES users(uid)
 );
 
-CREATE INDEX fk_response_alarm_code_idx ON response (alarm_id);
-CREATE INDEX fk_response_user_idx ON response (user_uid);
+CREATE INDEX IF NOT EXISTS fk_response_alarm_code_idx ON response (alarm_id);
+CREATE INDEX IF NOT EXISTS fk_response_user_idx ON response (user_uid);
 
 -- -----------------------------------------------------
 -- Table response_sources
@@ -129,8 +129,8 @@ CREATE TABLE IF NOT EXISTS response_sources (
 	PRIMARY KEY (doc_chunks_id, response_id)
 );
 
-CREATE INDEX fk_document_chunks_supports_response_idx ON response_sources (response_id);
-CREATE INDEX fk_response_references_document_chunk_idx ON response_sources (doc_chunks_id);
+CREATE INDEX IF NOT EXISTS fk_document_chunks_supports_response_idx ON response_sources (response_id);
+CREATE INDEX IF NOT EXISTS fk_response_references_document_chunk_idx ON response_sources (doc_chunks_id);
 
 -- -----------------------------------------------------
 -- Table role
@@ -156,9 +156,9 @@ CREATE TABLE IF NOT EXISTS users (
     ON UPDATE NO ACTION
 );
 
-CREATE INDEX fk_user_role_idx ON users (role_rid);
+CREATE INDEX IF NOT EXISTS fk_user_role_idx ON users (role_rid);
 
 -- HNSW index
-CREATE INDEX ON document_chunks
+CREATE INDEX IF NOT EXISTS ON document_chunks
 USING hnsw (semantic_embedding vector_cosine_ops)
 WITH (m = 16, ef_construction = 64); -- Parameters can be tuned
