@@ -112,7 +112,6 @@ def insert_chunk(cursor, data: dict, doc_id: int, heading_cache: dict[tuple, int
 
     chunk = data["chunk"]
     dense = data["dense"]
-    print(f"DENSE: {len(dense)}")
     sparse = data["sparse"] or None
 
     heading_id = resolve_immediate_heading(
@@ -232,3 +231,28 @@ def embed_and_index(chunks: list[RawChunk]) -> None:  # pragma: no cover - integ
         )
     
     _write_embeddings(chunks=chunks, dense_embeddings=dense_embeddings, sparse_embeddings=sparse_embeddings)
+
+def populate_alarms(cursor) -> None:
+    alarm_filepath: str = "/docs/docs-proto/starter-kit/alarms/alams.sample.json"
+
+    # collect alarms from sample.json
+    with open(alarm_filepath, 'r', encoding='utf-8') as file:
+        alarms_json = json.loads(file)
+
+    alarms: list[dict] = []
+    for alarm in alarms_json["alarms"]:
+        code_sections = alarm["code"].split(".")
+        alarms.append({
+            # alarm_code data
+            "origin": code_sections[0],
+            "sequence": code_sections[2],
+            "title": alarm["title"],
+            "severity_score": alarm["severity_score"], # added separate severity score (int)
+            "severity_category": alarm["severity_category"], # severity category (enum)
+            "alarm_text": alarm["alarm_text"],
+            "data_fields": json.dumps(alarm["data_fields"], default=str),
+
+            # alarm_module data
+            "code": code_sections[1],
+            "module_title": alarm["domain"]
+        })
