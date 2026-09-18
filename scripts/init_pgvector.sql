@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS alarm_module (
 	id SERIAL PRIMARY KEY,
 	code VARCHAR(6) NOT NULL,
 	title VARCHAR(120) NOT NULL
+	CONSTRAINT prevent_duplicate_alarm_module UNIQUE (code, title)
 );
 
 -- -----------------------------------------------------
@@ -101,6 +102,7 @@ CREATE TABLE IF NOT EXISTS alarm_code (
 		REFERENCES alarm_module (id)
 		ON DELETE NO ACTION
 		ON UPDATE NO ACTION
+	CONSTRAINT prevent_duplicate_alarm_code UNIQUE (origin, alarm_sequence, module)
 );
 
 CREATE INDEX IF NOT EXISTS fk_alarm_code_module_idx ON alarm_code (module);
