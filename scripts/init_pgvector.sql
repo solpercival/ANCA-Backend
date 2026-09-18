@@ -87,7 +87,7 @@ CREATE INDEX IF NOT EXISTS fk_document_chunks_heading_idx ON document_chunks (cl
 -- Table alarm_code
 -- -----------------------------------------------------
 CREATE TABLE IF NOT EXISTS alarm_code (
-	alarm_code_id INTEGER PRIMARY KEY,
+	alarm_code_id SERIAL PRIMARY KEY,
 	origin VARCHAR(255) NOT NULL,
 	alarm_sequence VARCHAR(255) NOT NULL,
 	title VARCHAR(255) NOT NULL,
