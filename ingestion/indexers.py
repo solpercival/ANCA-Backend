@@ -232,27 +232,61 @@ def embed_and_index(chunks: list[RawChunk]) -> None:  # pragma: no cover - integ
     
     _write_embeddings(chunks=chunks, dense_embeddings=dense_embeddings, sparse_embeddings=sparse_embeddings)
 
-def populate_alarms(cursor) -> None:
+def populate_alarms() -> None:
     alarm_filepath: str = "/docs/docs-proto/starter-kit/alarms/alams.sample.json"
 
     # collect alarms from sample.json
     with open(alarm_filepath, 'r', encoding='utf-8') as file:
         alarms_json = json.loads(file)
 
-    alarms: list[dict] = []
-    for alarm in alarms_json["alarms"]:
-        code_sections = alarm["code"].split(".")
-        alarms.append({
-            # alarm_code data
-            "origin": code_sections[0],
-            "sequence": code_sections[2],
-            "title": alarm["title"],
-            "severity_score": alarm["severity_score"], # added separate severity score (int)
-            "severity_category": alarm["severity_category"], # severity category (enum)
-            "alarm_text": alarm["alarm_text"],
-            "data_fields": json.dumps(alarm["data_fields"], default=str),
+    settings = get_settings()
+    with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
+        register_vector(connection)
+        with connection.cursor() as cursor:
+            for alarm in alarms_json["alarms"]:
+                code_sections = alarm["code"].split(".")
+                alarm_data = {
+                    # alarm_code data
+                    "origin": code_sections[0],
+                    "sequence": code_sections[2],
+                    "title": alarm["title"],
+                    "severity_score": alarm["severity_score"], # added separate severity score (int)
+                    "severity_category": alarm["severity_category"], # severity category (enum)
+                    "alarm_text": alarm["alarm_text"],
+                    "data_fields": json.dumps(alarm["data_fields"], default=str),
 
-            # alarm_module data
-            "code": code_sections[1],
-            "module_title": alarm["domain"]
-        })
+                    # alarm_module data
+                    "code": code_sections[1],
+                    "module_title": alarm["domain"]
+                }
+
+                # insert alarm module, ignore on conflict
+                module_id = cursor.execute(
+                    """
+                    INSERT INTO alarm_module (code, title)
+                    VALUES (%s, %s)
+                    ON CONFLICT (code, title) DO NOTHING
+                    RETURNING id
+                    """,
+                    (alarm_data["code"], alarm_data["module_title"]),
+                ).fetchone()
+
+                # insert alarm code, update details on conflict
+                cursor.execute(
+                    """
+                    INSERT INTO alarm_code
+                    (origin, alarm_sequence, title, severity_score, severity_category, alarm_text, data_fields, module)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (origin, alarm_sequence, module) DO UPDATE 
+                        SET title = EXCLUDED.title,
+                            severity_score = EXCLUDED.severity_score,
+                            severity_category = EXCLUDED.severity_category,
+                            alarm_text = EXCLUDED.alarm_text,
+                            data_fields = EXCLUDED.data_fields; 
+                    """,
+                    (alarm_data["origin"], alarm_data["sequence"], alarm_data["title"],
+                     alarm_data["severity_score"], alarm_data["severity_category"], 
+                     alarm_data["alarm_text"], alarm_data["data_fields"], module_id),
+                )
+
+            cursor.commit()
