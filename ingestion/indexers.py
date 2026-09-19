@@ -15,6 +15,13 @@ from psycopg.types.json import Jsonb
 from ingestion.chunker import RawChunk
 from rag_engine.config import get_settings
 
+class InvalidInputError(Exception):
+    def __init__(self, invalid_fields: list):
+        self.message = f"Input has invalid fields or in an invalid format. Invalid fields: {", ".join(invalid_fields)}."
+        super().__init__(self.message)
+
+VALID_SEVERITY: tuple[str] = ('debug', 'info', 'warning', 'error', 'fatal')
+
 def _dense_embed(chunks: list[RawChunk], client: httpx.Client) -> list[list[float]]:
     """
     Function for generating dense vector embeddings using ollama API. Returns a
@@ -239,6 +246,12 @@ def populate_alarms(alarms_json: dict) -> None:
         with connection.cursor() as cursor:
             for alarm in alarms_json["alarms"]:
                 code_sections = alarm["code"].split(".")
+
+                if len(code_sections) != 3:
+                    raise InvalidInputError(["code"])
+
+                invalid_fields = []
+                
                 alarm_data = {
                     # alarm_code data
                     "origin": code_sections[0],
@@ -253,6 +266,29 @@ def populate_alarms(alarms_json: dict) -> None:
                     "code": code_sections[1],
                     "module_title": alarm["domain"]
                 }
+
+                # Validate inputs
+                if alarm_data["severity_category"].lower() not in VALID_SEVERITY:
+                    invalid_fields.append("severity_category")
+
+                if not alarm_data["module_title"]:
+                    invalid_fields.append("domain")
+
+                if alarm_data["severity_score"] <= 0:
+                    invalid_fields.append("severity")
+
+                if not alarm_data["title"]:
+                    invalid_fields.append("title")
+
+                if not alarm_data["alarm_text"]:
+                    invalid_fields.append("alarm_test")
+
+                if not (alarm_data["origin"] and alarm_data["code"] and alarm_data["sequence"]):
+                    invalid_fields.append("code")
+
+                # stop processing and raise error if input is malformed/invalid
+                if invalid_fields:
+                    raise InvalidInputError(invalid_fields)
 
                 # insert alarm module, ignore on conflict
                 module_res = cursor.execute(
