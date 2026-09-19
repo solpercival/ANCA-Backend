@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS document (
 CREATE TABLE IF NOT EXISTS alarm_module (
 	id SERIAL PRIMARY KEY,
 	code VARCHAR(6) NOT NULL,
-	title VARCHAR(120) NOT NULL
+	title VARCHAR(120) NOT NULL,
 	CONSTRAINT prevent_duplicate_alarm_module UNIQUE (code, title)
 );
 
@@ -101,7 +101,7 @@ CREATE TABLE IF NOT EXISTS alarm_code (
 		FOREIGN KEY (module)
 		REFERENCES alarm_module (id)
 		ON DELETE NO ACTION
-		ON UPDATE NO ACTION
+		ON UPDATE NO ACTION,
 	CONSTRAINT prevent_duplicate_alarm_code UNIQUE (origin, alarm_sequence, module)
 );
 
