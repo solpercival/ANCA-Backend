@@ -207,13 +207,8 @@ def test_single_alarm_insert():
 
 def test_duplicate_alarm_insert():
     sample_alarm = {
-        "code": "am.tc.001",
-        "title": "Test Alarm Code Title",
-        "domain": "TEST-CODE",
-        "severity": 200,
-        "severity_category": "Info",
-        "alarm_text": "Further description of the alarm",
-        "data_fields": {}
+        "code": "am.tc.001", "title": "Test Alarm Code Title", "domain": "TEST-CODE",
+        "severity": 200, "severity_category": "Info", "alarm_text": "Further description of the alarm", "data_fields": {}
     }
 
     # test whether code can handle multiple duplicate records insert
@@ -330,3 +325,41 @@ def test_multiple_alarm_insert():
                 assert any(entry["severity_score"] == alarm["severity"] for entry in code_test)
                 assert any(entry["severity_category"] == alarm["severity_category"].lower() for entry in code_test)
                 assert any(entry["alarm_text"] == alarm["alarm_text"] for entry in code_test)
+
+def test_invalid_input():
+    # empty code test
+    with pytest.raises(indexers.InvalidInputError):
+        invalid_alarm = {
+            "code": "", "title": "Test Alarm Code Title", "domain": "TEST-CODE", "severity": 200,
+            "severity_category": "Info", "alarm_text": "Further description of the alarm", "data_fields": {}
+        }
+
+        invalid_data = { "alarms": [invalid_alarm] }
+        indexers.populate_alarms(invalid_data)
+
+    # invalid code test
+    with pytest.raises(indexers.InvalidInputError):
+        invalid_alarm = {
+            "code": "..", "title": "Test Alarm Code Title", "domain": "TEST-CODE", "severity": 200,
+            "severity_category": "Info", "alarm_text": "Further description of the alarm", "data_fields": {}
+        }
+
+        invalid_data = { "alarms": [invalid_alarm] }
+        indexers.populate_alarms(invalid_data)
+
+    # empty fields test
+    with pytest.raises(indexers.InvalidInputError):
+        empty_alarm = { "code": "", "title": "", "domain": "", "severity": 1, "severity_category": "", "alarm_text": "", "data_fields": {} }
+
+        invalid_data = { "alarms": [empty_alarm] }
+        indexers.populate_alarms(invalid_data)
+
+    # invalid severity score test
+    with pytest.raises(indexers.InvalidInputError):
+        invalid_severity_score = {
+            "code": "am.tc.001", "title": "Test Alarm Code Title", "domain": "TEST-CODE", "severity": -200, 
+            "severity_category": "Info", "alarm_text": "Further description of the alarm", "data_fields": {}
+        }
+
+        invalid_data = { "alarms": [invalid_severity_score] }
+        indexers.populate_alarms(invalid_data)
