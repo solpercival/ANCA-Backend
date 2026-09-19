@@ -4,9 +4,9 @@ Run offline (make ingest / scheduled job / on docs-submodule bump), not in the
 serving path. Model-backed embedding is imported lazily.
 """
 from pathlib import Path
+import json
 
 from ingestion.chunker import RawChunk, chunk_markdown
-
 
 def collect_markdown(docs_dir: Path) -> list[RawChunk]:
     chunks: list[RawChunk] = []
@@ -18,7 +18,13 @@ def collect_markdown(docs_dir: Path) -> list[RawChunk]:
 def run(docs_dir: str = "docs") -> int:  # pragma: no cover - integration
     chunks = collect_markdown(Path(docs_dir))
     # Lazy import keeps hosted CI free of torch.
-    from ingestion.indexers import embed_and_index
+    from ingestion.indexers import embed_and_index, populate_alarms
+    
+    # collect alarms from sample.json
+    alarm_filepath: str = "docs/docs-proto/starter-kit/alarms/alams.sample.json"
+    with open(alarm_filepath, 'r', encoding='utf-8') as file:
+        alarms_json = json.loads(file)
+    populate_alarms(alarms_json)
 
     embed_and_index(chunks)
     return len(chunks)

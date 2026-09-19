@@ -10,6 +10,7 @@ import httpx
 import psycopg
 from pgvector.psycopg import register_vector
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 
 from ingestion.chunker import RawChunk
 from rag_engine.config import get_settings
@@ -232,16 +233,9 @@ def embed_and_index(chunks: list[RawChunk]) -> None:  # pragma: no cover - integ
     
     _write_embeddings(chunks=chunks, dense_embeddings=dense_embeddings, sparse_embeddings=sparse_embeddings)
 
-def populate_alarms() -> None:
-    alarm_filepath: str = "/docs/docs-proto/starter-kit/alarms/alams.sample.json"
-
-    # collect alarms from sample.json
-    with open(alarm_filepath, 'r', encoding='utf-8') as file:
-        alarms_json = json.loads(file)
-
+def populate_alarms(alarms_json: dict) -> None:
     settings = get_settings()
     with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
-        register_vector(connection)
         with connection.cursor() as cursor:
             for alarm in alarms_json["alarms"]:
                 code_sections = alarm["code"].split(".")
@@ -250,10 +244,10 @@ def populate_alarms() -> None:
                     "origin": code_sections[0],
                     "sequence": code_sections[2],
                     "title": alarm["title"],
-                    "severity_score": alarm["severity_score"], # added separate severity score (int)
-                    "severity_category": alarm["severity_category"], # severity category (enum)
+                    "severity_score": alarm["severity"], # added separate severity score (int)
+                    "severity_category": alarm["severity_category"].lower(), # severity category (enum)
                     "alarm_text": alarm["alarm_text"],
-                    "data_fields": json.dumps(alarm["data_fields"], default=str),
+                    "data_fields": alarm["data_fields"],
 
                     # alarm_module data
                     "code": code_sections[1],
@@ -261,11 +255,12 @@ def populate_alarms() -> None:
                 }
 
                 # insert alarm module, ignore on conflict
-                module_id = cursor.execute(
+                module_res = cursor.execute(
                     """
                     INSERT INTO alarm_module (code, title)
                     VALUES (%s, %s)
-                    ON CONFLICT (code, title) DO NOTHING
+                    ON CONFLICT (code, title) DO UPDATE 
+                    SET title = EXCLUDED.title
                     RETURNING id
                     """,
                     (alarm_data["code"], alarm_data["module_title"]),
@@ -286,7 +281,7 @@ def populate_alarms() -> None:
                     """,
                     (alarm_data["origin"], alarm_data["sequence"], alarm_data["title"],
                      alarm_data["severity_score"], alarm_data["severity_category"], 
-                     alarm_data["alarm_text"], alarm_data["data_fields"], module_id),
+                     alarm_data["alarm_text"], Jsonb(alarm_data["data_fields"]), module_res["id"]),
                 )
 
-            cursor.commit()
+            connection.commit()
