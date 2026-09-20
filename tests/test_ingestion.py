@@ -372,3 +372,61 @@ def test_invalid_input():
 
         invalid_data = { "_modules": {"tc": "TEST-CODE"}, "alarms": [invalid_severity_score] }
         indexers.populate_alarms(invalid_data)
+
+# replace the temporary file open with the actual submodule once implemented
+def validate_alarms_insert():
+    import json 
+
+    alarm_filepath: str = "docs/docs-proto/starter-kit/alarms/alarms.sample.json"
+    with open(alarm_filepath, 'r', encoding='utf-8') as file:
+        alarms_json = json.load(file)
+
+    assert alarms_json != {}
+
+    indexers.populate_alarms(alarms_json)
+
+    settings = get_settings()
+    with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
+        register_vector(connection)
+        with connection.cursor() as cursor:
+            # validate _modules populated correctly
+            for module in alarms_json["_modules"]:
+                res = cursor.execute("""
+                    SELECT * FROM alarm_module
+                    WHERE code = %s;
+                """,
+                [module]).fetchone()
+
+                assert(res["code"] == module)
+                assert(res["title"] == alarms_json["_modules"][module])
+
+            # validate alarms populated correctly
+            for alarm in alarms_json["alarms"]:
+                alarm_code = alarm["code"]
+                parts = alarm_code.split(settings.alarm_delim)
+
+                res = cursor.execute("""
+                    SELECT 
+                        ac.origin AS origin,
+                        am.code AS module,
+                        ac.sequence AS sequence,
+                        am.title AS domain,
+                        am.severity_score AS severity_score,
+                        am.severity_category AS severity_category,
+                        am.alarm_text AS alarm_text,
+                        am.data_fields AS data_fields
+                    FROM alarm_code AS ac
+                    INNER JOIN alarm_module AS am
+                    ON ac.module = am.id
+                    WHERE ac.origin = %s AND am.code = %s AND ac.sequence = %s;
+                """,
+                [parts[0], parts[1], parts[2]]).fetchone()
+
+                # validate all fields
+                assert(len(res) > 0)
+                assert(f"{res["origin"]}{settings.alarm_delim}{res["module"]}{settings.alarm_delim}{res["sequence"]}" == alarm["code"])
+                assert(res["domain"] == alarm["domain"])
+                assert(res["severity_score"] == alarm["severity"])
+                assert(res["severity_category"].lower() == alarm["severity_category"].lower())
+                assert(res["alarm_text"] == alarm["alarm_text"])
+                assert(res["data_fields"] == alarm["data_fields"])
