@@ -172,6 +172,7 @@ def test_single_alarm_insert():
     }
 
     sample_data = {
+        "_modules": {"tc": "TEST-CODE"},
         "alarms": [sample_alarm]
     }
 
@@ -214,6 +215,7 @@ def test_duplicate_alarm_insert():
     # test whether code can handle multiple duplicate records insert
     # entries should be unique, error occurs when more than 1 result appears
     sample_data = {
+        "_modules": {"tc": "TEST-CODE"},
         "alarms": [sample_alarm, sample_alarm, sample_alarm]
     }
 
@@ -281,6 +283,10 @@ def test_multiple_alarm_insert():
         "severity_category": "Debug", "alarm_text": "Routine ping received successfully from worker node.", "data_fields": { "node_id": "worker-04", "uptime_hours": 120 } }
 
     sample_data = {
+        "_modules": {
+            "tc": "TEST-CODE", "ot": "OTHER-TEST", "ta": "TEST-ALARM", "nw": "NETWORK", 
+            "hw": "HARDWARE", "db": "DATABASE", "sec": "SECURITY", "io": "STORAGE", "srv": "SERVICE"
+        },
         "_severity_scale": {
             "description": "Severity is an integer 1-1000, subdivided into bands with the default values shown.",
             "bands": { "Debug": 1, "Info": 167, "Warning": 500, "Error": 833, "Fatal": 1000 }
@@ -334,7 +340,7 @@ def test_invalid_input():
             "severity_category": "Info", "alarm_text": "Further description of the alarm", "data_fields": {}
         }
 
-        invalid_data = { "alarms": [invalid_alarm] }
+        invalid_data = { "_modules": {}, "alarms": [invalid_alarm] }
         indexers.populate_alarms(invalid_data)
 
     # invalid code test
@@ -344,14 +350,14 @@ def test_invalid_input():
             "severity_category": "Info", "alarm_text": "Further description of the alarm", "data_fields": {}
         }
 
-        invalid_data = { "alarms": [invalid_alarm] }
+        invalid_data = { "_modules": {}, "alarms": [invalid_alarm] }
         indexers.populate_alarms(invalid_data)
 
     # empty fields test
     with pytest.raises(indexers.InvalidInputError):
         empty_alarm = { "code": "", "title": "", "domain": "", "severity": 1, "severity_category": "", "alarm_text": "", "data_fields": {} }
 
-        invalid_data = { "alarms": [empty_alarm] }
+        invalid_data = { "_modules": {}, "alarms": [empty_alarm] }
         indexers.populate_alarms(invalid_data)
 
     # invalid severity score test
@@ -361,5 +367,5 @@ def test_invalid_input():
             "severity_category": "Info", "alarm_text": "Further description of the alarm", "data_fields": {}
         }
 
-        invalid_data = { "alarms": [invalid_severity_score] }
+        invalid_data = { "_modules": {"tc": "TEST-CODE"}, "alarms": [invalid_severity_score] }
         indexers.populate_alarms(invalid_data)

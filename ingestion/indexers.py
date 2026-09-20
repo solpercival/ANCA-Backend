@@ -244,6 +244,19 @@ def populate_alarms(alarms_json: dict) -> None:
     settings = get_settings()
     with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
         with connection.cursor() as cursor:
+            # use _modules to populate alarm_module table first
+            for module in alarms_json["_modules"]:
+                cursor.execute(
+                    """
+                    INSERT INTO alarm_module (code, title)
+                    VALUES (%s, %s)
+                    ON CONFLICT (code, title) DO UPDATE 
+                    SET title = EXCLUDED.title
+                    """,
+                    (module, alarms_json["_modules"][module]),
+                )
+
+            # populate individual alarms
             for alarm in alarms_json["alarms"]:
                 code_sections = alarm["code"].split(".")
 
@@ -293,11 +306,8 @@ def populate_alarms(alarms_json: dict) -> None:
                 # insert alarm module, ignore on conflict
                 module_res = cursor.execute(
                     """
-                    INSERT INTO alarm_module (code, title)
-                    VALUES (%s, %s)
-                    ON CONFLICT (code, title) DO UPDATE 
-                    SET title = EXCLUDED.title
-                    RETURNING id
+                    SELECT id FROM alarm_module
+                    WHERE code = %s AND title = %s;
                     """,
                     (alarm_data["code"], alarm_data["module_title"]),
                 ).fetchone()
