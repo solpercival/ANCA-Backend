@@ -9,6 +9,7 @@ import psycopg
 from pgvector.psycopg import register_vector
 from psycopg.rows import dict_row
 import httpx
+import hashlib
 
 def test_chunk_markdown_splits_on_headers_and_keeps_content():
     markdown = """# Intro
@@ -374,7 +375,7 @@ def test_invalid_input():
         indexers.populate_alarms(invalid_data)
 
 # replace the temporary file open with the actual submodule once implemented
-def validate_alarms_insert():
+def test_alarms_insert():
     import json 
 
     alarm_filepath: str = "docs/docs-proto/starter-kit/alarms/alarms.sample.json"
@@ -409,16 +410,16 @@ def validate_alarms_insert():
                     SELECT 
                         ac.origin AS origin,
                         am.code AS module,
-                        ac.sequence AS sequence,
+                        ac.alarm_sequence AS sequence,
                         am.title AS domain,
-                        am.severity_score AS severity_score,
-                        am.severity_category AS severity_category,
-                        am.alarm_text AS alarm_text,
-                        am.data_fields AS data_fields
+                        ac.severity_score AS severity_score,
+                        ac.severity_category AS severity_category,
+                        ac.alarm_text AS alarm_text,
+                        ac.data_fields AS data_fields
                     FROM alarm_code AS ac
                     INNER JOIN alarm_module AS am
                     ON ac.module = am.id
-                    WHERE ac.origin = %s AND am.code = %s AND ac.sequence = %s;
+                    WHERE ac.origin = %s AND am.code = %s AND ac.alarm_sequence = %s;
                 """,
                 [parts[0], parts[1], parts[2]]).fetchone()
 
@@ -430,3 +431,68 @@ def validate_alarms_insert():
                 assert(res["severity_category"].lower() == alarm["severity_category"].lower())
                 assert(res["alarm_text"] == alarm["alarm_text"])
                 assert(res["data_fields"] == alarm["data_fields"])
+
+# single document insert test
+def test_single_document_insert():
+    fake_version = "1.12"
+    fake_hash = hashlib.sha256(b"hello world!").hexdigest()
+    fake_fp = "/random_folder/random_file.txt"
+
+    settings = get_settings()
+    with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
+        register_vector(connection)
+        with connection.cursor() as cursor:
+            # single document insert
+            fake_docid = indexers.insert_document(cursor, fake_version, fake_hash, fake_fp)
+
+            # verify using PK
+            res = cursor.execute("""
+                SELECT * FROM document
+                WHERE doc_id = %s;
+            """,
+            [fake_docid]).fetchall()
+
+            assert(len(res) == 1)
+            assert(res[0]["current_version"] == fake_version)
+            assert(res[0]["hash"].decode('utf-8') == fake_hash)
+            assert(res[0]["file_path"] == fake_fp)
+
+            # verify using fields
+            res = cursor.execute("""
+                SELECT * FROM document
+                WHERE current_version = %s AND hash = %s AND file_path = %s;
+            """,
+            [fake_version, fake_hash, fake_fp]).fetchall()
+
+            assert(len(res) == 1)
+            assert(res[0]["current_version"] == fake_version)
+            assert(res[0]["hash"].decode('utf-8') == fake_hash)
+            assert(res[0]["file_path"] == fake_fp)
+
+# duplicate document insert test
+def test_duplicate_document_insert():
+    fake_version = "1.12"
+    fake_hash = hashlib.sha256(b"hello world!").hexdigest()
+    fake_fp = "/random_folder/random_file.txt"
+    doc_id_set = set()
+
+    settings = get_settings()
+    with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
+        register_vector(connection)
+        with connection.cursor() as cursor:
+            # validate that duplicates do not create new entries
+            for i in range(10):
+                fake_docid = indexers.insert_document(cursor, fake_version, fake_hash, fake_fp)
+                doc_id_set.add(fake_docid)
+
+            res = cursor.execute("""
+                SELECT * FROM document
+                WHERE current_version = %s AND hash = %s AND file_path = %s;
+            """,
+            [fake_version, fake_hash, fake_fp]).fetchall()
+
+            assert(len(doc_id_set) == 1)
+            assert(len(res) == 1)
+            assert(res[0]["current_version"] == fake_version)
+            assert(res[0]["hash"].decode('utf-8') == fake_hash)
+            assert(res[0]["file_path"] == fake_fp)
