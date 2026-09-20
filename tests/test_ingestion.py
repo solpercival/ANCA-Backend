@@ -161,8 +161,9 @@ def test_dense_embedding():
     assert all(len(vec) == settings.semantic_dim for vec in dense_vecs)
     
 def test_single_alarm_insert():
+    settings = get_settings()
     sample_alarm = {
-        "code": "am.tc.001",
+        "code": f"am{settings.alarm_delim}tc{settings.alarm_delim}001",
         "title": "Test Alarm Code Title",
         "domain": "TEST-CODE",
         "severity": 200,
@@ -179,22 +180,21 @@ def test_single_alarm_insert():
     # populate db with 1 record
     indexers.populate_alarms(sample_data)
 
-    settings = get_settings()
     with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
         register_vector(connection)
         with connection.cursor() as cursor:
             module_test = cursor.execute("""
                 SELECT * FROM alarm_module
                 WHERE code = %s;
-            """, [sample_alarm["code"].split(".")[1]],).fetchall()
+            """, [sample_alarm["code"].split(settings.alarm_delim)[1]],).fetchall()
 
             # verify 1 insertion made
-            expected_module_code = sample_alarm["code"].split(".")[1]
+            expected_module_code = sample_alarm["code"].split(settings.alarm_delim)[1]
             assert (len(module_test) >= 1)
             assert any((module["code"] == expected_module_code) and (module["title"] == sample_alarm["domain"]) for module in module_test)
 
-            expected_sequence = sample_alarm["code"].split(".")[2]
-            expected_origin = sample_alarm["code"].split(".")[0]
+            expected_sequence = sample_alarm["code"].split(settings.alarm_delim)[2]
+            expected_origin = sample_alarm["code"].split(settings.alarm_delim)[0]
             code_test = cursor.execute("""
                 SELECT * from alarm_code
                 WHERE alarm_sequence = %s AND origin = %s AND module = %s;
@@ -207,8 +207,9 @@ def test_single_alarm_insert():
             assert any(entry["alarm_text"] == sample_alarm["alarm_text"] for entry in code_test)
 
 def test_duplicate_alarm_insert():
+    settings = get_settings()
     sample_alarm = {
-        "code": "am.tc.001", "title": "Test Alarm Code Title", "domain": "TEST-CODE",
+        "code": f"am{settings.alarm_delim}tc{settings.alarm_delim}001", "title": "Test Alarm Code Title", "domain": "TEST-CODE",
         "severity": 200, "severity_category": "Info", "alarm_text": "Further description of the alarm", "data_fields": {}
     }
 
@@ -222,22 +223,23 @@ def test_duplicate_alarm_insert():
     # populate db with duplicate records
     indexers.populate_alarms(sample_data)
 
-    settings = get_settings()
     with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
         register_vector(connection)
         with connection.cursor() as cursor:
             module_test = cursor.execute("""
                 SELECT * FROM alarm_module
                 WHERE code = %s;
-            """, [sample_alarm["code"].split(".")[1]],).fetchall()
+            """, [sample_alarm["code"].split(settings.alarm_delim)[1]],).fetchall()
+
+            alarm_code_sections = sample_alarm["code"].split(settings.alarm_delim)
 
             # verify 1 insertion made
-            expected_module_code = sample_alarm["code"].split(".")[1]
+            expected_module_code = alarm_code_sections[1]
             assert (len(module_test) == 1)
             assert any((module["code"] == expected_module_code) and (module["title"] == sample_alarm["domain"]) for module in module_test)
 
-            expected_sequence = sample_alarm["code"].split(".")[2]
-            expected_origin = sample_alarm["code"].split(".")[0]
+            expected_sequence = alarm_code_sections[2]
+            expected_origin = alarm_code_sections[0]
             code_test = cursor.execute("""
                 SELECT * from alarm_code
                 WHERE alarm_sequence = %s AND origin = %s AND module = %s;
@@ -250,36 +252,37 @@ def test_duplicate_alarm_insert():
             assert any(entry["alarm_text"] == sample_alarm["alarm_text"] for entry in code_test)
 
 def test_multiple_alarm_insert():
+    settings = get_settings()
     # sample alarms with random codes and fields
     sample_alarm1 = {
-        "code": "am.tc.001", "title": "Test Alarm Code Title", "domain": "TEST-CODE", "severity": 200, 
+        "code": f"am{settings.alarm_delim}tc{settings.alarm_delim}001", "title": "Test Alarm Code Title", "domain": "TEST-CODE", "severity": 200, 
         "severity_category": "Info", "alarm_text": "Further description of the alarm", "data_fields": {} }
     sample_alarm2 = {
-        "code": "am.tc.005", "title": "Test Code 5", "domain": "TEST-CODE", "severity": 1, 
+        "code": f"am{settings.alarm_delim}tc{settings.alarm_delim}005", "title": "Test Code 5", "domain": "TEST-CODE", "severity": 1, 
         "severity_category": "Debug", "alarm_text": "More descriptions of the alarm...", "data_fields": { "program": "hello.cpp", "line": 5 } }
     sample_alarm3 = {
-        "code": "am.ot.944", "title": "Other Test Alarm", "domain": "OTHER-TEST", "severity": 500, 
+        "code": f"am{settings.alarm_delim}ot{settings.alarm_delim}944", "title": "Other Test Alarm", "domain": "OTHER-TEST", "severity": 500, 
         "severity_category": "Warning", "alarm_text": "Other descriptions of an alarm", "data_fields": { "axes": ["X", "Y", "Z"] } }
     sample_alarm4 = {
-        "code": "am.ta.023", "title": "Test Alarm Code Title", "domain": "TEST-ALARM", "severity": 833, 
+        "code": f"am{settings.alarm_delim}ta{settings.alarm_delim}023", "title": "Test Alarm Code Title", "domain": "TEST-ALARM", "severity": 833, 
         "severity_category": "Error", "alarm_text": "A random test alarm", "data_fields": {} }
     sample_alarm5 = {
-        "code": "am.nw.102", "title": "Network Connection Timeout", "domain": "NETWORK", "severity": 900, 
+        "code": f"am{settings.alarm_delim}nw{settings.alarm_delim}102", "title": "Network Connection Timeout", "domain": "NETWORK", "severity": 900, 
         "severity_category": "Error", "alarm_text": "Failed to establish connection with remote gateway after 3 retries.", "data_fields": { "ip_address": "192.168.1.50", "port": 443 } }
     sample_alarm6 = {
-        "code": "am.hw.310", "title": "Temperature Sensor Warning", "domain": "HARDWARE", "severity": 600, 
+        "code": f"am{settings.alarm_delim}hw{settings.alarm_delim}310", "title": "Temperature Sensor Warning", "domain": "HARDWARE", "severity": 600, 
         "severity_category": "Warning", "alarm_text": "CPU core temperature exceeded nominal operational threshold.", "data_fields": { "sensor_id": "temp_cpu_2", "temperature_celsius": 88.5 } }
     sample_alarm7 = {
-        "code": "tt.db.014", "title": "Database Query Slowdown", "domain": "DATABASE", "severity": 400, 
+        "code": f"tt{settings.alarm_delim}db{settings.alarm_delim}014", "title": "Database Query Slowdown", "domain": "DATABASE", "severity": 400, 
         "severity_category": "Info", "alarm_text": "Execution time for transaction batch exceeded 5000ms.", "data_fields": { "query_id": "q_98234", "duration_ms": 5210 } }
     sample_alarm8 = {
-        "code": "tt.sec.088", "title": "Unauthorized Access Attempt", "domain": "SECURITY", "severity": 950, 
+        "code": f"tt{settings.alarm_delim}sec{settings.alarm_delim}088", "title": "Unauthorized Access Attempt", "domain": "SECURITY", "severity": 950, 
         "severity_category": "Error", "alarm_text": "Multiple failed authentication attempts detected from source.", "data_fields": { "attempts": 5, "username": "admin" } }
     sample_alarm9 = {
-        "code": "am.io.215", "title": "Disk Space Low", "domain": "STORAGE", "severity": 700, 
+        "code": f"am{settings.alarm_delim}io{settings.alarm_delim}215", "title": "Disk Space Low", "domain": "STORAGE", "severity": 700, 
         "severity_category": "Warning", "alarm_text": "Available disk space on primary volume has dropped below 10%.", "data_fields": { "mount_point": "/var/log", "free_space_gb": 4.2 } }
     sample_alarm10 = {
-        "code": "tt.srv.003", "title": "Service Heartbeat Received", "domain": "SERVICE", "severity": 1, 
+        "code": f"tt{settings.alarm_delim}srv{settings.alarm_delim}003", "title": "Service Heartbeat Received", "domain": "SERVICE", "severity": 1, 
         "severity_category": "Debug", "alarm_text": "Routine ping received successfully from worker node.", "data_fields": { "node_id": "worker-04", "uptime_hours": 120 } }
 
     sample_data = {
@@ -298,14 +301,13 @@ def test_multiple_alarm_insert():
     # populate db with multiple records
     indexers.populate_alarms(sample_data)
 
-    settings = get_settings()
     with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
         register_vector(connection)
         with connection.cursor() as cursor:
             
             # loop through all inserted alarms to verify each one
             for alarm in sample_data["alarms"]:
-                parts = alarm["code"].split(".")
+                parts = alarm["code"].split(settings.alarm_delim)
                 expected_origin = parts[0]
                 expected_module_code = parts[1]
                 expected_sequence = parts[2]
@@ -333,6 +335,7 @@ def test_multiple_alarm_insert():
                 assert any(entry["alarm_text"] == alarm["alarm_text"] for entry in code_test)
 
 def test_invalid_input():
+    settings = get_settings()
     # empty code test
     with pytest.raises(indexers.InvalidInputError):
         invalid_alarm = {
@@ -346,7 +349,7 @@ def test_invalid_input():
     # invalid code test
     with pytest.raises(indexers.InvalidInputError):
         invalid_alarm = {
-            "code": "..", "title": "Test Alarm Code Title", "domain": "TEST-CODE", "severity": 200,
+            "code": f"{settings.alarm_delim}{settings.alarm_delim}", "title": "Test Alarm Code Title", "domain": "TEST-CODE", "severity": 200,
             "severity_category": "Info", "alarm_text": "Further description of the alarm", "data_fields": {}
         }
 
@@ -363,7 +366,7 @@ def test_invalid_input():
     # invalid severity score test
     with pytest.raises(indexers.InvalidInputError):
         invalid_severity_score = {
-            "code": "am.tc.001", "title": "Test Alarm Code Title", "domain": "TEST-CODE", "severity": -200, 
+            "code": f"am{settings.alarm_delim}tc{settings.alarm_delim}001", "title": "Test Alarm Code Title", "domain": "TEST-CODE", "severity": -200, 
             "severity_category": "Info", "alarm_text": "Further description of the alarm", "data_fields": {}
         }
 

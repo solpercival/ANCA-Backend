@@ -258,7 +258,7 @@ def populate_alarms(alarms_json: dict) -> None:
 
             # populate individual alarms
             for alarm in alarms_json["alarms"]:
-                code_sections = alarm["code"].split(".")
+                code_sections = alarm["code"].split(settings.alarm_delim)
 
                 if len(code_sections) != 3:
                     raise InvalidInputError(["code"])
