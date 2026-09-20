@@ -1,4 +1,4 @@
-from rag_engine.retrieval.interfaces import Chunk
+from rag_engine.retrieval.interfaces import Chunk, Alarm
 from rag_engine.stores.db import get_db_conn
 from rag_engine.stores.cache import get_cache_conn
 from rag_engine.config import get_settings
@@ -30,6 +30,7 @@ class PostgresDBConnection:
 
         return result_chunks
 
+    # Lexical index search
     async def lexical_search(self, vector: dict[int,float], top_k: int) -> list[Chunk]:
         result_chunks = []
         settings = get_settings()
@@ -53,6 +54,47 @@ class PostgresDBConnection:
                 result_chunks.append(Chunk(chunk_id=str(entry["chunk_id"]), text=entry["content"], source=entry["file_path"], metadata=entry["metadata"]))
 
             return result_chunks
+
+    async def alarm_search(self, request_json: dict) -> Alarm:
+        settings = get_settings()
+
+        # validate fields
+        if (not request_json) or ("code" not in request_json) or ("env" not in request_json):
+            return None
+
+        alarm_code = request_json["code"].split(".")
+
+        # validate alarm code format
+        if len(alarm_code) != 3:
+            return None
+
+        with get_db_conn() as conn:
+            result = conn.execute(
+                """
+                SELECT 
+                    am.code as module, am.title as domain,
+                    ac.origin as origin, 
+                    ac.sequence as sequence,
+                    ac.title as title,
+                    ac.severity_category as severity_category, 
+                    ac.severity_score as severity_score,
+                    ac.alarm_text as alarm_text,
+                    ac.data_fields as data_fields
+                FROM alarm_code ac
+                INNER JOIN alarm_module am
+                ON ac.id = am.module
+                WHERE ac.origin = %s AND am.code = %s AND ac.sequence = %s;
+                """,
+                (alarm_code[0], alarm_code[1], alarm_code[2])
+            ).fetchone()
+
+            # no results
+            if not result:
+                return None
+
+        return Alarm(code=request_json["code"], title=result["title"], domain=result["domain"],
+                    severity_score=result["severity_score"], alarm_text=result["alarm_text"], 
+                    data_fields=json.loads(result["data_fields"]))
 
 class RedisConnection:
     def _create_key(self, text: str) -> str:
