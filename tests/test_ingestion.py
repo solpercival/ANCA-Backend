@@ -53,7 +53,7 @@ def test_chunk_markdown_splits_code():
     assert any("code" == chunk.kind for chunk in chunks)
     assert any("text" == chunk.kind for chunk in chunks)
     assert any("for i in range(5)" in chunk.text for chunk in chunks)
-    assert all("Content" in chunk.headers for chunk in chunks)
+    assert all("Content" in chunk.headers.values() for chunk in chunks)
     assert all(chunk.source == "sample.md" for chunk in chunks)
 
 
@@ -88,8 +88,8 @@ def test_chunk_markdown_splits_list():
     assert any("list" == chunk.kind for chunk in chunks)
     assert any("text" == chunk.kind for chunk in chunks)
     assert any("beta-1" in chunk.text for chunk in chunks)
-    assert all("Content" in chunk.headers for chunk in chunks)
-    assert any("List 1 (Numbered)" in chunk.headers for chunk in chunks)
+    assert all("Content" in chunk.headers.values() for chunk in chunks)
+    assert any("List 1 (Numbered)" in chunk.headers.values() for chunk in chunks)
     assert all(chunk.source == "sample.md" for chunk in chunks)
     
 
@@ -116,8 +116,8 @@ def test_chunk_markdown_splits_table():
     assert any("table" == chunk.kind for chunk in chunks)
     assert any("text" == chunk.kind for chunk in chunks)
     assert any("Task ID" in chunk.text for chunk in chunks)
-    assert all("Content" in chunk.headers for chunk in chunks)
-    assert any("Table Sample" in chunk.headers for chunk in chunks)
+    assert all("Content" in chunk.headers.values() for chunk in chunks)
+    assert any("Table Sample" in chunk.headers.values() for chunk in chunks)
     assert all(chunk.source == "sample.md" for chunk in chunks)
 
 def test_collect_markdown_reads_nested_markdown_files(tmp_path):
