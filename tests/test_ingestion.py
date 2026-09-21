@@ -496,3 +496,87 @@ def test_duplicate_document_insert():
             assert(res[0]["current_version"] == fake_version)
             assert(res[0]["hash"].decode('utf-8') == fake_hash)
             assert(res[0]["file_path"] == fake_fp)
+
+def test_single_combined_insert():
+    # test if an insert of a document with chunks, headings and embeddings is valid
+    settings = get_settings()
+    fake_chunks = [RawChunk(text="test hello world!", source="source-1.txt", headers={"h1": "Overview", "h2": "Lower heading"}, kind="text")]
+    fake_dense_embeddings = [[0.2] * settings.semantic_dim]
+    fake_sparse_embeddings = [{1: 0.32, 45: 0.111, 73: 0.382, 121: 0.8743, 573: 0.00001}]
+
+    indexers._write_embeddings(fake_chunks, fake_dense_embeddings, fake_sparse_embeddings)
+    with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
+        register_vector(connection)
+        with connection.cursor() as cursor:
+            res = cursor.execute("""
+                SELECT 
+                    dc.content AS text,
+                    dc.document_source AS document_src,
+                    dc.dc_type AS type,
+                    d.hash AS document_hash,
+                    d.current_version AS current_version,
+                    d.file_path AS file_path,
+                    h.heading_order AS heading_order,
+                    h.hierarchy AS heading_hierarchy,
+                    dc.lexical_embedding AS lexical_embed,
+                    dc.semantic_embedding AS semantic_embed	
+                FROM document AS d
+                INNER JOIN heading AS h
+                ON d.doc_id = h.document_id
+                RIGHT JOIN document_chunks AS dc
+                ON dc.closest_heading = h.heading_id
+                WHERE dc.content = %s;
+            """,
+            [fake_chunks[0].text]).fetchall()
+
+            print(res)
+            assert (len(res) == 2) # 2 rows because there are 2 headers in the chunk
+            assert all(entry["lexical_embed"] == fake_dense_embeddings for entry in res)
+            assert all(entry["semantic_embed"] == fake_sparse_embeddings for entry in res)
+            assert all(entry["text"] == fake_chunks[0].text for entry in res)
+            assert all(entry["type"].lower() == fake_chunks[0].kind.lower() for entry in res)
+            assert all(entry["document_src"] == fake_chunks[0].source for entry in res)
+
+            # test headings
+            assert any(entry["heading_order"] == "Overview" and entry["heading_hieararchy"] == "h1" for entry in res)
+            assert any(entry["heading_order"] == "Lower heading" and entry["heading_hieararchy"] == "h2" for entry in res)
+
+def test_duplicate_combined_insert():
+    # test if duplicate inserts are only made once
+    settings = get_settings()
+    fake_chunks = []
+    fake_dense_embeddings = []
+    fake_sparse_embeddings = []
+
+    for i in range(10):
+        fake_chunks.append(RawChunk(text="test hello world!", source="source-1.txt", headers={"h1": "Overview", "h2": "Lower heading"}, kind="text"))
+        fake_dense_embeddings.append([0.2] * settings.semantic_dim)
+        fake_sparse_embeddings.append({1: 0.32, 45: 0.111, 73: 0.382, 121: 0.8743, 573: 0.00001})
+
+    indexers._write_embeddings(fake_chunks, fake_dense_embeddings, fake_sparse_embeddings)
+    with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
+        register_vector(connection)
+        with connection.cursor() as cursor:
+            res = cursor.execute("""
+                SELECT 
+                    dc.content AS text,
+                    dc.document_source AS document_src,
+                    dc.dc_type AS type,
+                    d.hash AS document_hash,
+                    d.current_version AS current_version,
+                    d.file_path AS file_path,
+                    h.heading_order AS heading_order,
+                    h.hierarchy AS heading_hierarchy,
+                    dc.lexical_embedding AS lexical_embed,
+                    dc.semantic_embedding AS semantic_embed	
+                FROM document AS d
+                INNER JOIN heading AS h
+                ON d.doc_id = h.document_id
+                RIGHT JOIN document_chunks AS dc
+                ON dc.closest_heading = h.heading_id
+                WHERE dc.content = %s;
+            """,
+            [fake_chunks[0].text]).fetchall()
+
+            print(res)
+            assert (len(res) == 2)
