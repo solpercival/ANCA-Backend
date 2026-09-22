@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS document (
 	doc_id SERIAL PRIMARY KEY,
 	current_version VARCHAR(16) NOT NULL,
 	hash BYTEA NOT NULL,
-	file_path TEXT NOT NULL UNIQUE
+	file_path TEXT NOT NULL UNIQUE,
+	CONSTRAINT prevent_duplicate_documents UNIQUE(current_version, hash, file_path)
 );
 
 -- -----------------------------------------------------
@@ -75,6 +76,7 @@ CREATE TABLE IF NOT EXISTS document_chunks (
 	lexical_embedding sparsevec(30522),
 	semantic_embedding vector(1024) NOT NULL,
 	closest_heading BIGINT,
+	CONSTRAINT prevent_duplicate_chunks UNIQUE(content, metadata, dc_type, document_source, closest_heading),
 	CONSTRAINT fk_document_chunks_heading
 		FOREIGN KEY (closest_heading)
 		REFERENCES heading (heading_id)

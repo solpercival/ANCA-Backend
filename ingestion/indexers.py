@@ -131,6 +131,8 @@ def insert_chunk(cursor, data: dict, doc_id: int, heading_cache: dict[tuple, int
         INSERT INTO document_chunks
             (content, metadata, dc_type, document_source, lexical_embedding, semantic_embedding, closest_heading)
         VALUES (%s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (content, metadata, dc_type, document_source, closest_heading) DO UPDATE
+            SET lexical_embedding = EXCLUDED.lexical_embedding, semantic_embedding = EXCLUDED.semantic_embedding
         RETURNING chunk_id
         """,
         (chunk.text, "{}", chunk.kind, chunk.source, f"{sparse}/30522" if sparse else None, dense, heading_id)
