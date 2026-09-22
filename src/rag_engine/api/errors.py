@@ -11,6 +11,7 @@ class ErrorCode(StrEnum):
     session_expired = "session_expired"
     # request
     validation_error = "validation_error"
+    payload_too_large = "payload_too_large"
     not_found = "not_found"
     conflict = "conflict"
     unknown_alarm_code = "unknown_alarm_code"

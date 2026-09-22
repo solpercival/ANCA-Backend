@@ -7,7 +7,8 @@ import httpx
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from rag_engine.api.error_handlers import register_error_handlers
+from rag_engine.api.error_handlers import _json, register_error_handlers
+from rag_engine.api.errors import ErrorBody, ErrorCode
 from rag_engine.api.routes import router
 from rag_engine.auth.routes import router as auth_router
 from rag_engine.auth.session_store import RedisSessionStore
@@ -20,6 +21,7 @@ from rag_engine.stores.db import close_db_pool, init_db_pool
 settings = get_settings()
 logging.basicConfig(level=settings.log_level)
 log = logging.getLogger("rag_engine.main")
+MAX_REQUEST_BODY_BYTES = 64 * 1024
 
 
 @asynccontextmanager
@@ -63,6 +65,19 @@ app = FastAPI(lifespan=lifespan)
 @app.middleware("http")
 async def add_request_id(request: Request, call_next):
     request.state.request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
+
+    if request.url.path.startswith("/api/v1"):
+        body = await request.body()
+        if len(body) > MAX_REQUEST_BODY_BYTES:
+            return _json(
+                413,
+                ErrorBody(
+                    code=ErrorCode.payload_too_large,
+                    message="Request body exceeds the configured size limit.",
+                    request_id=request.state.request_id,
+                ),
+            )
+
     response = await call_next(request)
     response.headers["x-request-id"] = request.state.request_id
     return response
