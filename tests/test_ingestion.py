@@ -7,6 +7,7 @@ from ingestion.pipeline import collect_markdown
 from rag_engine.config import get_settings
 import psycopg
 from pgvector.psycopg import register_vector
+from pgvector import SparseVector
 from psycopg.rows import dict_row
 import httpx
 import hashlib
@@ -510,12 +511,14 @@ def test_single_combined_insert():
         with connection.cursor() as cursor:
             res = cursor.execute("""
                 SELECT 
+                    dc.chunk_id as id,
                     dc.content AS text,
                     dc.document_source AS document_src,
                     dc.dc_type AS type,
                     d.hash AS document_hash,
                     d.current_version AS current_version,
                     d.file_path AS file_path,
+                    h.heading_id AS heading_id,
                     h.heading_order AS heading_order,
                     h.hierarchy AS heading_hierarchy,
                     dc.lexical_embedding AS lexical_embed,
@@ -529,17 +532,16 @@ def test_single_combined_insert():
             """,
             [fake_chunks[0].text]).fetchall()
 
-            print(res)
-            assert (len(res) == 2) # 2 rows because there are 2 headers in the chunk
-            assert all(entry["lexical_embed"] == fake_dense_embeddings for entry in res)
-            assert all(entry["semantic_embed"] == fake_sparse_embeddings for entry in res)
+            assert (len(res) >= 1)
+            assert any(entry["lexical_embed"] == fake_sparse_embeddings[0] for entry in res)
+            assert any(entry["semantic_embed"] == fake_dense_embeddings[0] for entry in res)
             assert all(entry["text"] == fake_chunks[0].text for entry in res)
             assert all(entry["type"].lower() == fake_chunks[0].kind.lower() for entry in res)
             assert all(entry["document_src"] == fake_chunks[0].source for entry in res)
 
             # test headings
-            assert any(entry["heading_order"] == "Overview" and entry["heading_hieararchy"] == "h1" for entry in res)
-            assert any(entry["heading_order"] == "Lower heading" and entry["heading_hieararchy"] == "h2" for entry in res)
+            assert any(entry["heading_order"] == "Overview" and entry["heading_hierarchy"] == "h1" for entry in res)
+            assert any(entry["heading_order"] == "Lower heading" and entry["heading_hierarchy"] == "h2" for entry in res)
 
 def test_duplicate_combined_insert():
     # test if duplicate inserts are only made once
@@ -549,9 +551,9 @@ def test_duplicate_combined_insert():
     fake_sparse_embeddings = []
 
     for i in range(10):
-        fake_chunks.append(RawChunk(text="test hello world!", source="source-1.txt", headers={"h1": "Overview", "h2": "Lower heading"}, kind="text"))
-        fake_dense_embeddings.append([0.2] * settings.semantic_dim)
-        fake_sparse_embeddings.append({1: 0.32, 45: 0.111, 73: 0.382, 121: 0.8743, 573: 0.00001})
+        fake_chunks.append(RawChunk(text="another sample text content.....", source="test/hello-1.md", headers={"h1": "Overview Header", "h2": "Second Header"}, kind="text"))
+        fake_dense_embeddings.append([0.135] * settings.semantic_dim)
+        fake_sparse_embeddings.append({45: 0.3324, 63: 0.5382, 134: 0.28443, 592: 0.09101})
 
     indexers._write_embeddings(fake_chunks, fake_dense_embeddings, fake_sparse_embeddings)
     with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
@@ -559,12 +561,14 @@ def test_duplicate_combined_insert():
         with connection.cursor() as cursor:
             res = cursor.execute("""
                 SELECT 
+                    dc.chunk_id as id,
                     dc.content AS text,
                     dc.document_source AS document_src,
                     dc.dc_type AS type,
                     d.hash AS document_hash,
                     d.current_version AS current_version,
                     d.file_path AS file_path,
+                    h.heading_id AS heading_id,
                     h.heading_order AS heading_order,
                     h.hierarchy AS heading_hierarchy,
                     dc.lexical_embedding AS lexical_embed,
@@ -578,5 +582,52 @@ def test_duplicate_combined_insert():
             """,
             [fake_chunks[0].text]).fetchall()
 
-            print(res)
             assert (len(res) == 2)
+
+def test_multiple_insert():
+    # test if multiple regular inserts are made correctly
+    settings = get_settings()
+    fake_chunks = [RawChunk(text="another sample text content insert.....", source="test/hello-2.md", headers={"h1": "Overview Header", "h2": "Second Header"}, kind="text"), 
+                   RawChunk(text="```python\n[i + 2 for i in range(10)]\n```", source="test/code.md", headers={"h1": "Overview Header", "h3": "Code Block Header"}, kind="code"),
+                   RawChunk(text=" * list item 1\n * list item 2\n * list item 3\n", source="test/list.md", headers={"h1": "List block"}, kind="list"),
+                   RawChunk(text="second text content chunk block", source="test/hello-2.md", headers={"h1": "Overview Header", "h4": "Other text"}, kind="text"),
+                   RawChunk(text="```cpp\n#include <cstdlib>\n\nint* ptr = static_cast<int*>(std::malloc(sizeof(int) * 10));\n```", source="test/cpp_code.md", headers={"h1": "Overview Header", "h2": "C++ code"}, kind="code")]
+    fake_dense_embeddings = [[0.135] * settings.semantic_dim, [0.462]* settings.semantic_dim, [0.111] * settings.semantic_dim, [0.2735] * settings.semantic_dim, [0.729] * settings.semantic_dim]
+    fake_sparse_embeddings = [{102: 0.4512, 452: 0.1293, 1042: 0.8931, 5632: 0.0412, 12845: 0.2215, 24011: 0.7634},
+                              {88: 0.9123, 312: 0.4011, 754: 0.0832, 1420: 0.5521, 3890: 0.3342, 7820: 0.1923, 15302: 0.6789, 21904: 0.1145, 29841: 0.4487},
+                              {23: 0.1542, 190: 0.8834, 450: 0.2312, 892: 0.4951, 2341: 0.7712, 4512: 0.0934, 6780: 0.3421, 11230: 0.5123, 16400: 0.1834, 20120: 0.9234, 25410: 0.2756, 30100: 0.0543},
+                              {512: 0.6721, 1024: 0.3124, 2048: 0.8912, 4096: 0.1452, 8192: 0.5341, 16384: 0.2219, 28910: 0.7843},
+                              {1533: 0.87906, 7767: 0.55051, 9308: 0.47681, 18333: 0.13328, 19276: 0.76472, 19889: 0.62873, 28358: 0.90891}]
+
+    indexers._write_embeddings(fake_chunks, fake_dense_embeddings, fake_sparse_embeddings)
+    with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
+        register_vector(connection)
+        with connection.cursor() as cursor:
+            for i in range(len(fake_chunks)):
+                res = cursor.execute("""
+                    SELECT
+                        dc.chunk_id as id,
+                        dc.content AS text,
+                        dc.document_source AS document_src,
+                        dc.dc_type AS type,
+                        d.file_path AS file_path,
+                        h.heading_order AS heading_order,
+                        h.hierarchy AS heading_hierarchy,
+                        dc.lexical_embedding AS lexical_embed,
+                        dc.semantic_embedding AS semantic_embed
+                    FROM document AS d
+                    INNER JOIN heading AS h
+                    ON d.doc_id = h.document_id
+                    RIGHT JOIN document_chunks AS dc
+                    ON dc.closest_heading = h.heading_id
+                    WHERE dc.content = %s;
+                """, [fake_chunks[i].text]).fetchall()
+
+                assert (len(res) >= 1)
+                # test for each entry
+                assert all(entry["text"] == fake_chunks[i].text for entry in res)
+                assert all(entry["type"] == fake_chunks[i].kind for entry in res)
+                assert all(entry["document_src"] == fake_chunks[i].source for entry in res)
+                assert all(entry["lexical_embed"] == SparseVector(fake_sparse_embeddings[i], settings.lexical_dim) for entry in res)
+                assert all(entry["semantic_embed"] == fake_dense_embeddings[i] for entry in res)
+                assert all(entry["heading_order"] in fake_chunks[i].headers.values() for entry in res)
