@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from rag_engine.api.error_handlers import register_error_handlers
 from rag_engine.api.routes import router
+from rag_engine.api.security import add_security_middleware
 from rag_engine.auth.routes import router as auth_router
 from rag_engine.auth.session_store import RedisSessionStore
 from rag_engine.auth.user_repository import PostgresUserRepository, ensure_auth_schema
@@ -76,6 +77,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+add_security_middleware(app, settings)
 app.include_router(router)
 app.include_router(auth_router)
 

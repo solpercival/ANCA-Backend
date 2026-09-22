@@ -69,6 +69,7 @@ class InvalidCredentials(AppError):
 
 class SessionExpired(AppError):
     status_code, code, message = 401, ErrorCode.session_expired, "Session expired; log in again"
+    headers = {"WWW-Authenticate": "Bearer"}
 
 class Forbidden(AppError):
     status_code, code, message = 403, ErrorCode.forbidden, "Insufficient tier for this resource"
