@@ -101,6 +101,9 @@ class Settings(BaseSettings):
     langfuse_public_key: str = ""
     langfuse_secret_key: str = ""
 
+    # alarms data
+    alarm_delim: str = "."
+
     @model_validator(mode="after")
     def _reject_placeholder_secret_outside_local(self) -> Self:
         if self.app_env != "local" and (

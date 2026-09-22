@@ -19,6 +19,16 @@ class Chunk:
     def __str__(self):
         return json.dumps(self.__dict__, default=str)
 
+@dataclass
+class Alarm:
+    code: str
+    title: str
+    domain: str
+    severity_score: int
+    severity_category: str
+    alarm_text: str
+    data_fields: dict
+
 class DenseEmbedder(Protocol):
     async def dense_embed(self, texts: list[str]) -> list[list[float]]: ...
 
@@ -34,6 +44,9 @@ class VectorStore(Protocol):
 class LexicalIndex(Protocol):
     async def lexical_search(self, vector: dict[int,float], top_k: int) -> list[Chunk]: ...
 
+
+class AlarmStore(Protocol):
+    async def alarm_search(self, request_json: dict) -> Alarm: ...
 
 class Reranker(Protocol):
     async def rerank(self, query: str, chunks: list[Chunk], top_n: int) -> list[Chunk]: ...
