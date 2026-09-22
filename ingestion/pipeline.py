@@ -23,7 +23,7 @@ def run(docs_dir: str = "docs") -> int:  # pragma: no cover - integration
     # collect alarms from sample.json (temporary measure for inserting alarms)
     alarm_filepath: str = "docs/docs-proto/starter-kit/alarms/alarms.sample.json"
     with open(alarm_filepath, 'r', encoding='utf-8') as file:
-        alarms_json = json.loads(file)
+        alarms_json = json.load(file)
   
     populate_alarms(alarms_json)
 
