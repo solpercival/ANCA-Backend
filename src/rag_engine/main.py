@@ -26,7 +26,16 @@ log = logging.getLogger("rag_engine.main")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # startup
-    app.state.httpx_client = httpx.AsyncClient(timeout=120.0)
+    # generous read timeout: generation streams token-by-token, so this only bounds
+    # the gap between chunks, not the total time a slow reply can take
+    app.state.httpx_client = httpx.AsyncClient(
+        timeout=httpx.Timeout(
+            connect=settings.generation_connect_timeout_seconds,
+            read=settings.generation_read_timeout_seconds,
+            write=10.0,
+            pool=5.0,
+        )
+    )
 
     try:
         app.state.orchestrator = get_orchestrator()

@@ -1,4 +1,7 @@
 """Dense or hybrid retrieval, depending on the embedding setup."""
+import logging
+import time
+
 from rag_engine.config import get_settings
 from rag_engine.retrieval.interfaces import (
     Chunk,
@@ -7,6 +10,8 @@ from rag_engine.retrieval.interfaces import (
     LexicalIndex,
     VectorStore,
 )
+
+log = logging.getLogger("rag_engine.retrieval.hybrid")
 
 
 def reciprocal_rank_fusion(
@@ -46,13 +51,28 @@ class HybridRetriever:
     async def retrieve(
         self, query: str, top_k: int, where: dict[str, str] | None = None
     ) -> list[Chunk]:
+        t0 = time.perf_counter()
         dense_vector = (await self._dense_embedder.dense_embed([query]))[0]
+        t_embed = time.perf_counter() - t0
+
+        t0 = time.perf_counter()
         dense = await self._vs.semantic_search(dense_vector, top_k=top_k, where=where)
+        t_search = time.perf_counter() - t0
+
         if get_settings().embedding_setup != "dual":
+            log.info("retrieve_timing embed=%.4fs search=%.4fs", t_embed, t_search)
             return dense
 
         if self._sparse_embedder is None or self._lex is None:
             raise RuntimeError("Dual retrieval requires sparse and lexical backends")
+
+        t0 = time.perf_counter()
         sparse_vector = await self._sparse_embedder.sparse_embed([query])
+        t_embed += time.perf_counter() - t0
+
+        t0 = time.perf_counter()
         sparse = await self._lex.lexical_search(sparse_vector, top_k=top_k)
+        t_search += time.perf_counter() - t0
+
+        log.info("retrieve_timing embed=%.4fs search=%.4fs", t_embed, t_search)
         return reciprocal_rank_fusion([dense, sparse], k=self._rrf_k)

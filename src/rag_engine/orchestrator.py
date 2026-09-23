@@ -8,6 +8,8 @@ Onboarding note:
   lexical index, and provider-backed generation path
 """
 from functools import lru_cache
+import logging
+import time
 from typing import Any
 
 from rag_engine.api.schemas import (
@@ -23,6 +25,8 @@ from rag_engine.retrieval.hybrid import HybridRetriever
 from rag_engine.retrieval.interfaces import Chunk, Generator, Reranker
 from rag_engine.retrieval.reranker import IdentityReranker, Qwen3Reranker
 from rag_engine.stores.search import PostgresDBConnection
+
+log = logging.getLogger("rag_engine.orchestrator")
 
 
 def get_vector_store_backend() -> Any:
@@ -55,16 +59,17 @@ class Orchestrator:
         context = "\n\n".join(f"[{c.source}#{c.chunk_id}] {c.text}" for c in chunks)
         return (
             "You are a CNC troubleshooting assistant. Answer ONLY from the context. "
-            "Produce ordered steps with citations; if the fix is not in the context, "
-            f"say so.\nTier: {tier.value}\nAlarm: {req.code}\n\nContext:\n{context}"
+            "Produce a short numbered list of steps with citations, as concise as possible; "
+            "if the fix is not in the context, say so.\n"
+            f"Tier: {tier.value}\nAlarm: {req.code}\n\nContext:\n{context}"
         )
 
     def _build_chat_prompt(self, message: str, chunks: list[Chunk]) -> str:
         context = "\n\n".join(f"[{c.source}#{c.chunk_id}] {c.text}" for c in chunks)
         return (
             "You are a CNC troubleshooting assistant. Answer the user's question "
-            "using only the retrieved context. If the answer is not in the context, "
-            f"say so.\n\nContext:\n{context}\n\nUser: {message}"
+            "using only the retrieved context, as concisely as possible. If the answer "
+            f"is not in the context, say so.\n\nContext:\n{context}\n\nUser: {message}"
         )
 
     async def resolve(self, req: ResolveRequest, tier: Tier) -> ResolveResponse:
@@ -72,9 +77,23 @@ class Orchestrator:
         if req.env.machine_variant:
             where["machine_variant"] = req.env.machine_variant
         query = req.query or req.code
+
+        t0 = time.perf_counter()
         candidates = await self._retriever.retrieve(query, top_k=self._top_k, where=where or None)
+        t_retrieve = time.perf_counter() - t0
+
+        t0 = time.perf_counter()
         top = await self._reranker.rerank(query, candidates, top_n=self._top_n)
+        t_rerank = time.perf_counter() - t0
+
+        t0 = time.perf_counter()
         answer = await self._generator.generate(self._build_prompt(req, top, tier))
+        t_generate = time.perf_counter() - t0
+
+        log.info(
+            "resolve_timing code=%s retrieve=%.4fs rerank=%.4fs generate=%.4fs total=%.4fs",
+            req.code, t_retrieve, t_rerank, t_generate, t_retrieve + t_rerank + t_generate,
+        )
         return ResolveResponse(
             code=req.code,
             steps=[answer],

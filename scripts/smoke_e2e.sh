@@ -5,10 +5,19 @@
 set -e
 cd "$(dirname "$0")/.."
 
+if [ -f .env ]; then
+  set -a
+  # shellcheck disable=SC1091
+  source .env
+  set +a
+fi
+
 BASE=http://localhost:8080
+PG_USER=${POSTGRES_USER:-rag}
+PG_DB=${POSTGRES_DB:-rag}
 
 echo "--- SEED USER ---"
-docker compose exec -T postgres psql -U change_in_prod -d rag -c \
+docker compose exec -T postgres psql -U "$PG_USER" -d "$PG_DB" -c \
   "DELETE FROM users WHERE username = 'smoketest';" >/dev/null
 PYTHONUNBUFFERED=1 POSTGRES_HOST=localhost .venv/bin/python - <<'PY'
 import asyncio
@@ -48,5 +57,5 @@ cat /tmp/chat.json
 echo
 
 echo "--- CLEANUP ---"
-docker compose exec -T postgres psql -U change_in_prod -d rag -c \
+docker compose exec -T postgres psql -U "$PG_USER" -d "$PG_DB" -c \
   "DELETE FROM users WHERE username = 'smoketest';" >/dev/null

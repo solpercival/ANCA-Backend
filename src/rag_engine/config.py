@@ -71,6 +71,13 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://ollama:11434"
     embedding_model: str = "qwen3-embedding:0.6b"
     llm_model: str = "qwen3:4b"
+    # caps generated tokens; the single biggest CPU-side latency lever
+    llm_num_predict: int = 256
+
+    # generation http client (streaming keeps the connection alive between tokens,
+    # so read_timeout only needs to cover the gap between chunks, not the full reply)
+    generation_connect_timeout_seconds: float = 5.0
+    generation_read_timeout_seconds: float = 180.0
 
     # openai-compatible providers (e.g. OpenAI, OpenRouter, LiteLLM)
     openai_base_url: str = ""
