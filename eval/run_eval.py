@@ -10,6 +10,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+GOLD_PATH = "docs/docs-proto/starter-kit/alarms/reference-answers.json"
+def load_gold(path=GOLD_PATH):
+    """Return gold answers keyed by the alarm code"""
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    return data["answers"]
 
 def normalize_result(payload: dict) -> dict:
     """Convert a raw model result into a stable normalized artifact.
