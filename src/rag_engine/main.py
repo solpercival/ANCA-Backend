@@ -21,7 +21,6 @@ from rag_engine.stores.db import close_db_pool, init_db_pool
 settings = get_settings()
 logging.basicConfig(level=settings.log_level)
 log = logging.getLogger("rag_engine.main")
-MAX_REQUEST_BODY_BYTES = 64 * 1024
 
 
 @asynccontextmanager
@@ -67,8 +66,24 @@ async def add_request_id(request: Request, call_next):
     request.state.request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
 
     if request.url.path.startswith("/api/v1"):
+        content_length = request.headers.get("content-length")
+        try:
+            declared_length = int(content_length) if content_length else None
+        except ValueError:
+            declared_length = None
+
+        if declared_length is not None and declared_length > settings.max_request_body_bytes:
+            return _json(
+                413,
+                ErrorBody(
+                    code=ErrorCode.payload_too_large,
+                    message="Request body exceeds the configured size limit.",
+                    request_id=request.state.request_id,
+                ),
+            )
+
         body = await request.body()
-        if len(body) > MAX_REQUEST_BODY_BYTES:
+        if len(body) > settings.max_request_body_bytes:
             return _json(
                 413,
                 ErrorBody(

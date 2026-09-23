@@ -77,7 +77,7 @@ class Forbidden(AppError):
 class UnknownAlarmCode(AppError):
     status_code, code, message = 404, ErrorCode.unknown_alarm_code, "Alarm code not found"
 
-class RetrievalUnavailable(AppError): 
+class RetrievalUnavailable(AppError):
     status_code, code, message = (503, ErrorCode.retrieval_unavailable, "Retrieval backend unavailable", )
 class Conflict(AppError):
     status_code, code, message = 409, ErrorCode.conflict, "Resource already exists"

@@ -29,3 +29,4 @@ def test_chat_rejects_oversized_request_body(client, bearer):
         headers=bearer,
     )
     assert r.status_code == 413
+    assert r.json()["error"]["code"] == "payload_too_large"
