@@ -10,7 +10,12 @@ def test_resolve_returns_steps_and_citations(client, bearer):
 def test_resolve_rejects_invalid_alarm_code_format(client, bearer):
     r = client.post("/api/v1/resolve", json={"code": "BADCODE"}, headers=bearer)
     assert r.status_code == 422
-    assert "code" in r.json()["error"]["details"][0]["field"]
+    assert r.json()["error"]["code"] == "validation_error"
+
+
+def test_resolve_rejects_invalid_alarm_code_separator(client, bearer):
+    r = client.post("/api/v1/resolve", json={"code": "am5fb50002"}, headers=bearer)
+    assert r.status_code == 422
 
 
 def test_chat_rejects_message_over_max_length(client, bearer):
