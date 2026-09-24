@@ -43,7 +43,7 @@ def _auth(tier: Tier) -> dict[str, str]:
     [(Tier.operator, False, False), (Tier.technician, True, True), (Tier.partner, True, True)],
 )
 def test_resolve_applies_tier_rules(stub_client, tier, sees_causes, chat_available):
-    r = stub_client.post("/api/v1/resolve", json={"code": "am.fb.0002"}, headers=_auth(tier))
+    r = stub_client.post("/api/v2/resolve", json={"code": "am.fb.0002"}, headers=_auth(tier))
 
     assert r.status_code == 200
     body = r.json()
@@ -57,7 +57,7 @@ def test_resolve_applies_tier_rules(stub_client, tier, sees_causes, chat_availab
     [(Tier.operator, 403), (Tier.technician, 200), (Tier.partner, 200)],
 )
 def test_chat_is_limited_to_tiers_that_can_use_it(stub_client, tier, status):
-    r = stub_client.post("/api/v1/chat", json=CHAT_BODY, headers=_auth(tier))
+    r = stub_client.post("/api/v2/chat", json=CHAT_BODY, headers=_auth(tier))
 
     assert r.status_code == status
     if status == 403:
@@ -65,7 +65,7 @@ def test_chat_is_limited_to_tiers_that_can_use_it(stub_client, tier, status):
 
 
 def test_chat_without_token_is_unauthorized(stub_client):
-    r = stub_client.post("/api/v1/chat", json=CHAT_BODY)
+    r = stub_client.post("/api/v2/chat", json=CHAT_BODY)
 
     assert r.status_code == 401
     assert r.json()["error"]["code"] == "unauthorized"
