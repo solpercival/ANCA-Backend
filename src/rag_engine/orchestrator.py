@@ -74,6 +74,8 @@ class Orchestrator:
 
     async def resolve(self, req: ResolveRequest, tier: Tier) -> ResolveResponse:
         where = {}
+        if req.env.versions:
+            where["versions"] = req.env.versions
         if req.env.machine_variant:
             where["machine_variant"] = req.env.machine_variant
         query = req.query or req.code

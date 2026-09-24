@@ -13,43 +13,71 @@ class PostgresDBConnection:
 
         if not vector or top_k < 1:
             return []
-        
+
         with get_db_conn() as conn:
-            result = conn.execute(
-                """
+            query_str = """
                 SELECT chunk_id, content, metadata, document_source AS file_path,
                     semantic_embedding <=> %s AS distance
                 FROM document_chunks
-                ORDER BY distance
+            """
+            params = [Vector(vector)]
+
+            if where:
+                where_conditions = []
+                if "machine_variant" in where:
+                    where_conditions.append("metadata->>'machine_variant' = %s")
+                    params.append(where["machine_variant"])
+                if "versions" in where:
+                    versions_json = json.dumps(where["versions"])
+                    where_conditions.append("metadata->'versions' @> %s::jsonb")
+                    params.append(versions_json)
+
+                if where_conditions:
+                    query_str += "WHERE " + " AND ".join(where_conditions) + "\n"
+
+            query_str += """ORDER BY distance
                 LIMIT %s;
-                """, 
-                (Vector(vector), top_k),
-            ).fetchall()
+            """
+            params.append(top_k)
+
+            result = conn.execute(query_str, params).fetchall()
             for entry in result:
                 result_chunks.append(Chunk(chunk_id=str(entry["chunk_id"]), text=entry["content"], source=entry["file_path"], metadata=entry["metadata"]))
 
         return result_chunks
 
     # Lexical index search
-    async def lexical_search(self, vector: dict[int,float], top_k: int) -> list[Chunk]:
+    async def lexical_search(self, vector: dict[int,float], top_k: int, where: dict[str, str] | None = None) -> list[Chunk]:
         result_chunks = []
         settings = get_settings()
 
         if not vector or top_k < 1:
             return []
-        
+
         with get_db_conn() as conn:
-            result = conn.execute(
-                """
+            query_str = f"""
                 SELECT chunk_id, content, metadata, document_source AS file_path,
                     lexical_embedding <#> %s AS distance
                 FROM document_chunks
                 WHERE lexical_embedding IS NOT NULL
-                ORDER BY distance
+            """
+            params = [f"{vector}/{settings.lexical_dim}"]
+
+            if where:
+                if "machine_variant" in where:
+                    query_str += "AND metadata->>'machine_variant' = %s\n"
+                    params.append(where["machine_variant"])
+                if "versions" in where:
+                    versions_json = json.dumps(where["versions"])
+                    query_str += "AND metadata->'versions' @> %s::jsonb\n"
+                    params.append(versions_json)
+
+            query_str += """ORDER BY distance
                 LIMIT %s;
-                """, 
-                (f"{vector}/{settings.lexical_dim}", top_k),
-            ).fetchall()
+            """
+            params.append(top_k)
+
+            result = conn.execute(query_str, params).fetchall()
             for entry in result:
                 result_chunks.append(Chunk(chunk_id=str(entry["chunk_id"]), text=entry["content"], source=entry["file_path"], metadata=entry["metadata"]))
 
