@@ -59,6 +59,7 @@ ignore = ["B008"]
 pythonpath = ["src"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+addopts = "-m 'not integration'"
 markers = [
     "integration: tests that require external services",
 ]
