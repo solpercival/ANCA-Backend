@@ -17,6 +17,18 @@ def load_gold(path=GOLD_PATH):
         data = json.load(f)
     return data["answers"]
 
+def same_doc(cited, gold_path):
+    """True if a cited file and a gold path refer to the same document"""
+    if not cited or not gold_path:
+        return False
+    if cited == gold_path:
+        return True
+    if cited.endswith("/" + gold_path):
+        return True
+    if gold_path.endswith("/" + cited):
+        return True
+    return False
+
 def normalize_result(payload: dict) -> dict:
     """Convert a raw model result into a stable normalized artifact.
 
