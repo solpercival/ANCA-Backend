@@ -16,8 +16,8 @@ from rag_engine.auth.session_store import RedisSessionStore
 from rag_engine.auth.user_repository import PostgresUserRepository, ensure_auth_schema
 from rag_engine.config import get_settings
 from rag_engine.orchestrator import get_orchestrator
-from rag_engine.stores.cache import close_cache_pool, init_cache_pool
-from rag_engine.stores.db import close_db_pool, init_db_pool
+from rag_engine.stores.cache import close_cache_pool, init_cache_pool, get_cache_client
+from rag_engine.stores.db import close_db_pool, init_db_pool, get_db_pool
 
 settings = get_settings()
 logging.basicConfig(level=settings.log_level)
@@ -59,6 +59,8 @@ async def lifespan(app: FastAPI):
 
     app.state.user_repository = PostgresUserRepository() if storage_ready else None
     app.state.session_store = RedisSessionStore()
+    app.state.pg_pool = get_db_pool()
+    app.state.redis = get_cache_client()
 
     yield
 

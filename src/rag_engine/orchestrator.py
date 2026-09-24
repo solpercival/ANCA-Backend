@@ -21,6 +21,7 @@ from rag_engine.api.schemas import (
     ResolveRequest,
     ResolveResponse,
 )
+from rag_engine.api.errors import ModelUnavailable, RetrievalUnavailable
 from rag_engine.auth.tiers import Tier
 from rag_engine.config import get_settings
 from rag_engine.retrieval.hybrid import HybridRetriever
@@ -101,7 +102,11 @@ class Orchestrator:
             trace = self._langfuse.trace(name="resolve", input={"code": req.code, "query": query})
 
         t0 = time.perf_counter()
-        candidates = await self._retriever.retrieve(query, top_k=self._top_k, where=where or None)
+        try:
+            candidates = await self._retriever.retrieve(query, top_k=self._top_k, where=where or None)
+        except Exception as exc:
+            log.exception("retrieval_error code=%s", req.code)
+            raise RetrievalUnavailable() from exc
         t_retrieve = time.perf_counter() - t0
 
         if self._langfuse and trace:
@@ -125,7 +130,11 @@ class Orchestrator:
             )
 
         t0 = time.perf_counter()
-        answer = await self._generator.generate(self._build_prompt(req, top, tier))
+        try:
+            answer = await self._generator.generate(self._build_prompt(req, top, tier))
+        except Exception as exc:
+            log.exception("generation_error code=%s", req.code)
+            raise ModelUnavailable() from exc
         t_generate = time.perf_counter() - t0
 
         if self._langfuse and trace:
@@ -164,7 +173,11 @@ class Orchestrator:
             trace = self._langfuse.trace(name="chat", input={"conversation_id": req.conversation_id, "message": req.message})
 
         t0 = time.perf_counter()
-        candidates = await self._retriever.retrieve(req.message, top_k=self._top_k)
+        try:
+            candidates = await self._retriever.retrieve(req.message, top_k=self._top_k)
+        except Exception as exc:
+            log.exception("retrieval_error conversation_id=%s", req.conversation_id)
+            raise RetrievalUnavailable() from exc
         t_retrieve = time.perf_counter() - t0
 
         if self._langfuse and trace:
@@ -188,7 +201,11 @@ class Orchestrator:
             )
 
         t0 = time.perf_counter()
-        reply = await self._generator.generate(self._build_chat_prompt(req.message, top))
+        try:
+            reply = await self._generator.generate(self._build_chat_prompt(req.message, top))
+        except Exception as exc:
+            log.exception("generation_error conversation_id=%s", req.conversation_id)
+            raise ModelUnavailable() from exc
         t_generate = time.perf_counter() - t0
 
         if self._langfuse and trace:
