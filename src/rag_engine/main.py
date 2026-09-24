@@ -1,5 +1,6 @@
 """FastAPI application entrypoint."""
 import logging
+import time
 import uuid
 from contextlib import asynccontextmanager
 
@@ -72,9 +73,19 @@ app = FastAPI(lifespan=lifespan)
 
 @app.middleware("http")
 async def add_request_id(request: Request, call_next):
-    request.state.request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
+    request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
+    request.state.request_id = request_id
+
+    t0 = time.perf_counter()
     response = await call_next(request)
-    response.headers["x-request-id"] = request.state.request_id
+    latency_ms = (time.perf_counter() - t0) * 1000
+
+    response.headers["x-request-id"] = request_id
+
+    log.info(
+        "access request_id=%s method=%s path=%s status=%s latency_ms=%.2f",
+        request_id, request.method, request.url.path, response.status_code, latency_ms,
+    )
     return response
 
 
