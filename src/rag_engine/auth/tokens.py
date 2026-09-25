@@ -21,6 +21,16 @@ from rag_engine.config import get_settings
 ACCESS_TOKEN_TYPE = "access"
 
 
+def _invalid_token_challenge(description: str) -> dict[str, str]:
+    """
+    Build the RFC 6750 challenge for a token that was supplied and rejected.
+
+    A request with no token at all gets the bare `Bearer` challenge that
+    Unauthorized carries by default; only a rejected token names an error.
+    """
+    return {"WWW-Authenticate": f'Bearer error="invalid_token", error_description="{description}"'}
+
+
 def create_access_token(user_id: int, tier: Tier) -> tuple[str, int]:
     """
     Create a signed access token for a user.
@@ -69,13 +79,16 @@ def decode_access_token(token: str) -> Principal:
             options={"require": ["sub", "tier", "typ", "iat", "exp"]},
         )
     except jwt.InvalidTokenError as exc:
-        raise Unauthorized("Invalid or expired token") from exc
+        message = "Invalid or expired token"
+        raise Unauthorized(message, headers=_invalid_token_challenge(message)) from exc
     if claims["typ"] != ACCESS_TOKEN_TYPE:
-        raise Unauthorized("Invalid token type")
+        message = "Invalid token type"
+        raise Unauthorized(message, headers=_invalid_token_challenge(message))
     try:
         tier = Tier(claims["tier"])
     except ValueError as exc:
-        raise Unauthorized("Invalid token tier") from exc
+        message = "Invalid token tier"
+        raise Unauthorized(message, headers=_invalid_token_challenge(message)) from exc
     return Principal(subject=claims["sub"], tier=tier)
 
 

@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS document (
 	doc_id SERIAL PRIMARY KEY,
 	current_version VARCHAR(16) NOT NULL,
 	hash BYTEA NOT NULL,
-	file_path TEXT NOT NULL UNIQUE
+	file_path TEXT NOT NULL UNIQUE,
+	CONSTRAINT prevent_duplicate_documents UNIQUE(current_version, hash, file_path)
 );
 
 -- -----------------------------------------------------
@@ -33,7 +34,8 @@ CREATE TABLE IF NOT EXISTS document (
 CREATE TABLE IF NOT EXISTS alarm_module (
 	id SERIAL PRIMARY KEY,
 	code VARCHAR(6) NOT NULL,
-	title VARCHAR(120) NOT NULL
+	title VARCHAR(120) NOT NULL,
+	CONSTRAINT prevent_duplicate_alarm_module UNIQUE (code, title)
 );
 
 -- -----------------------------------------------------
@@ -74,6 +76,7 @@ CREATE TABLE IF NOT EXISTS document_chunks (
 	lexical_embedding sparsevec(30522),
 	semantic_embedding vector(1024) NOT NULL,
 	closest_heading BIGINT,
+	CONSTRAINT prevent_duplicate_chunks UNIQUE(content, metadata, dc_type, document_source, closest_heading),
 	CONSTRAINT fk_document_chunks_heading
 		FOREIGN KEY (closest_heading)
 		REFERENCES heading (heading_id)
@@ -87,12 +90,12 @@ CREATE INDEX IF NOT EXISTS fk_document_chunks_heading_idx ON document_chunks (cl
 -- Table alarm_code
 -- -----------------------------------------------------
 CREATE TABLE IF NOT EXISTS alarm_code (
-	alarm_code_id INTEGER PRIMARY KEY,
+	alarm_code_id SERIAL PRIMARY KEY,
 	origin VARCHAR(255) NOT NULL,
 	alarm_sequence VARCHAR(255) NOT NULL,
 	title VARCHAR(255) NOT NULL,
-	domain VARCHAR(255) NOT NULL,
-	severity_score SEVERITY NOT NULL,
+	severity_score INTEGER NOT NULL,
+	severity_category SEVERITY NOT NULL,
 	alarm_text VARCHAR(255) NOT NULL,
 	data_fields JSONB NOT NULL DEFAULT '{}'::jsonb,
 	module INTEGER NOT NULL,
@@ -100,7 +103,8 @@ CREATE TABLE IF NOT EXISTS alarm_code (
 		FOREIGN KEY (module)
 		REFERENCES alarm_module (id)
 		ON DELETE NO ACTION
-		ON UPDATE NO ACTION
+		ON UPDATE NO ACTION,
+	CONSTRAINT prevent_duplicate_alarm_code UNIQUE (origin, alarm_sequence, module)
 );
 
 CREATE INDEX IF NOT EXISTS fk_alarm_code_module_idx ON alarm_code (module);

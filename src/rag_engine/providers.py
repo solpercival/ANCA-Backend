@@ -10,6 +10,7 @@ Onboarding note:
 """
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import httpx
@@ -89,14 +90,28 @@ class OllamaGenerator:
 
     async def generate(self, prompt: str) -> str:
         settings = get_settings()
-        response = await self._client.post(
+        # stream so the connection stays alive between tokens (avoids ReadTimeout on
+        # slow CPU generations) and cap num_predict, the biggest CPU-side latency lever
+        chunks: list[str] = []
+        async with self._client.stream(
+            "POST",
             f"{settings.ollama_base_url.rstrip('/')}/api/generate",
-            json={"model": settings.llm_model, "prompt": prompt, "stream": False},
-        )
-        
-        response.raise_for_status()
-        payload = response.json()
-        return payload["response"]
+            json={
+                "model": settings.llm_model,
+                "prompt": prompt,
+                "stream": True,
+                "options": {"num_predict": settings.llm_num_predict},
+            },
+        ) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if not line:
+                    continue
+                payload = json.loads(line)
+                chunks.append(payload.get("response", ""))
+                if payload.get("done"):
+                    break
+        return "".join(chunks)
 
 
 class OpenAIGenerator:

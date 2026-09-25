@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     app_env: str = "local"
     log_level: str = "INFO"
 
+    allowed_hosts: list[str] = ["*"]  # must be named explicitly outside local
+    gzip_minimum_size: int = 500      # bytes
+    hsts_max_age: int = 63072000      # two years, the value HSTS preload lists expect
+
     # auth
     jwt_secret: str = LOCAL_JWT_SECRET
     jwt_algorithm: str = "HS256"
@@ -68,6 +72,13 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://ollama:11434"
     embedding_model: str = "qwen3-embedding:0.6b"
     llm_model: str = "qwen3:4b"
+    # caps generated tokens; the single biggest CPU-side latency lever
+    llm_num_predict: int = 256
+
+    # generation http client (streaming keeps the connection alive between tokens,
+    # so read_timeout only needs to cover the gap between chunks, not the full reply)
+    generation_connect_timeout_seconds: float = 5.0
+    generation_read_timeout_seconds: float = 180.0
 
     # openai-compatible providers (e.g. OpenAI, OpenRouter, LiteLLM)
     openai_base_url: str = ""
@@ -101,6 +112,19 @@ class Settings(BaseSettings):
     langfuse_host: str = "http://langfuse:3000"
     langfuse_public_key: str = ""
     langfuse_secret_key: str = ""
+
+    # alarms data
+    alarm_delim: str = "."
+
+    @model_validator(mode="after")
+    def _require_explicit_allowed_hosts_outside_local(self) -> Self:
+        """A deployment that accepts any Host can be used to forge links back to itself."""
+        if self.app_env != "local" and "*" in self.allowed_hosts:
+            raise ValueError(
+                "ALLOWED_HOSTS must name the hostnames this service answers on "
+                "(including the one the container health check uses) when APP_ENV is not local"
+            )
+        return self
 
     @model_validator(mode="after")
     def _reject_placeholder_secret_outside_local(self) -> Self:

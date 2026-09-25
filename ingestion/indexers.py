@@ -10,9 +10,17 @@ import httpx
 import psycopg
 from pgvector.psycopg import register_vector
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 
 from ingestion.chunker import RawChunk
 from rag_engine.config import get_settings
+
+class InvalidInputError(Exception):
+    def __init__(self, invalid_fields: list):
+        self.message = f"Input has invalid fields or in an invalid format. Invalid fields: {", ".join(invalid_fields)}."
+        super().__init__(self.message)
+
+VALID_SEVERITY: tuple[str] = ('debug', 'info', 'warning', 'error', 'fatal')
 
 def _dense_embed(chunks: list[RawChunk], client: httpx.Client) -> list[list[float]]:
     """
@@ -112,7 +120,6 @@ def insert_chunk(cursor, data: dict, doc_id: int, heading_cache: dict[tuple, int
 
     chunk = data["chunk"]
     dense = data["dense"]
-    print(f"DENSE: {len(dense)}")
     sparse = data["sparse"] or None
 
     heading_id = resolve_immediate_heading(
@@ -124,6 +131,8 @@ def insert_chunk(cursor, data: dict, doc_id: int, heading_cache: dict[tuple, int
         INSERT INTO document_chunks
             (content, metadata, dc_type, document_source, lexical_embedding, semantic_embedding, closest_heading)
         VALUES (%s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (content, metadata, dc_type, document_source, closest_heading) DO UPDATE
+            SET lexical_embedding = EXCLUDED.lexical_embedding, semantic_embedding = EXCLUDED.semantic_embedding
         RETURNING chunk_id
         """,
         (chunk.text, "{}", chunk.kind, chunk.source, f"{sparse}/30522" if sparse else None, dense, heading_id)
@@ -232,3 +241,95 @@ def embed_and_index(chunks: list[RawChunk]) -> None:  # pragma: no cover - integ
         )
     
     _write_embeddings(chunks=chunks, dense_embeddings=dense_embeddings, sparse_embeddings=sparse_embeddings)
+
+def populate_alarms(alarms_json: dict) -> None:
+    settings = get_settings()
+    with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
+        with connection.cursor() as cursor:
+            # use _modules to populate alarm_module table first
+            for module in alarms_json["_modules"]:
+                cursor.execute(
+                    """
+                    INSERT INTO alarm_module (code, title)
+                    VALUES (%s, %s)
+                    ON CONFLICT (code, title) DO UPDATE 
+                    SET title = EXCLUDED.title
+                    """,
+                    (module, alarms_json["_modules"][module]),
+                )
+
+            # populate individual alarms
+            for alarm in alarms_json["alarms"]:
+                code_sections = alarm["code"].split(settings.alarm_delim)
+
+                if len(code_sections) != 3:
+                    raise InvalidInputError(["code"])
+
+                invalid_fields = []
+                
+                alarm_data = {
+                    # alarm_code data
+                    "origin": code_sections[0],
+                    "sequence": code_sections[2],
+                    "title": alarm["title"],
+                    "severity_score": alarm["severity"], # added separate severity score (int)
+                    "severity_category": alarm["severity_category"].lower(), # severity category (enum)
+                    "alarm_text": alarm["alarm_text"],
+                    "data_fields": alarm["data_fields"],
+
+                    # alarm_module data
+                    "code": code_sections[1],
+                    "module_title": alarm["domain"]
+                }
+
+                # Validate inputs
+                if alarm_data["severity_category"].lower() not in VALID_SEVERITY:
+                    invalid_fields.append("severity_category")
+
+                if not alarm_data["module_title"]:
+                    invalid_fields.append("domain")
+
+                if alarm_data["severity_score"] <= 0:
+                    invalid_fields.append("severity")
+
+                if not alarm_data["title"]:
+                    invalid_fields.append("title")
+
+                if not alarm_data["alarm_text"]:
+                    invalid_fields.append("alarm_test")
+
+                if not (alarm_data["origin"] and alarm_data["code"] and alarm_data["sequence"]):
+                    invalid_fields.append("code")
+
+                # stop processing and raise error if input is malformed/invalid
+                if invalid_fields:
+                    raise InvalidInputError(invalid_fields)
+
+                # insert alarm module, ignore on conflict
+                module_res = cursor.execute(
+                    """
+                    SELECT id FROM alarm_module
+                    WHERE code = %s AND title = %s;
+                    """,
+                    (alarm_data["code"], alarm_data["module_title"]),
+                ).fetchone()
+
+                # insert alarm code, update details on conflict
+                cursor.execute(
+                    """
+                    INSERT INTO alarm_code
+                    (origin, alarm_sequence, title, severity_score, severity_category, alarm_text, data_fields, module)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (origin, alarm_sequence, module) DO UPDATE 
+                        SET title = EXCLUDED.title,
+                            severity_score = EXCLUDED.severity_score,
+                            severity_category = EXCLUDED.severity_category,
+                            alarm_text = EXCLUDED.alarm_text,
+                            data_fields = EXCLUDED.data_fields; 
+                    """,
+                    (alarm_data["origin"], alarm_data["sequence"], alarm_data["title"],
+                     alarm_data["severity_score"], alarm_data["severity_category"], 
+                     alarm_data["alarm_text"], Jsonb(alarm_data["data_fields"]), module_res["id"]),
+                )
+
+            connection.commit()

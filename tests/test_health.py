@@ -12,5 +12,5 @@ def test_missing_route_uses_standard_error_payload(client):
 
 
 def test_resolve_requires_auth(client):
-    r = client.post("/api/v1/resolve", json={"code": "am.fb.0002"})
+    r = client.post("/api/v2/resolve", json={"code": "am.fb.0002"})
     assert r.status_code == 401
