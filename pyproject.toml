@@ -18,6 +18,8 @@ dependencies = [
     "python-multipart>=0.0.20",
     "langfuse>=2.53",                   # runtime tracing
     "langchain-text-splitters>=1.1.2",
+    "prometheus-client>=0.20",           # metrics collection
+    "prometheus-fastapi-instrumentator>=6.0",  # FastAPI instrumentation
 ]
 
 [project.optional-dependencies]

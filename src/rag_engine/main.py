@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from rag_engine.api.error_handlers import register_error_handlers
 from rag_engine.api.routes import router
@@ -92,6 +93,7 @@ async def add_request_id(request: Request, call_next):
 
 
 register_error_handlers(app)
+Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_allow_origins,

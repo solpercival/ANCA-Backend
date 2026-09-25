@@ -14,6 +14,7 @@ from typing import Any
 
 from langfuse import Langfuse
 
+from rag_engine.api.metrics import rag_stage_seconds, rag_resolve_total
 from rag_engine.api.schemas import (
     ChatRequest,
     ChatResponse,
@@ -106,8 +107,10 @@ class Orchestrator:
             candidates = await self._retriever.retrieve(query, top_k=self._top_k, where=where or None)
         except Exception as exc:
             log.exception("retrieval_error code=%s", req.code)
+            rag_resolve_total.labels(outcome="error").inc()
             raise RetrievalUnavailable() from exc
         t_retrieve = time.perf_counter() - t0
+        rag_stage_seconds.labels(stage="retrieve").observe(t_retrieve)
 
         if self._langfuse and trace:
             trace.span(
@@ -120,6 +123,7 @@ class Orchestrator:
         t0 = time.perf_counter()
         top = await self._reranker.rerank(query, candidates, top_n=self._top_n)
         t_rerank = time.perf_counter() - t0
+        rag_stage_seconds.labels(stage="rerank").observe(t_rerank)
 
         if self._langfuse and trace:
             trace.span(
@@ -134,8 +138,10 @@ class Orchestrator:
             answer = await self._generator.generate(self._build_prompt(req, top, tier))
         except Exception as exc:
             log.exception("generation_error code=%s", req.code)
+            rag_resolve_total.labels(outcome="error").inc()
             raise ModelUnavailable() from exc
         t_generate = time.perf_counter() - t0
+        rag_stage_seconds.labels(stage="generate").observe(t_generate)
 
         if self._langfuse and trace:
             trace.span(
@@ -159,6 +165,7 @@ class Orchestrator:
                 }
             )
 
+        rag_resolve_total.labels(outcome="ok").inc()
         return ResolveResponse(
             code=req.code,
             steps=[answer],
@@ -177,8 +184,10 @@ class Orchestrator:
             candidates = await self._retriever.retrieve(req.message, top_k=self._top_k)
         except Exception as exc:
             log.exception("retrieval_error conversation_id=%s", req.conversation_id)
+            rag_resolve_total.labels(outcome="error").inc()
             raise RetrievalUnavailable() from exc
         t_retrieve = time.perf_counter() - t0
+        rag_stage_seconds.labels(stage="retrieve").observe(t_retrieve)
 
         if self._langfuse and trace:
             trace.span(
@@ -191,6 +200,7 @@ class Orchestrator:
         t0 = time.perf_counter()
         top = await self._reranker.rerank(req.message, candidates, top_n=self._top_n)
         t_rerank = time.perf_counter() - t0
+        rag_stage_seconds.labels(stage="rerank").observe(t_rerank)
 
         if self._langfuse and trace:
             trace.span(
@@ -205,8 +215,10 @@ class Orchestrator:
             reply = await self._generator.generate(self._build_chat_prompt(req.message, top))
         except Exception as exc:
             log.exception("generation_error conversation_id=%s", req.conversation_id)
+            rag_resolve_total.labels(outcome="error").inc()
             raise ModelUnavailable() from exc
         t_generate = time.perf_counter() - t0
+        rag_stage_seconds.labels(stage="generate").observe(t_generate)
 
         if self._langfuse and trace:
             trace.span(
@@ -225,6 +237,7 @@ class Orchestrator:
                 }
             )
 
+        rag_resolve_total.labels(outcome="ok").inc()
         return ChatResponse(
             conversation_id=req.conversation_id,
             reply=reply,
