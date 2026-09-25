@@ -5,6 +5,7 @@
 -- We create those indexes here to improve query performance.
 
 CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- CREATE TYPE isn't idempotent.
 -- CREATE TYPE ... will error if this script ever runs twice against the same database.
@@ -171,7 +172,25 @@ CREATE TABLE IF NOT EXISTS response_sources (
 CREATE INDEX IF NOT EXISTS fk_document_chunks_supports_response_idx ON response_sources (response_id);
 CREATE INDEX IF NOT EXISTS fk_response_references_document_chunk_idx ON response_sources (doc_chunks_id);
 
--- HNSW index
+-- -----------------------------------------------------
+-- Table keyword_lookup
+-- -----------------------------------------------------
+CREATE TABLE keyword_lookup(
+	keyword TEXT PRIMARY KEY,
+	aliases TEXT[] NOT NULL DEFAULT '{}',
+	related_chunks BIGINT[] NOT NULL
+);
+
+
+
+-- GIN index on keyword_lookup
+
+-- Fast GIN index for matching aliases/synonyms (exact mathching)
+CREATE INDEX idx_kw_aliases_gin ON keyword_lookup USING gin (aliases);
+-- Trigram GIN index for substring/typo matching on keywords (fuzzy matching)
+CREATE INDEX idx_kw_trgm_gin ON keyword_lookup USING gin (keyword gin_trgm_ops);
+
+-- HNSW index on chunks
 CREATE INDEX IF NOT EXISTS document_chunks_semantic_hnsw ON document_chunks
 USING hnsw (semantic_embedding vector_cosine_ops)
 WITH (m = 16, ef_construction = 64); -- Parameters can be tuned
