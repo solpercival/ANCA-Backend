@@ -5,6 +5,7 @@ from rag_engine.config import get_settings
 from pgvector import Vector
 import json
 import hashlib
+import re
 
 class PostgresDBConnection:
     # VectorStore search
@@ -30,7 +31,7 @@ class PostgresDBConnection:
 
         return result_chunks
 
-    # Lexical index search
+    # LexicalIndex search
     async def lexical_search(self, vector: dict[int,float], top_k: int) -> list[Chunk]:
         result_chunks = []
         settings = get_settings()
@@ -55,6 +56,7 @@ class PostgresDBConnection:
 
             return result_chunks
 
+    # AlarmStore search
     async def alarm_search(self, request_json: dict) -> Alarm:
         settings = get_settings()
 
@@ -95,6 +97,48 @@ class PostgresDBConnection:
         return Alarm(code=request_json["code"], title=result["title"], domain=result["domain"],
                     severity_score=result["severity_score"], alarm_text=result["alarm_text"], 
                     data_fields=json.loads(result["data_fields"]))
+
+    # KeywordStore search
+    async def keyword_search(self, query: str, top_k: int) -> list[str]:
+        settings = get_settings()
+        
+        # validate fields
+        if (not query) or (top_k < 1):
+            return None
+
+        query_parts = re.split(r'[ ,!. ]+', query.strip())
+        query_parts = [word for word in query_parts if word] # filter out empty strings
+
+        with get_db_conn() as conn:
+            result = conn.execute("""
+                WITH exact_match AS (
+                    SELECT keyword, idf_weight, 1.0::real AS score, 'exact' AS match_type
+                    FROM keyword_lookup
+                    WHERE keyword = %(q)s
+                    OR aliases @> ARRAY[%(q)s]::text[]
+                ),
+                fuzzy_match AS (
+                    SELECT keyword, idf_weight,
+                        similarity(keyword, %(q)s) AS score,
+                        'fuzzy' AS match_type
+                    FROM keyword_lookup
+                    WHERE keyword %% %(q)s
+                    AND NOT EXISTS (SELECT 1 FROM exact_match e WHERE e.keyword = keyword_lookup.keyword)
+                )
+                SELECT keyword, score, match_type
+                FROM (
+                    SELECT * FROM exact_match
+                    UNION ALL
+                    SELECT * FROM fuzzy_match
+                ) combined
+                ORDER BY score DESC, idf_weight DESC
+                LIMIT %(limit)s
+            """, {"q": query_parts, "limit": top_k}).fetchall()
+
+            if not result:
+                return None
+
+            return [entry["keyword"] for entry in result]
 
 class RedisConnection:
     def _create_key(self, text: str) -> str:

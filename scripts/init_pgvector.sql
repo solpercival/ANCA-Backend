@@ -179,13 +179,10 @@ CREATE TABLE keyword_lookup(
 	keyword TEXT PRIMARY KEY,
 	aliases TEXT[] NOT NULL DEFAULT '{}',
 	related_chunks BIGINT[] NOT NULL,
-	idf_weight REAL NOT NULL DEFAULT 1.0,
+	idf_weight REAL NOT NULL DEFAULT 1.0
 );
 
-
-
 -- GIN index on keyword_lookup
-
 -- Fast GIN index for matching aliases/synonyms (exact mathching)
 CREATE INDEX idx_kw_aliases_gin ON keyword_lookup USING gin (aliases);
 -- Trigram GIN index for substring/typo matching on keywords (fuzzy matching)

@@ -40,10 +40,8 @@ class VectorStore(Protocol):
         self, vector: list[float], top_k: int, where: dict[str, str] | None = None
     ) -> list[Chunk]: ...
 
-
 class LexicalIndex(Protocol):
     async def lexical_search(self, vector: dict[int,float], top_k: int) -> list[Chunk]: ...
-
 
 class AlarmStore(Protocol):
     async def alarm_search(self, request_json: dict) -> Alarm: ...
@@ -51,6 +49,8 @@ class AlarmStore(Protocol):
 class Reranker(Protocol):
     async def rerank(self, query: str, chunks: list[Chunk], top_n: int) -> list[Chunk]: ...
 
-
 class Generator(Protocol):
     async def generate(self, prompt: str) -> str: ...
+
+class KeywordStore(Protocol):
+    async def keyword_search(self, query: str, top_k: int) -> list[str]: ...
