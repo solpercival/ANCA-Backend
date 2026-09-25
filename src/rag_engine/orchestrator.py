@@ -53,7 +53,14 @@ def get_reranker_backend() -> Reranker:
     """Build the configured reranker backend."""
     if get_settings().rerank_provider == "none":
         return IdentityReranker()
-    return Qwen3Reranker()
+    return Qwen3Reranker(max_length=512)
+
+
+def _log_candidates(candidates: list[Chunk]) -> None:
+    # sanity check that retrieval returns usable text, not just ids/sources
+    empty = sum(1 for c in candidates if not (c.text or "").strip())
+    preview = candidates[0].text[:120].replace("\n", " ") if candidates else ""
+    log.info("retrieved count=%d empty_text=%d first=%r", len(candidates), empty, preview)
 
 
 class Orchestrator:
@@ -73,21 +80,28 @@ class Orchestrator:
         self._top_k = retrieval_top_k
         self._langfuse = langfuse_client
 
+    @staticmethod
+    def _format_context(chunks: list[Chunk]) -> str:
+        # short [n] labels so citations cost the model a few tokens, not a file path
+        return "\n\n".join(f"[{i}] ({c.source}) {c.text}" for i, c in enumerate(chunks, 1))
+
     def _build_prompt(self, req: ResolveRequest, chunks: list[Chunk], tier: Tier) -> str:
-        context = "\n\n".join(f"[{c.source}#{c.chunk_id}] {c.text}" for c in chunks)
         return (
-            "You are a CNC troubleshooting assistant. Answer ONLY from the context. "
-            "Produce a short numbered list of steps with citations, as concise as possible; "
-            "if the fix is not in the context, say so.\n"
-            f"Tier: {tier.value}\nAlarm: {req.code}\n\nContext:\n{context}"
+            "You are a CNC troubleshooting assistant. Answer ONLY from the context.\n"
+            "Output at most 5 numbered steps, one short sentence each, citing sources as [n]. "
+            "No introduction, no summary, no repetition of the question.\n"
+            "If the fix is not in the context, reply exactly: "
+            "\"The documentation does not cover this alarm.\"\n"
+            f"Tier: {tier.value}\nAlarm: {req.code}\n\nContext:\n{self._format_context(chunks)}"
         )
 
     def _build_chat_prompt(self, message: str, chunks: list[Chunk]) -> str:
-        context = "\n\n".join(f"[{c.source}#{c.chunk_id}] {c.text}" for c in chunks)
         return (
-            "You are a CNC troubleshooting assistant. Answer the user's question "
-            "using only the retrieved context, as concisely as possible. If the answer "
-            f"is not in the context, say so.\n\nContext:\n{context}\n\nUser: {message}"
+            "You are a CNC troubleshooting assistant. Answer the user's question using only "
+            "the context, in at most 3 short sentences, citing sources as [n]. No preamble.\n"
+            "If the answer is not in the context, reply exactly: "
+            "\"The documentation does not cover this.\"\n\n"
+            f"Context:\n{self._format_context(chunks)}\n\nUser: {message}"
         )
 
     async def resolve(self, req: ResolveRequest, tier: Tier) -> ResolveResponse:
@@ -111,6 +125,7 @@ class Orchestrator:
             raise RetrievalUnavailable() from exc
         t_retrieve = time.perf_counter() - t0
         rag_stage_seconds.labels(stage="retrieve").observe(t_retrieve)
+        _log_candidates(candidates)
 
         if self._langfuse and trace:
             trace.span(
@@ -120,8 +135,10 @@ class Orchestrator:
                 duration_ms=int(t_retrieve * 1000),
             )
 
+        trimmed = candidates[:20]
+
         t0 = time.perf_counter()
-        top = await self._reranker.rerank(query, candidates, top_n=self._top_n)
+        top = await self._reranker.rerank(query, trimmed, top_n=self._top_n)
         t_rerank = time.perf_counter() - t0
         rag_stage_seconds.labels(stage="rerank").observe(t_rerank)
 
@@ -188,6 +205,7 @@ class Orchestrator:
             raise RetrievalUnavailable() from exc
         t_retrieve = time.perf_counter() - t0
         rag_stage_seconds.labels(stage="retrieve").observe(t_retrieve)
+        _log_candidates(candidates)
 
         if self._langfuse and trace:
             trace.span(
@@ -197,8 +215,10 @@ class Orchestrator:
                 duration_ms=int(t_retrieve * 1000),
             )
 
+        trimmed = candidates[:20]
+
         t0 = time.perf_counter()
-        top = await self._reranker.rerank(req.message, candidates, top_n=self._top_n)
+        top = await self._reranker.rerank(req.message, trimmed, top_n=self._top_n)
         t_rerank = time.perf_counter() - t0
         rag_stage_seconds.labels(stage="rerank").observe(t_rerank)
 
