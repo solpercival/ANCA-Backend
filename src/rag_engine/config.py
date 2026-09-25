@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     resolve_rate_limit_per_tier: int = 120
     chat_rate_limit_per_ip: int = 10
     chat_rate_limit_per_tier: int = 60
+    max_request_body_bytes: int = 64 * 1024
 
     # provider selection
     dense_embedding_provider: str = "ollama"

@@ -9,7 +9,8 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from rag_engine.api.error_handlers import register_error_handlers
+from rag_engine.api.error_handlers import _json, register_error_handlers
+from rag_engine.api.errors import ErrorBody, ErrorCode
 from rag_engine.api.routes import router
 from rag_engine.api.security import add_security_middleware
 from rag_engine.auth.routes import router as auth_router
@@ -76,10 +77,36 @@ app = FastAPI(lifespan=lifespan)
 
 @app.middleware("http")
 async def add_request_id(request: Request, call_next):
-    request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
-    request.state.request_id = request_id
+    request.state.request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
 
-    t0 = time.perf_counter()
+    if request.url.path.startswith("/api/v1"):
+        content_length = request.headers.get("content-length")
+        try:
+            declared_length = int(content_length) if content_length else None
+        except ValueError:
+            declared_length = None
+
+        if declared_length is not None and declared_length > settings.max_request_body_bytes:
+            return _json(
+                413,
+                ErrorBody(
+                    code=ErrorCode.payload_too_large,
+                    message="Request body exceeds the configured size limit.",
+                    request_id=request.state.request_id,
+                ),
+            )
+
+        body = await request.body()
+        if len(body) > settings.max_request_body_bytes:
+            return _json(
+                413,
+                ErrorBody(
+                    code=ErrorCode.payload_too_large,
+                    message="Request body exceeds the configured size limit.",
+                    request_id=request.state.request_id,
+                ),
+            )
+
     response = await call_next(request)
     latency_ms = (time.perf_counter() - t0) * 1000
 
