@@ -38,7 +38,7 @@ def test_security_headers_are_on_successful_responses(client, header):
 @pytest.mark.parametrize("header", sorted(SECURITY_HEADERS))
 def test_security_headers_are_on_error_responses(client, header):
     # An error response is still a response an attacker can reach.
-    r = client.post("/api/v1/resolve", json={"code": "am.fb.0002"})
+    r = client.post("/api/v2/resolve", json={"code": "am.fb.0002"})
 
     assert r.status_code == 401
     assert r.headers[header] == SECURITY_HEADERS[header]

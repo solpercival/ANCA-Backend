@@ -136,6 +136,7 @@ def test_collect_markdown_reads_nested_markdown_files(tmp_path):
     texts = {chunk.text for chunk in chunks}
     assert any("# A" in text for text in texts)
     assert any("# B" in text for text in texts)
+
 @pytest.mark.integration
 def test_sparse_embedding():
     chunks = [RawChunk(text="test script", source="", headers=[], kind="text"),
@@ -162,6 +163,8 @@ def test_dense_embedding():
     assert len(dense_vecs) == len(chunks)
     assert all(len(vec) == settings.semantic_dim for vec in dense_vecs)
     
+
+@pytest.mark.integration
 def test_single_alarm_insert():
     settings = get_settings()
     sample_alarm = {
@@ -208,6 +211,8 @@ def test_single_alarm_insert():
             assert any(entry["severity_category"] == sample_alarm["severity_category"].lower() for entry in code_test)
             assert any(entry["alarm_text"] == sample_alarm["alarm_text"] for entry in code_test)
 
+
+@pytest.mark.integration
 def test_duplicate_alarm_insert():
     settings = get_settings()
     sample_alarm = {
@@ -253,6 +258,8 @@ def test_duplicate_alarm_insert():
             assert any(entry["severity_category"] == sample_alarm["severity_category"].lower() for entry in code_test)
             assert any(entry["alarm_text"] == sample_alarm["alarm_text"] for entry in code_test)
 
+
+@pytest.mark.integration
 def test_multiple_alarm_insert():
     settings = get_settings()
     # sample alarms with random codes and fields
@@ -376,6 +383,8 @@ def test_invalid_input():
         indexers.populate_alarms(invalid_data)
 
 # replace the temporary file open with the actual submodule once implemented
+
+@pytest.mark.integration
 def test_alarms_insert():
     import json 
 
@@ -434,6 +443,8 @@ def test_alarms_insert():
                 assert(res["data_fields"] == alarm["data_fields"])
 
 # single document insert test
+
+@pytest.mark.integration
 def test_single_document_insert():
     fake_version = "1.12"
     fake_hash = hashlib.sha256(b"hello world!").hexdigest()
@@ -471,6 +482,8 @@ def test_single_document_insert():
             assert(res[0]["file_path"] == fake_fp)
 
 # duplicate document insert test
+
+@pytest.mark.integration
 def test_duplicate_document_insert():
     fake_version = "1.12"
     fake_hash = hashlib.sha256(b"hello world!").hexdigest()
@@ -498,6 +511,8 @@ def test_duplicate_document_insert():
             assert(res[0]["hash"].decode('utf-8') == fake_hash)
             assert(res[0]["file_path"] == fake_fp)
 
+
+@pytest.mark.integration
 def test_single_combined_insert():
     # test if an insert of a document with chunks, headings and embeddings is valid
     settings = get_settings()
@@ -543,6 +558,8 @@ def test_single_combined_insert():
             assert any(entry["heading_order"] == "Overview" and entry["heading_hierarchy"] == "h1" for entry in res)
             assert any(entry["heading_order"] == "Lower heading" and entry["heading_hierarchy"] == "h2" for entry in res)
 
+
+@pytest.mark.integration
 def test_duplicate_combined_insert():
     # test if duplicate inserts are only made once
     settings = get_settings()
@@ -584,6 +601,8 @@ def test_duplicate_combined_insert():
 
             assert (len(res) == 2)
 
+
+@pytest.mark.integration
 def test_multiple_insert():
     # test if multiple regular inserts are made correctly
     settings = get_settings()

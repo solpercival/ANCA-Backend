@@ -1,11 +1,13 @@
 """FastAPI application entrypoint."""
 import logging
+import time
 import uuid
 from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from rag_engine.api.error_handlers import register_error_handlers
 from rag_engine.api.routes import router
@@ -15,8 +17,8 @@ from rag_engine.auth.session_store import RedisSessionStore
 from rag_engine.auth.user_repository import PostgresUserRepository, ensure_auth_schema
 from rag_engine.config import get_settings
 from rag_engine.orchestrator import get_orchestrator
-from rag_engine.stores.cache import close_cache_pool, init_cache_pool
-from rag_engine.stores.db import close_db_pool, init_db_pool
+from rag_engine.stores.cache import close_cache_pool, init_cache_pool, get_cache_client
+from rag_engine.stores.db import close_db_pool, init_db_pool, get_db_pool
 
 settings = get_settings()
 logging.basicConfig(level=settings.log_level)
@@ -58,6 +60,8 @@ async def lifespan(app: FastAPI):
 
     app.state.user_repository = PostgresUserRepository() if storage_ready else None
     app.state.session_store = RedisSessionStore()
+    app.state.pg_pool = get_db_pool()
+    app.state.redis = get_cache_client()
 
     yield
 
@@ -72,13 +76,24 @@ app = FastAPI(lifespan=lifespan)
 
 @app.middleware("http")
 async def add_request_id(request: Request, call_next):
-    request.state.request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
+    request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
+    request.state.request_id = request_id
+
+    t0 = time.perf_counter()
     response = await call_next(request)
-    response.headers["x-request-id"] = request.state.request_id
+    latency_ms = (time.perf_counter() - t0) * 1000
+
+    response.headers["x-request-id"] = request_id
+
+    log.info(
+        "access request_id=%s method=%s path=%s status=%s latency_ms=%.2f",
+        request_id, request.method, request.url.path, response.status_code, latency_ms,
+    )
     return response
 
 
 register_error_handlers(app)
+Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_allow_origins,

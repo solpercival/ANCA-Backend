@@ -15,7 +15,7 @@ from rag_engine.auth.tiers import Principal, can_view_likely_causes, can_use_cha
 from rag_engine.config import get_settings
 from rag_engine.orchestrator import Orchestrator, get_orchestrator
 
-router = APIRouter()
+router = APIRouter(prefix="/api/v2", tags=["api"])
 settings = get_settings()
 resolve_rate_limit = rate_limit_dependency(
     "resolve", "resolve_rate_limit_per_ip", "resolve_rate_limit_per_tier"
@@ -66,7 +66,7 @@ async def ready(request: Request) -> dict[str, object]:
             checks["redis"] = await redis_client.ping()
         except Exception:
             checks["redis"] = False
-    
+
     # Model server (Ollama/OpenAI-compatible endpoint)
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
@@ -84,7 +84,7 @@ async def ready(request: Request) -> dict[str, object]:
     )
 
 
-@router.post("/api/v1/resolve", response_model=ResolveResponse, tags=["resolve"])
+@router.post("/resolve", response_model=ResolveResponse, tags=["resolve"])
 async def resolve(
     req: ResolveRequest,
     principal: Principal = Depends(current_principal),
@@ -100,7 +100,7 @@ async def resolve(
     return resp
 
 
-@router.post("/api/v1/chat", response_model=ChatResponse, tags=["chat"])
+@router.post("/chat", response_model=ChatResponse, tags=["chat"])
 async def chat(
     req: ChatRequest,
     principal: Principal = Depends(require(can_use_chat)),
