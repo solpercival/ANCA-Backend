@@ -88,7 +88,7 @@ services:
       - ollamadata:/root/.ollama
     entrypoint: ["/bin/sh", "-c"]
     command:
-      - ollama pull qwen3-embedding:0.6b && ollama pull qwen3:4b
+      - ollama pull qwen3-embedding:0.6b && ollama pull qwen3:4b-instruct-2507-q4_K_M
 
   # --- optional: tei for sparse/SPLADE embeddings (start with: docker compose --profile sparse up) ---
   tei:

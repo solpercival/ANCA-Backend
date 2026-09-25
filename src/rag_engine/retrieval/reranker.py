@@ -49,12 +49,17 @@ class Qwen3Reranker:
         # Import is intentionally kept here, inside the backend implementation.
         if self._model is not None:
             return
+        import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
         self._tokenizer = AutoTokenizer.from_pretrained(
             self._model_name, padding_side="left"
         )
-        self._model = AutoModelForCausalLM.from_pretrained(self._model_name).eval()
+        self._model = AutoModelForCausalLM.from_pretrained(
+            self._model_name,
+            torch_dtype=torch.float16,
+            device_map="auto",
+        ).eval()
         self._yes_id = self._tokenizer.convert_tokens_to_ids("yes")
         self._no_id = self._tokenizer.convert_tokens_to_ids("no")
 

@@ -1,5 +1,5 @@
 def test_health(client):
-    r = client.get("/health")
+    r = client.get("/api/v2/health")
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
 
