@@ -178,7 +178,8 @@ CREATE INDEX IF NOT EXISTS fk_response_references_document_chunk_idx ON response
 CREATE TABLE keyword_lookup(
 	keyword TEXT PRIMARY KEY,
 	aliases TEXT[] NOT NULL DEFAULT '{}',
-	related_chunks BIGINT[] NOT NULL
+	related_chunks BIGINT[] NOT NULL,
+	idf_weight REAL NOT NULL DEFAULT 1.0,
 );
 
 

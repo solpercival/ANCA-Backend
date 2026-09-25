@@ -6,6 +6,10 @@ from collections import defaultdict
 # ingestion/indexers.py
 from rag_engine.providers import get_lexical_backend
 
+import re
+import math
+from collections import defaultdict
+from wordfreq import word_frequency
 import httpx
 import psycopg
 from pgvector.psycopg import register_vector
@@ -333,3 +337,68 @@ def populate_alarms(alarms_json: dict) -> None:
                 )
 
             connection.commit()
+
+def populate_keyword_table(specificity_threshold: float = 25.0) -> None:    
+    TOKEN_RE = re.compile(
+        r"`([^`\n]{2,40})`"                       # .md inline code ` `
+        r"|(\b[A-Z]{2,}[A-Z0-9_-]*\b)"            # ALL_CAPS acronyms/codes
+        r"|(\b[A-Za-z]{3,35}\b)"                  # Standard words
+    )
+
+    settings = get_settings()
+    with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
+        with connection.cursor() as cursor:
+            res = cursor.execute("""
+                SELECT chunk_id, content FROM document_chunks
+                WHERE dc_type = 'text' OR dc_type = 'table' OR dc_type = 'list';
+            """).fetchall()
+
+            term_to_chunks = defaultdict(set)
+            structural_terms = set()
+            total_tokens = 0
+            total_chunks = len(res)
+
+            for entry in res:
+                for match in TOKEN_RE.finditer(entry["content"]):
+                    raw_token = next(g for g in match.groups() if g is not None)
+                    term = raw_token.lower().strip()
+                    if len(term) < 2:
+                        continue
+
+                    term_to_chunks[term].add(entry["chunk_id"])
+                    total_tokens += 1
+
+                    # mark allcaps and inline code as domain specific
+                    if match.lastindex in (1, 2):
+                        structural_terms.add(term)
+
+            # compute IDF weights
+            payload = []
+            for term, chunk_set in term_to_chunks.items():
+                doc_freq = len(chunk_set)
+                # skip terms appearing in >25% of chunks
+                if doc_freq > max(5, int(total_chunks * 0.25)):
+                    continue
+
+                # calculate domain specificity 
+                corpus_prob = doc_freq / max(1, total_tokens)
+                english_prob = word_frequency(term, 'en', minimum=1e-9)
+                specificity = corpus_prob / english_prob
+
+                # keep if it's a structural/code identifier OR high domain specificity
+                if term in structural_terms or specificity >= specificity_threshold:
+                    idf = math.log(1.0 + (total_chunks / float(doc_freq)))
+                    sorted_chunks = sorted(chunk_set)
+                    payload.append((term, sorted_chunks, idf))
+
+            # insert all entries
+            cursor.execute("""
+                INSERT INTO keyword_lookup (keyword, related_chunks, idf_weight)
+                VALUES %s
+                ON CONFLICT (keyword) DO UPDATE
+                SET related_chunks = EXCLUDED.related_chunks,
+                    idf_weight = EXCLUDED.idf_weight;
+            """, payload)
+            
+            connection.commit()
+            

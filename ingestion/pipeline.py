@@ -18,7 +18,7 @@ def collect_markdown(docs_dir: Path) -> list[RawChunk]:
 def run(docs_dir: str = "docs") -> int:  # pragma: no cover - integration
     chunks = collect_markdown(Path(docs_dir))
     # Lazy import keeps hosted CI free of torch.
-    from ingestion.indexers import embed_and_index, populate_alarms
+    from ingestion.indexers import embed_and_index, populate_alarms, populate_keyword_table
     
     # collect alarms from sample.json (temporary measure for inserting alarms)
     alarm_filepath: str = "docs/docs-proto/starter-kit/alarms/alarms.sample.json"
@@ -28,6 +28,7 @@ def run(docs_dir: str = "docs") -> int:  # pragma: no cover - integration
     populate_alarms(alarms_json)
 
     embed_and_index(chunks)
+    populate_keyword_table()
     return len(chunks)
 
 
