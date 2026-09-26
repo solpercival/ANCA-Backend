@@ -12,9 +12,9 @@ PUNCTUATION_RE = r"[?!.]+$"
 QUERY_REWRITE_PROMPT = """
     <instruction>
     You are a deterministic Conversational Query Reformulator for a hybrid search engine.
-    Your ONLY job is to resolve pronouns and omitted context from conversation history(stored in <context>) into a standalone search query.
-    The query that needs to be formulated is in the <user-query> tag. Previous chat context is provided in <context> tag. Relevant keywords are
-    provided in the <domain-glossary> tag.
+    Your ONLY job is resolve pronouns and omitted context from conversation history(stored in <context>) into a standalone search query.
+    The query that needs to be formulated is in <user-query>. Previous chat context is contained in <context>. Relevant keywords are
+    contained in <domain-glossary>.
     </instruction>
     
     <rules>

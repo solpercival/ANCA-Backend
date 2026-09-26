@@ -113,6 +113,34 @@ class OllamaGenerator:
                     break
         return "".join(chunks)
 
+class OllamaRewriteGenerator:
+    def __init__(self, client: httpx.AsyncClient):
+            self._client = client
+    
+    async def generate(self, prompt: str) -> str:
+        settings = get_settings()
+
+        # similar to OllamaGenerator, slight modifications to account for longer prompt sizes.
+        chunks: list[str] = []
+        async with self._client.stream(
+            "POST",
+            f"{settings.ollama_base_url.rstrip('/')}/api/generate",
+            json={
+                "model": settings.rewrite_model,
+                "prompt": prompt,
+                "stream": True,
+                "options": {"num_predict": settings.rewrite_num_predict},
+            },
+        ) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if not line:
+                    continue
+                payload = json.loads(line)
+                chunks.append(payload.get("response", ""))
+                if payload.get("done"):
+                    break
+        return "".join(chunks)
 
 class OpenAIGenerator:
     def __init__(self, client: httpx.AsyncClient):
@@ -202,6 +230,12 @@ def get_generation_backend(client: httpx.AsyncClient) -> Any:
         return AnthropicGenerator(client)
     raise ValueError(f"Unsupported LLM provider: {provider}")
 
+def get_rewrite_backend(client: httpx.AsyncClient) -> Any:
+    settings = get_settings()
+    provider = settings.llm_provider.lower()
+    if provider == "ollama":
+        return OllamaRewriteGenerator(client)
+    raise ValueError(f"Unsupported LLM provider: {provider}")
 
 async def generate_text(prompt: str, client: httpx.AsyncClient) -> str:
     backend = get_generation_backend(client)
