@@ -115,6 +115,10 @@ class Settings(BaseSettings):
     # alarms data
     alarm_delim: str = "."
 
+    # query rewriting
+    KEYWORD_K: int = 10
+    CONTEXT_K: int = 10
+    
     @model_validator(mode="after")
     def _require_explicit_allowed_hosts_outside_local(self) -> Self:
         """A deployment that accepts any Host can be used to forge links back to itself."""

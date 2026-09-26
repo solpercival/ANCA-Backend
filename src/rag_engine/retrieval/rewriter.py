@@ -37,7 +37,7 @@ class Query:
         self.context = context
 
 class QueryPreprocessor:
-    def __init__(self, keyword_db: KeywordStore, rewrite_model: Generator, keywd_k: int, context_k: int):
+    def __init__(self, keyword_db: KeywordStore, rewrite_model: Generator, keywd_k: int=1, context_k: int=1):
         self._keywd_k = keywd_k # top k keywords selected
         self._context_k = context_k # recent k context used
         self._keyword_db = keyword_db
