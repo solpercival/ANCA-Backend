@@ -13,7 +13,7 @@ QUERY_REWRITE_PROMPT = """
     <instruction>
     You are a deterministic Conversational Query Reformulator for a hybrid search engine.
     Your ONLY job is to resolve pronouns and omitted context from conversation history(stored in <context>) into a standalone search query.
-    The query that needs to be formulated is in the <query> tag. Previous chat context is provided in <context> tag. Relevant keywords are
+    The query that needs to be formulated is in the <user-query> tag. Previous chat context is provided in <context> tag. Relevant keywords are
     provided in the <domain-glossary> tag.
     </instruction>
     
@@ -27,6 +27,7 @@ QUERY_REWRITE_PROMPT = """
 """
 
 class Query:
+    # Query class used to store all relevant data for query preprocessing
     resolved_query: str = ""
     lexical_tokens: list[str] = []
     context: list[str]
@@ -36,9 +37,9 @@ class Query:
         self.context = context
 
 class QueryPreprocessor:
-    def __init__(self, keyword_db: KeywordStore, top_k: int, context_k: int, rewrite_model: Generator):
-        self._top_k = top_k
-        self._context_k = context_k
+    def __init__(self, keyword_db: KeywordStore, rewrite_model: Generator, keywd_k: int, context_k: int):
+        self._keywd_k = keywd_k # top k keywords selected
+        self._context_k = context_k # recent k context used
         self._keyword_db = keyword_db
         self._rewrite_model = rewrite_model
         
@@ -49,9 +50,11 @@ class QueryPreprocessor:
         return query
         
     def _create_query(self, text: str, context: list[str]) -> Query:
+        # creates Query class for storing context and query data
         return Query(text, context)
 
     def _req_coref_rewrite(self, query: Query) -> bool:
+        # determines if there are any recognized pronouns that need resolution or if query is too short
         if not query.context:
             return False
 
@@ -61,13 +64,15 @@ class QueryPreprocessor:
         return False # prefer not to process
 
     def _collect_keywords(self, query: Query) -> str:
+        # collects keywords from exact and fuzzy search to enforce preservation of domain specific terms/acronyms/labels
         settings = get_settings()
 
-        matched_kws = self._keyword_db.keyword_search(query.resolved_query, top_k=self._top_k)
+        matched_kws = self._keyword_db.keyword_search(query.resolved_query, top_k=self._keywd_k)
 
         return f"<domain-glossary>{"|".join(matched_kws)}</domain-glossary>"
 
     def _process_context(self, context: list[str], prev_k: int = 3) -> str:
+        # formats past context in order and amount requested
         if not context:
             return ""
 
@@ -80,7 +85,7 @@ class QueryPreprocessor:
         return f"<context>{formatted}</context>"
 
     def _format_query(self, query: Query) -> str:
-        return f"<query>{query.resolved_query}</query>"
+        return f"<user-query>{query.resolved_query}</user-query>"
     
     def process_prompt(self, raw_query: str, prev_context: list[str]) -> str:
         # normalize query, remove filler words/content
@@ -91,12 +96,16 @@ class QueryPreprocessor:
         # introduce query class to manage query and context
         query = self._create_query(norm_query, prev_context)
 
+        # search DB for relevant keywords used in domain glossary
         keyword_str = self._collect_keywords(query)
 
-        context_str = self._process_context(prev_context)
+        # create the context string
+        context_str = self._process_context(prev_context, self._context_k)
+
 
         query_str = self._format_query(query)
 
+        # The final query is structured as """<instruction> \n <rules> \n <domain-glossary> \n <context> \n <user-query>"""
         formatted_query = f"{QUERY_REWRITE_PROMPT}\n{keyword_str}\n{context_str}\n{query_str}"
 
         rewritten_query = self._rewrite_model.generate(formatted_query)

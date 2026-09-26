@@ -18,6 +18,7 @@ dependencies = [
     "python-multipart>=0.0.20",
     "langfuse>=2.53",                   # runtime tracing
     "langchain-text-splitters>=1.1.2",
+    "wordfreq>=3.1.1",
 ]
 
 [project.optional-dependencies]
