@@ -17,8 +17,7 @@ def test_query_initialization():
     
     assert query.resolved_query == "what is this?"
     assert query.context == context
-    assert query.lexical_tokens == []
-
+    
 def test_query_empty_context():
     query = Query("test query", [])
     assert query.context == []
@@ -55,7 +54,7 @@ def test_process_context_empty(preprocessor):
     assert result == ""
 
 def test_process_context_basic(preprocessor):
-    fake_context = ["user-query-1", "assistant-response-1", "user-query-2", "assistant-response-2", "user-query-3", "assistant-response-3"]
+    fake_context = [("user-query-1", None), ("assistant-response-1", None), ("user-query-2", None), ("assistant-response-2", None), ("user-query-3", None), ("assistant-response-3", None)]
     result = preprocessor._process_context(fake_context, 3)
 
     assert (len(result.split("\n")) == 3)
@@ -68,9 +67,21 @@ def test_process_context_basic(preprocessor):
 
     assert all(result[i] == fake_context[i] for i in range(-3,0,-1))
 
+def test_process_context_status(preprocessor):
+    fake_context = [("user-query-1", None), ("assistant-response-1", True), ("user-query-2", None), ("assistant-response-2", False), ("user-query-3", None), ("assistant-response-3", True)]
+    result = preprocessor._process_context(fake_context, 6)
+
+    assert (len(result.split("\n")) == 6)
+    assert "<context>" in result
+    assert "</context>" in result
+
+    assert ("assistant-response-1 [status: success]" in result)
+    assert ("assistant-response-2 [status: failed]" in result)
+    assert ("assistant-response-3 [status: success]" in result)
+
 def test_process_context_smaller_context(preprocessor):
     # test if context provided is less that the k value
-    fake_context = ["user-query-1", "assistant-response-1"]
+    fake_context = [("user-query-1", None), ("assistant-response-1", None)]
     result = preprocessor._process_context(fake_context, 6)
     
     assert (len(result.split("\n")) == 2)

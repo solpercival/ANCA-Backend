@@ -23,16 +23,16 @@ QUERY_REWRITE_PROMPT = """
     * Every term listed in the <domain-glossary> below is a proprietary system identifier. You MUST preserve exact spelling and casing if referenced.
     * If the user's latest query pivots to a new topic unrelated to the <context>, DO NOT INTEGRATE any past context into the rewrittten query.
     * <context> is structured as {"user": ... } for a user's query followed by {"assist": ... } for the assistant's response. Each entry is separated by a \n delimiter.
+    * If a response was tried and worked, it will be indicated with [status: success]. If a response was tried and failed, it will be indicated with [status: failed].
     </rules>
 """
 
 class Query:
     # Query class used to store all relevant data for query preprocessing
     resolved_query: str = ""
-    lexical_tokens: list[str] = []
-    context: list[str]
+    context: list[tuple[str, bool | None]]
 
-    def __init__(self, query: str, context: list[str]):
+    def __init__(self, query: str, context: list[tuple[str, bool | None]]):
         self.resolved_query = query
         self.context = context
 
@@ -49,7 +49,7 @@ class QueryPreprocessor:
         query = re.sub(PUNCTUATION_RE, "", query).strip()
         return query
         
-    def _create_query(self, text: str, context: list[str]) -> Query:
+    def _create_query(self, text: str, context: list[tuple[str, bool | None]]) -> Query:
         # creates Query class for storing context and query data
         return Query(text, context)
 
@@ -71,23 +71,38 @@ class QueryPreprocessor:
 
         return f"<domain-glossary>{"|".join(matched_kws)}</domain-glossary>"
 
-    def _process_context(self, context: list[str], prev_k: int = 3) -> str:
+    def _process_context(self, context: list[tuple[str, bool | None]], prev_k: int = 3) -> str:
+        # context is expected in the format (context string, status). 
+        # status can be True indicating success, False indicating failure or None indicating no recorded reaction
+
         # formats past context in order and amount requested
         if not context:
             return ""
 
-        context_json: dict[str,str] = {}
         # assume the first message is from the user
         # context is assumed to be populated from oldest to latest in order (0 is the first message, -1 is the latest)
         preserved_context = context[-prev_k:]
-        formatted = "\n".join(f"[{'user' if i % 2 == 0 else 'assist'}]: {msg}" for i, msg in enumerate(preserved_context))
+        lines = []
+        start_with_user = len(context) % 2 == 0
+    
+        for i, (msg, status) in enumerate(preserved_context):
+            role = 'user' if (i % 2 == 0) == start_with_user else 'assist'
+
+            status_indicator = ""
+            if status is True:
+                status_indicator = " [status: success]"
+            elif status is False:
+                status_indicator = " [status: failed]"
+        
+            lines.append(f"[{role}]: {msg}{status_indicator}")
+        formatted = "\n".join(lines)
 
         return f"<context>{formatted}</context>"
 
     def _format_query(self, query: Query) -> str:
         return f"<user-query>{query.resolved_query}</user-query>"
     
-    def process_prompt(self, raw_query: str, prev_context: list[str]) -> str:
+    def process_prompt(self, raw_query: str, prev_context: list[tuple[str, bool | None]]) -> str:
         # normalize query, remove filler words/content
         norm_query = self._normalize_query(raw_query)
         if not norm_query:
