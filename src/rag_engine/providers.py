@@ -11,12 +11,15 @@ Onboarding note:
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 import httpx
 
 from rag_engine.config import get_settings
 from rag_engine.stores.search import PostgresDBConnection
+
+_THINK_SPAN = re.compile(r"<think>.*?(?:</think>|$)", re.DOTALL)
 
 
 def get_lexical_backend() -> Any:
@@ -100,6 +103,9 @@ class OllamaGenerator:
                 "model": settings.llm_model,
                 "prompt": prompt,
                 "stream": True,
+                # skip qwen3's hidden reasoning trace, which otherwise burns num_predict
+                # tokens before any answer text is produced
+                "think": False,
                 "options": {"num_predict": settings.llm_num_predict},
             },
         ) as response:
@@ -111,7 +117,9 @@ class OllamaGenerator:
                 chunks.append(payload.get("response", ""))
                 if payload.get("done"):
                     break
-        return "".join(chunks)
+        # older Ollama versions ignore "think" and inline the trace; drop it, including
+        # an unclosed span left when num_predict cuts generation off mid-thought
+        return _THINK_SPAN.sub("", "".join(chunks)).strip()
 
 
 class OpenAIGenerator:

@@ -67,7 +67,7 @@ class HybridRetriever:
             raise RuntimeError("Dual retrieval requires sparse and lexical backends")
 
         t0 = time.perf_counter()
-        sparse_vector = await self._sparse_embedder.sparse_embed([query])
+        sparse_vector = (await self._sparse_embedder.sparse_embed([query]))[0]
         t_embed += time.perf_counter() - t0
 
         t0 = time.perf_counter()

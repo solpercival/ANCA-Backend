@@ -71,7 +71,9 @@ class Settings(BaseSettings):
     # ollama
     ollama_base_url: str = "http://ollama:11434"
     embedding_model: str = "qwen3-embedding:0.6b"
-    llm_model: str = "qwen3:4b"
+    # instruct (non-thinking) build: plain qwen3:4b is the always-thinking 2507 model,
+    # which ignores think:false and spends num_predict on reasoning text
+    llm_model: str = "qwen3:4b-instruct-2507-q4_K_M"
     # caps generated tokens; the single biggest CPU-side latency lever
     llm_num_predict: int = 256
 

@@ -12,7 +12,7 @@ if [ -f .env ]; then
   set +a
 fi
 
-BASE=http://localhost:8080
+BASE=http://localhost:8080/api/v2
 PG_USER=${POSTGRES_USER:-rag}
 PG_DB=${POSTGRES_DB:-rag}
 
@@ -59,13 +59,13 @@ TOKEN=$(echo "$LOGIN_JSON" | sed '/^TIME /d' | python3 -c 'import sys,json; prin
 echo "TOKEN_LEN=${#TOKEN}"
 
 echo "--- WARM-UP RESOLVE (not timed: pays model load / lazy reranker cold start) ---"
-curl -s -o /dev/null -w 'HTTP %{http_code}  warmup=%{time_total}s\n' -X POST "$BASE/api/v1/resolve" \
+curl -s -o /dev/null -w 'HTTP %{http_code}  warmup=%{time_total}s\n' -X POST "$BASE/resolve" \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"code": "am.fb.0002"}'
 
 echo "--- RESOLVE (timed) ---"
 curl -s -o /tmp/resolve.json -w 'HTTP %{http_code}  total=%{time_total}s  ttfb=%{time_starttransfer}s\n' \
-  -X POST "$BASE/api/v1/resolve" \
+  -X POST "$BASE/resolve" \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"code": "am.fb.0002"}'
 print_stage_timings /tmp/resolve.json
@@ -74,7 +74,7 @@ echo
 
 echo "--- CHAT (timed) ---"
 curl -s -o /tmp/chat.json -w 'HTTP %{http_code}  total=%{time_total}s  ttfb=%{time_starttransfer}s\n' \
-  -X POST "$BASE/api/v1/chat" \
+  -X POST "$BASE/chat" \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"conversation_id": "smoke-1", "message": "What should I check first for a drive emergency alarm?"}'
 print_stage_timings /tmp/chat.json

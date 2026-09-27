@@ -69,7 +69,7 @@ async def lifespan(app: FastAPI):
     # shutdown
     if getattr(app.state, "httpx_client", None) is not None:
         await app.state.httpx_client.aclose()
-    close_cache_pool()
+    await close_cache_pool()
     close_db_pool()
 
 app = FastAPI(lifespan=lifespan)
@@ -78,8 +78,10 @@ app = FastAPI(lifespan=lifespan)
 @app.middleware("http")
 async def add_request_id(request: Request, call_next):
     request.state.request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
+    request_id = request.state.request_id
+    t0 = time.perf_counter()
 
-    if request.url.path.startswith("/api/v1"):
+    if request.url.path.startswith("/api/v2"):
         content_length = request.headers.get("content-length")
         try:
             declared_length = int(content_length) if content_length else None

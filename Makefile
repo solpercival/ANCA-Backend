@@ -15,6 +15,9 @@ fmt:
 lint:
 	$(VENV)/ruff check . && $(VENV)/pylint src/rag_engine || true
 
+bench:          ## warm multi-query latency + correctness benchmark against the running stack
+	bash scripts/bench.sh
+
 test:
 	$(VENV)/pytest -q
 
@@ -27,7 +30,7 @@ up-full:       ## + langfuse
 models:        ## start Ollama and download the local models
 	$(COMPOSE) up -d ollama
 	$(COMPOSE) exec ollama ollama pull qwen3-embedding:0.6b
-	$(COMPOSE) exec ollama ollama pull qwen3:4b
+	$(COMPOSE) exec ollama ollama pull qwen3:4b-instruct-2507-q4_K_M
 
 down:
 	$(COMPOSE) down
