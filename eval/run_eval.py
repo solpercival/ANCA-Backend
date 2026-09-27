@@ -29,6 +29,59 @@ def same_doc(cited, gold_path):
         return True
     return False
 
+def score_code(citations, gold_entry):
+    """Score an alarm code's citations against its gold documents"""
+    # The files the correct answer comes from 
+    gold_paths = []
+    for ref in gold_entry["doc_refs"]:
+        if ref["path"] not in gold_paths:
+            gold_paths.append(ref["path"])
+
+    # For each citation, in order check if it's one of the gold files
+    correct = []
+    for citation in citations:
+        is_correct = False
+        for gold_path in gold_paths:
+            if same_doc(citation["source"], gold_path):
+                is_correct = True
+        correct.append(is_correct)
+
+    # Find gold files that got cited at least once
+    found = []
+    for gold_path in gold_paths:
+        for citation in citations:
+            if same_doc(citation["source"], gold_path):
+                found.append(gold_path)
+                break
+
+    # Reciprocal rank = 1 / position of the first correct citation
+    if True in correct:
+        position = correct.index(True) + 1
+        reciprocal_rank = 1 / position
+    else:
+        reciprocal_rank = 0.0
+
+    # Precision = how many of the citations were correct
+    if len(citations) > 0:
+        precision = correct.count(True)/len(citations)
+    else:
+        precision = 0.0
+
+    # Recall = how many of the gold files were found
+    recall = len(found)/len(gold_paths)
+
+    # At least one gold ile is found
+    hit = len(found) > 0
+
+    return {
+        "hit": hit,
+        "precision": precision,
+        "recall": recall,
+        "reciprocal_rank": reciprocal_rank,
+    }
+
+
+
 def normalize_result(payload: dict) -> dict:
     """Convert a raw model result into a stable normalized artifact.
 
