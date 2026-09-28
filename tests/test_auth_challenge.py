@@ -41,7 +41,7 @@ class StubAuthService:
 
 
 def test_missing_token_gets_a_bare_challenge(client):
-    r = client.post("/api/v1/resolve", json=RESOLVE_BODY)
+    r = client.post("/api/v2/resolve", json=RESOLVE_BODY)
 
     assert r.status_code == 401
     # RFC 6750 3.1: with no credentials sent, the challenge names no error.
@@ -60,7 +60,7 @@ def test_missing_token_gets_a_bare_challenge(client):
 )
 def test_rejected_token_challenge_names_the_error(client, label, token):
     headers = {"Authorization": f"Bearer {token}"}
-    r = client.post("/api/v1/resolve", json=RESOLVE_BODY, headers=headers)
+    r = client.post("/api/v2/resolve", json=RESOLVE_BODY, headers=headers)
 
     assert r.status_code == 401, label
     challenge = r.headers["www-authenticate"]
@@ -73,7 +73,7 @@ def test_forbidden_carries_no_challenge(client):
     token, _ = create_access_token(user_id=1, tier=Tier.operator)
     body = {"conversation_id": "c-1", "message": "Why did the drive fault?"}
 
-    r = client.post("/api/v1/chat", json=body, headers={"Authorization": f"Bearer {token}"})
+    r = client.post("/api/v2/chat", json=body, headers={"Authorization": f"Bearer {token}"})
 
     # A challenge on 403 would invite a pointless retry: the tier, not the token, is the problem.
     assert r.status_code == 403
@@ -83,8 +83,8 @@ def test_forbidden_carries_no_challenge(client):
 @pytest.mark.parametrize(
     ("path", "kwargs", "error", "expected_code"),
     [
-        ("/auth/refresh", {}, SessionExpired(), "session_expired"),
-        ("/auth/token", {"data": {"username": "a", "password": "b"}},
+        ("/api/v2/auth/refresh", {}, SessionExpired(), "session_expired"),
+        ("/api/v2/auth/token", {"data": {"username": "a", "password": "b"}},
          InvalidCredentials(), "invalid_credentials"),
     ],
 )

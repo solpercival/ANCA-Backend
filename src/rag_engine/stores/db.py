@@ -19,6 +19,9 @@ def init_db_pool() -> None:
         configure=register_vector,
     )
 
+def get_db_pool() -> ConnectionPool | None:
+    return _db_pool
+
 def close_db_pool() -> None:
     if _db_pool:
         _db_pool.close()

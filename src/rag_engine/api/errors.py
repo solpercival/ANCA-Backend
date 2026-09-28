@@ -11,6 +11,7 @@ class ErrorCode(StrEnum):
     session_expired = "session_expired"
     # request
     validation_error = "validation_error"
+    payload_too_large = "payload_too_large"
     not_found = "not_found"
     conflict = "conflict"
     unknown_alarm_code = "unknown_alarm_code"
@@ -77,7 +78,7 @@ class Forbidden(AppError):
 class UnknownAlarmCode(AppError):
     status_code, code, message = 404, ErrorCode.unknown_alarm_code, "Alarm code not found"
 
-class RetrievalUnavailable(AppError): 
+class RetrievalUnavailable(AppError):
     status_code, code, message = (503, ErrorCode.retrieval_unavailable, "Retrieval backend unavailable", )
 class Conflict(AppError):
     status_code, code, message = 409, ErrorCode.conflict, "Resource already exists"

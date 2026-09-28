@@ -138,7 +138,7 @@ def test_hybrid_retriever_uses_dense_and_lexical_lists(monkeypatch):
             ]
 
     class FakeLexical:
-        async def lexical_search(self, query, top_k):
+        async def lexical_search(self, query, top_k, where=None):
             return [
                 Chunk(chunk_id="v1", text="dense_result", source="manual.md"),
                 Chunk(chunk_id="l1", text="lexical_result", source="faq.md"),

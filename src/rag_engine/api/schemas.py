@@ -3,6 +3,10 @@ from pydantic import BaseModel, Field
 
 from rag_engine.auth.tiers import Tier
 
+# TODO: confirm exact alarm-code format with the docs team; starter-kit data
+# regex should match the known examples 
+ALARM_CODE_PATTERN = r"^[a-z]{2,4}\.[a-z]{2,6}\.\d{4}$"
+
 
 class Env(BaseModel):
     versions: dict[str, str] = Field(default_factory=dict)
@@ -10,9 +14,19 @@ class Env(BaseModel):
 
 
 class ResolveRequest(BaseModel):
-    code: str = Field(..., examples=["am.fb.0002"])
+    code: str = Field(
+        ...,
+        min_length=1,
+        max_length=64,
+        pattern=ALARM_CODE_PATTERN,
+        examples=["am.fb.0002"],
+    )
     env: Env = Field(default_factory=Env)
-    query: str | None = Field(None, description="Optional free-text symptom")
+    query: str | None = Field(
+        None,
+        max_length=1000,
+        description="Optional free-text symptom",
+    )
 
 
 class Citation(BaseModel):
@@ -31,8 +45,8 @@ class ResolveResponse(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    conversation_id: str
-    message: str
+    conversation_id: str = Field(..., min_length=1, max_length=128)
+    message: str = Field(..., min_length=1, max_length=4096)
 
 
 class ChatResponse(BaseModel):

@@ -37,7 +37,9 @@ def register_error_handlers(app: FastAPI) -> None:
     async def _http(request: Request, exc: StarletteHTTPException):
         code = {401: ErrorCode.unauthorized, 403: ErrorCode.forbidden,
                 404: ErrorCode.not_found, 409: ErrorCode.conflict,
-                429: ErrorCode.rate_limited}.get(exc.status_code, ErrorCode.internal_error)
+                413: ErrorCode.payload_too_large, 429: ErrorCode.rate_limited}.get(
+                    exc.status_code, ErrorCode.internal_error
+                )
         return _json(exc.status_code, ErrorBody(
             code=code, message=str(exc.detail), request_id=_request_id(request)),
             headers=dict(exc.headers or {}))
