@@ -157,28 +157,34 @@ class PostgresDBConnection:
             
         return context_result
 
-    def store_query_result(self, conversation_id: str, query: str, response: str, alarm_str: str) -> None:
+    def store_query_result(self, conversation_id: str, query: str, response: str, alarm_str: str | None) -> None:
         settings = get_settings()
 
         with get_db_conn() as conn:
-            if len(alarm_str.split(settings.alarm_delim)) != 3:
-                return None
-            
-            result = conn.execute("""
-                SELECT alarm_code_id AS alarm_id FROM alarm_code
-                WHERE origin = %s AND code = %s AND sequence = %s;                
-            """, alarm_str.split(settings.alarm_delim)).fetchone()
+            if alarm_str:
+                # add alarm if exists
+                result = conn.execute("""
+                    SELECT alarm_code_id AS alarm_id FROM alarm_code
+                    WHERE origin = %s AND code = %s AND sequence = %s;                
+                """, alarm_str.split(settings.alarm_delim)).fetchone()
 
-            if not result:
-                return None
-            alarm_id = result["alarm_id"]
+                if not result:
+                    return None
+                alarm_id = result["alarm_id"]
 
-            conn.execute("""
-                INSERT INTO response
-                (conversation_id, query, response_body, time_generated, user_feedback, alarm_id, user_uid) 
-                VALUES (%s, %s, %s, %s, %s, %s, %s);
-            """, [conversation_id, query, response, datetime.now(), None, alarm_id, None]) # user id and feedback currently not collected, option to add later
-
+                conn.execute("""
+                    INSERT INTO response
+                    (conversation_id, query, response_body, time_generated, alarm_id) 
+                    VALUES (%s, %s, %s, %s, %s, %s, %s);
+                """, [conversation_id, query, response, datetime.now(), alarm_id]) # user id and feedback currently not collected, option to add later
+            else:
+                # insert without alarm_id and user_id
+                conn.execute("""
+                    INSERT INTO response
+                    (conversation_id, query, response_body, time_generated) 
+                    VALUES (%s, %s, %s, %s, %s, %s, %s);
+                """, [conversation_id, query, response, datetime.now()]) 
+                
             conn.commit()
 
 class RedisConnection:

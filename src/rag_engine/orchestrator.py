@@ -120,6 +120,8 @@ class Orchestrator:
         candidates = await self._retriever.retrieve(req.message, top_k=self._top_k)
         top = await self._reranker.rerank(req.message, candidates, top_n=self._top_n)
         reply = await self._generator.generate(self._build_chat_prompt(req.message, top))
+
+        self._preprocessor.store_context(req.conversation_id, req.message, reply, None)
         return ChatResponse(
             conversation_id=req.conversation_id,
             reply=reply,

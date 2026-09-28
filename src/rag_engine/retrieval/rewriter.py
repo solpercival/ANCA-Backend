@@ -137,5 +137,5 @@ class QueryPreprocessor:
         
         return rewritten_query
 
-    def store_context(self, conversation_id: str, query: str, response: str, alarm: str) -> None:
+    def store_context(self, conversation_id: str, query: str, response: str, alarm: str | None) -> None:
         self._chat_db.store_query_result(conversation_id, query, response, alarm)

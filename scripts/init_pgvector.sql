@@ -155,8 +155,8 @@ CREATE TABLE IF NOT EXISTS response (
 	response_body TEXT,
 	time_generated TIMESTAMP NOT NULL,
 	user_feedback BOOLEAN DEFAULT NULL,
-	alarm_id INTEGER REFERENCES alarm_code(alarm_code_id) NOT NULL,
-	user_uid BIGINT REFERENCES users(uid)
+	alarm_id INTEGER REFERENCES alarm_code(alarm_code_id) DEFAULT NULL,
+	user_uid BIGINT REFERENCES users(uid) DEFAULT NULL
 );
 
 CREATE INDEX IF NOT EXISTS fk_response_alarm_code_idx ON response (alarm_id);
