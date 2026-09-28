@@ -67,13 +67,16 @@ class QueryPreprocessor:
 
         return False # prefer not to process
 
-    def _collect_keywords(self, query: Query) -> str:
+    def _collect_keywords(self, query: Query, context: list[tuple[str, bool | None]]) -> str:
         # collects keywords from exact and fuzzy search to enforce preservation of domain specific terms/acronyms/labels
         settings = get_settings()
 
+        context_query = " ".join([entry[0] for entry in context].append(query.resolved_query))
         matched_kws = self._keyword_db.keyword_search(query.resolved_query, top_k=self._keywd_k)
+        context_kws = self._keyword_db.keyword_search(context_query, top_k=self._context_k)
 
-        return f"<domain-glossary>{"|".join(matched_kws)}</domain-glossary>"
+        glossary_str = f"{"|".join(matched_kws)}|{"|".join(context_kws)}"
+        return f"<domain-glossary>{glossary_str}</domain-glossary>"
 
     def _process_context(self, context: list[tuple[str, bool | None]], prev_k: int = 3) -> str:
         # context is expected in the format (context string, status). 
@@ -119,7 +122,7 @@ class QueryPreprocessor:
         query = self._create_query(norm_query, prev_context)
 
         # search DB for relevant keywords used in domain glossary
-        keyword_str = self._collect_keywords(query)
+        keyword_str = self._collect_keywords(query, prev_context)
 
         # create the context string
         context_str = self._process_context(prev_context, self._context_k)

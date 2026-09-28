@@ -97,7 +97,7 @@ class Orchestrator:
         answer = await self._generator.generate(self._build_prompt(req, top, tier))
         t_generate = time.perf_counter() - t0
 
-        self._preprocessor.store_context("", query, answer, req.code) # empty alarm code
+        self._preprocessor.store_context("", query, answer, req.code) 
 
         log.info(
             "resolve_timing code=%s retrieve=%.4fs rerank=%.4fs generate=%.4fs total=%.4fs",
