@@ -28,6 +28,24 @@ def get_lexical_backend() -> Any:
     
     raise ValueError(f"Unsupported lexical provider: {provider}")
 
+def get_chat_store_backend() -> Any:
+    settings = get_settings()
+    provider = settings.chat_store_provider.lower()
+
+    if provider == "postgres":
+        return PostgresDBConnection()
+
+    raise ValueError(f"Unsupported chat store provider: {provider}")
+    
+def get_alarm_store_backend() -> Any:
+    settings = get_settings()
+    provider = settings.alarm_store_provider.lower()
+
+    if provider == "postgres":
+        return PostgresDBConnection()
+    
+    raise ValueError(f"Unsupported alarm store provider: {provider}")
+    
 class OllamaEmbedder:
     def __init__(self, client: httpx.AsyncClient):
         self._client = client

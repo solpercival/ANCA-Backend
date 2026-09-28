@@ -6,6 +6,7 @@ from pgvector import Vector
 import json
 import hashlib
 import re
+import datetime
 
 class PostgresDBConnection:
     # VectorStore search
@@ -58,8 +59,6 @@ class PostgresDBConnection:
 
     # AlarmStore search
     async def alarm_search(self, request_json: dict) -> Alarm:
-        settings = get_settings()
-
         # validate fields
         if (not request_json) or ("code" not in request_json) or ("env" not in request_json):
             return None
@@ -139,6 +138,48 @@ class PostgresDBConnection:
                 return None
 
             return [entry["keyword"] for entry in result]
+
+    async def context_search(self, conversation_id: str) -> list[tuple[str, bool|None]]:
+        if not conversation_id:
+            return None
+
+        context_result: list[tuple[str, bool|None]] = []
+        with get_db_conn() as conn:
+            result = conn.execute("""
+                SELECT query, response_body, user_feedback FROM response
+                WHERE conversation_id = %s
+                ORDER BY time_generated ASC;
+            """, [conversation_id]).fetchall()
+
+            for entry in result:
+                context_result.append((entry["query"], None))
+                context_result.append((entry["response_body"], entry["user_feedback"]))
+            
+        return context_result
+
+    async def store_query_result(self, conversation_id: str, query: str, response: str, alarm_str: str) -> None:
+        settings = get_settings()
+
+        with get_db_conn() as conn:
+            if len(alarm_str.split(settings.alarm_delim)) != 3:
+                return None
+            
+            result = conn.execute("""
+                SELECT alarm_code_id AS alarm_id FROM alarm_code
+                WHERE origin = %s AND code = %s AND sequence = %s;                
+            """, alarm_str.split(settings.alarm_delim)).fetchone()
+
+            if not result:
+                return None
+            alarm_id = result["alarm_id"]
+
+            conn.execute("""
+                INSERT INTO response
+                (conversation_id, query, response_body, time_generated, user_feedback, alarm_id, user_uid) 
+                VALUES (%s, %s, %s, %s, %s, %s, %s);
+            """, [conversation_id, query, response, datetime.now(), None, alarm_id, None]) # user id and feedback currently not collected, option to add later
+
+            conn.commit()
 
 class RedisConnection:
     def _create_key(self, text: str) -> str:

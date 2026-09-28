@@ -1,7 +1,7 @@
 import re
 import json
 from rag_engine.config import get_settings
-from rag_engine.retrieval.interfaces import KeywordStore, Generator
+from rag_engine.retrieval.interfaces import KeywordStore, Generator, ChatStore, AlarmStore
 
 PRONOUN_RE = re.compile(r"\b(my|i|it|its|that|this|those|these|they|them|their|he|she|same)\b", re.IGNORECASE)
 CONVERSATIONAL_RE = re.compile(
@@ -37,11 +37,16 @@ class Query:
         self.context = context
 
 class QueryPreprocessor:
-    def __init__(self, keyword_db: KeywordStore, rewrite_model: Generator, keywd_k: int=1, context_k: int=1):
+    def __init__(self, chat_db: ChatStore, alarm_db: AlarmStore, keyword_db: KeywordStore, rewrite_model: Generator, keywd_k: int=1, context_k: int=1):
         self._keywd_k = keywd_k # top k keywords selected
         self._context_k = context_k # recent k context used
+        self._chat_db = chat_db        
+        self._alarm_db = alarm_db
         self._keyword_db = keyword_db
         self._rewrite_model = rewrite_model
+
+    def _retrieve_context(self, conversation_id: str) -> list[tuple[str, bool | None]]:
+        return self._chat_db.context_search(conversation_id)
         
     def _normalize_query(self, text: str) -> str:
         query = text.strip().lower().replace("\n", " ")
@@ -102,7 +107,10 @@ class QueryPreprocessor:
     def _format_query(self, query: Query) -> str:
         return f"<user-query>{query.resolved_query}</user-query>"
     
-    def process_prompt(self, raw_query: str, prev_context: list[tuple[str, bool | None]]) -> str:
+    def process_prompt(self, raw_query: str, conversation_id: str) -> str:
+        # retrieve context
+        prev_context = self._retrieve_context(conversation_id)
+
         # normalize query, remove filler words/content
         norm_query = self._normalize_query(raw_query)
         if not norm_query:

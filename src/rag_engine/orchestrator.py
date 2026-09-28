@@ -25,6 +25,7 @@ from rag_engine.retrieval.hybrid import HybridRetriever
 from rag_engine.retrieval.interfaces import Chunk, Generator, Reranker
 from rag_engine.retrieval.reranker import IdentityReranker, Qwen3Reranker
 from rag_engine.stores.search import PostgresDBConnection
+from rag_engine.retrieval.rewriter import QueryPreprocessor
 
 log = logging.getLogger("rag_engine.orchestrator")
 
@@ -43,12 +44,14 @@ def get_reranker_backend() -> Reranker:
 class Orchestrator:
     def __init__(
         self,
+        preprocessor: QueryPreprocessor,
         retriever: HybridRetriever,
         reranker: Reranker,
         generator: Generator,
         rerank_top_n: int = 8,
         retrieval_top_k: int = 50,
     ):
+        self._preprocessor = preprocessor
         self._retriever = retriever
         self._reranker = reranker
         self._generator = generator
@@ -79,6 +82,9 @@ class Orchestrator:
         query = req.query or req.code
 
         t0 = time.perf_counter()
+        rewrite_query = await self._preprocessor.process_prompt(query)
+
+        t0 = time.perf_counter()
         candidates = await self._retriever.retrieve(query, top_k=self._top_k, where=where or None)
         t_retrieve = time.perf_counter() - t0
 
@@ -103,6 +109,11 @@ class Orchestrator:
         )
 
     async def chat(self, req: ChatRequest, tier: Tier) -> ChatResponse:
+        rewritten_prompt = await self._preprocessor.process_prompt(req.message, req.conversation_id)
+        if not rewritten_prompt:
+            return ChatResponse(conversation_id=req.conversation_id, reply="", citations=[])
+        req.message = rewritten_prompt
+        
         candidates = await self._retriever.retrieve(req.message, top_k=self._top_k)
         top = await self._reranker.rerank(req.message, candidates, top_n=self._top_n)
         reply = await self._generator.generate(self._build_chat_prompt(req.message, top))
@@ -124,6 +135,9 @@ def get_orchestrator() -> Orchestrator:  # pragma: no cover - wired at runtime
         get_generation_backend,
         get_lexical_backend,
         get_sparse_embedding_backend,
+        get_rewrite_backend,
+        get_chat_store_backend,
+        get_alarm_store_backend,
     )
 
     dense_embedder = get_dense_embedding_backend(client=client)
@@ -134,9 +148,22 @@ def get_orchestrator() -> Orchestrator:  # pragma: no cover - wired at runtime
     else:
         sparse_embedder = None
         lexical = None
+
     retriever = HybridRetriever(dense_embedder, sparse_embedder, vector_store, lexical)
+
+    rewrite_model = get_rewrite_backend(client)
+    alarm_store = get_alarm_store_backend()
+    chat_store = get_chat_store_backend()
+    query_rewriter = QueryPreprocessor(chat_store,
+                                       alarm_store,
+                                       vector_store, 
+                                       rewrite_model, 
+                                       get_settings().KEYWORD_K, 
+                                       get_settings().CONTEXT_K)
+    
     return Orchestrator(
-        retriever,
+        preprocessor=query_rewriter,
+        retriever=retriever,
         reranker=get_reranker_backend(),
         generator=get_generation_backend(client=client),
     )
