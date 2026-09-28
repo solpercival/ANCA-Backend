@@ -46,4 +46,4 @@ smoke:          ## end-to-end smoke test: auth -> resolve -> chat against the ru
 	bash scripts/smoke_e2e.sh
 
 eval:          ## run Ragas/DeepEval against docs/reference-answers.json
-	$(VENV)/python -m eval.run_eval --gold docs/reference-answers.json
+	$(VENV)/python -m eval.run_eval --gold docs/docs-proto/starter-kit/alarms/reference-answers.json
