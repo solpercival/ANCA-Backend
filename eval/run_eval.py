@@ -107,6 +107,27 @@ def get_token(username, password, api_url=API_URL):
     response.raise_for_status()
     return response.json()["access_token"]
 
+def run_eval(username, password, api_url=API_URL):
+    """Call the API for every gold alarm code and score each answer"""
+    gold = load_gold()
+    token = get_token(username, password, api_url)
+
+    results = []
+    for code, gold_entry in gold.items():
+        try:
+            answer = fetch_answer(code, api_url=api_url, token=token)
+        except httpx.HTTPError as error:
+            print(f"{code}: request failed ({error})")
+            results.append({"code": code, "error": str(error)})
+            continue
+
+        scores = score_code(answer["citations"], gold_entry)
+        scores["code"] = code
+        results.append(scores)
+        print(f"{code}: {scores}")
+
+    return results
+
 def normalize_result(payload: dict) -> dict:
     """Convert a raw model result into a stable normalized artifact.
 
