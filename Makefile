@@ -45,5 +45,5 @@ ingest:        ## offline: chunk docs -> embed -> pgvector
 smoke:          ## end-to-end smoke test: auth -> resolve -> chat against the running stack
 	bash scripts/smoke_e2e.sh
 
-eval:          ## run Ragas/DeepEval against docs/reference-answers.json
+eval:          ## run Ragas/DeepEval against docs/docs-proto/starter-kit/alarms/reference-answers.json
 	$(VENV)/python -m eval.run_eval --gold docs/docs-proto/starter-kit/alarms/reference-answers.json
