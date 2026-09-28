@@ -128,6 +128,25 @@ def run_eval(username, password, api_url=API_URL):
 
     return results
 
+def summarize(results):
+    """Average each score across all alarm codes. Failed calls count as zero"""
+    totals = {"hit": 0, "precision": 0, "recall": 0, "reciprocal_rank": 0}
+    errors = 0
+
+    for result in results:
+        if "error" in result:
+            errors += 1
+            continue
+        for name in totals:
+            totals[name] += result[name]
+
+    summary = {}
+    for name in totals:
+        summary[name] = round(totals[name]/len(results), 3)
+    summary["codes"] = len(results)
+    summary["errors"] = errors
+    return summary
+
 def normalize_result(payload: dict) -> dict:
     """Convert a raw model result into a stable normalized artifact.
 
