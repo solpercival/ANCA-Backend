@@ -1,15 +1,23 @@
-"""Structured eval harness for local snapshot + DeepEval quality checks.
+"""Eval harness for the resolve API.
 
-This module is intentionally deterministic and testable: it normalizes a result
-payload into a small JSON artifact, writes it to `eval/results/latest.json`, and
-can compare it against a committed baseline in CI.
+Two modes:
+- `python -m eval.run_eval --gold <file>`: live eval. Logs in, calls /resolve
+  for every alarm code in the gold set, scores the cited documents against the
+  gold doc_refs (hit rate, precision, recall, MRR) and writes
+  eval/results/retrieval.json. Needs the stack running and EVAL_USERNAME /
+  EVAL_PASSWORD set.
+- `python eval/run_eval.py`: the offline snapshot check used by the rag-eval
+  and rag-snapshot CI workflows. Writes eval/results/latest.json.
 """
 
 from __future__ import annotations
 
+import argparse
 import json
-import httpx
+import os
 from pathlib import Path
+
+import httpx
 
 GOLD_PATH = "docs/docs-proto/starter-kit/alarms/reference-answers.json"
 def load_gold(path=GOLD_PATH):
@@ -107,9 +115,9 @@ def get_token(username, password, api_url=API_URL):
     response.raise_for_status()
     return response.json()["access_token"]
 
-def run_eval(username, password, api_url=API_URL):
-    """Call the API for every gold alarm code and score each answer"""
-    gold = load_gold()
+def run_eval(username, password, api_url=API_URL, gold_path=GOLD_PATH):
+    """Call the API for every gold alarm code and score each answer."""
+    gold = load_gold(gold_path)
     token = get_token(username, password, api_url)
 
     results = []
@@ -146,6 +154,24 @@ def summarize(results):
     summary["codes"] = len(results)
     summary["errors"] = errors
     return summary
+
+def run_live_eval(gold_path):
+    """Run the real eval against the API and save the scores"""
+    username = os.environ["EVAL_USERNAME"]
+    password = os.environ["EVAL_PASSWORD"]
+    api_url = os.environ.get("EVAL_API_URL", API_URL)
+
+    results = run_eval(username, password, api_url, gold_path)
+    summary = summarize(results)
+
+    output_path = Path("eval/results/retrieval.json")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
+        json.dumps({"summary": summary, "results": results}, indent=2),
+        encoding="utf-8",
+    )
+    print(summary)
+    print(f"wrote {output_path}")
 
 def normalize_result(payload: dict) -> dict:
     """Convert a raw model result into a stable normalized artifact.
@@ -196,6 +222,15 @@ def run_local_eval() -> dict:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--gold", help="gold answers file; runs the live eval against the API")
+    args = parser.parse_args()
+
+    if args.gold:
+        run_live_eval(args.gold)
+        return
+
+    # When there is no --gold. Snapshot check used by the rag-eval and rag-snapshot CI workflows
     out = run_local_eval()
     output_path = Path("eval/results/latest.json")
     output_path.parent.mkdir(parents=True, exist_ok=True)
