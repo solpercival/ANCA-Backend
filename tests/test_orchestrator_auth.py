@@ -55,7 +55,7 @@ def test_orchestrator_resolve_uses_query_and_returns_top_results():
         async def process_prompt(self, query, conversation_id):
             return query
 
-        def store_context(self, conversation_id, query, alarm):
+        def store_context(self, conversation_id, query, response, alarm):
             return
 
     class FakeReranker:
@@ -109,7 +109,7 @@ def test_orchestrator_chat_returns_retrieved_citations():
         async def process_prompt(self, query, conversation_id):
             return query
 
-        def store_context(self, conversation_id, query, alarm):
+        def store_context(self, conversation_id, query, response, alarm):
             return
         
     class FakeReranker:

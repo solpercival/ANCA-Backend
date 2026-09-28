@@ -157,7 +157,7 @@ class PostgresDBConnection:
             
         return context_result
 
-    async def store_query_result(self, conversation_id: str, query: str, response: str, alarm_str: str) -> None:
+    def store_query_result(self, conversation_id: str, query: str, response: str, alarm_str: str) -> None:
         settings = get_settings()
 
         with get_db_conn() as conn:

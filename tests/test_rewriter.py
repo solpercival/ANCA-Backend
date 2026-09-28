@@ -1,5 +1,7 @@
 import pytest
 from rag_engine.retrieval.rewriter import Query, QueryPreprocessor
+from rag_engine.stores.search import PostgresDBConnection
+from rag_engine.config import get_settings
 
 @pytest.fixture(scope="module")
 def preprocessor():
@@ -94,3 +96,30 @@ def test_process_context_smaller_context(preprocessor):
     result = result.split("\n")
 
     assert all(result[i] == fake_context[i] for i in range(-2,0,-1))
+
+async def test_chat_context():
+    class FakeChatStore:
+        def __init__(self):
+            self.history: list[tuple[str, bool | None]] = []
+
+        def store_query_result(self, conversation_id: str, query: str, response: str, alarm: str):
+            self.history.append((query, None))
+            self.history.append((response, None))
+
+        async def context_search(self, conversation_id: str):
+            return list(self.history)
+
+    fake_db = FakeChatStore()
+    preprocessor = QueryPreprocessor(fake_db, fake_db, None, 3, 3)
+    settings = get_settings()
+
+    preprocessor.store_context("test-conv-id1", "test-query 1?", "response-1", f"am{settings.alarm_delim}nc{settings.alarm_delim}0001")
+    preprocessor.store_context("test-conv-id1", "test-query 2?", "response-2", f"am{settings.alarm_delim}nc{settings.alarm_delim}0001")
+
+    results = await preprocessor._retrieve_context("test-conv-id1")
+
+    assert len(results) >= 2
+    assert any(entry[0] == "test-query 1?" for entry in results)
+    assert any(entry[0] == "test-query 2?" for entry in results)
+    assert any(entry[0] == "response-1" for entry in results)
+    assert any(entry[0] == "response-2" for entry in results)

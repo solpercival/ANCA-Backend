@@ -82,7 +82,8 @@ class Orchestrator:
         query = req.query or req.code
 
         t0 = time.perf_counter()
-        rewrite_query = await self._preprocessor.process_prompt(query)
+        query = await self._preprocessor.process_prompt(query, "")
+        t_rewrite = time.perf_counter() - t0
 
         t0 = time.perf_counter()
         candidates = await self._retriever.retrieve(query, top_k=self._top_k, where=where or None)
@@ -95,6 +96,8 @@ class Orchestrator:
         t0 = time.perf_counter()
         answer = await self._generator.generate(self._build_prompt(req, top, tier))
         t_generate = time.perf_counter() - t0
+
+        self._preprocessor.store_context("", query, answer, req.code) # empty alarm code
 
         log.info(
             "resolve_timing code=%s retrieve=%.4fs rerank=%.4fs generate=%.4fs total=%.4fs",
@@ -137,7 +140,6 @@ def get_orchestrator() -> Orchestrator:  # pragma: no cover - wired at runtime
         get_sparse_embedding_backend,
         get_rewrite_backend,
         get_chat_store_backend,
-        get_alarm_store_backend,
     )
 
     dense_embedder = get_dense_embedding_backend(client=client)
@@ -152,10 +154,8 @@ def get_orchestrator() -> Orchestrator:  # pragma: no cover - wired at runtime
     retriever = HybridRetriever(dense_embedder, sparse_embedder, vector_store, lexical)
 
     rewrite_model = get_rewrite_backend(client)
-    alarm_store = get_alarm_store_backend()
     chat_store = get_chat_store_backend()
     query_rewriter = QueryPreprocessor(chat_store,
-                                       alarm_store,
                                        vector_store, 
                                        rewrite_model, 
                                        get_settings().KEYWORD_K, 
