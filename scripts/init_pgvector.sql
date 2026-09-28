@@ -150,9 +150,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS users_username_idx ON users (username);
 -- -----------------------------------------------------
 CREATE TABLE IF NOT EXISTS response (
 	response_id BIGSERIAL PRIMARY KEY,
+	conversation_id TEXT NOT NULL,
 	query VARCHAR(255) NOT NULL,
 	response_body TEXT,
 	time_generated TIMESTAMP NOT NULL,
+	user_feedback BOOLEAN DEFAULT NULL,
 	alarm_id INTEGER REFERENCES alarm_code(alarm_code_id) NOT NULL,
 	user_uid BIGINT REFERENCES users(uid)
 );
