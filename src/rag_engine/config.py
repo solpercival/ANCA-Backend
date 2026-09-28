@@ -75,7 +75,7 @@ class Settings(BaseSettings):
     # which ignores think:false and spends num_predict on reasoning text
     llm_model: str = "qwen3:4b-instruct-2507-q4_K_M"
     # caps generated tokens; the single biggest CPU-side latency lever
-    llm_num_predict: int = 256
+    llm_num_predict: int = 180
 
     # generation http client (streaming keeps the connection alive between tokens,
     # so read_timeout only needs to cover the gap between chunks, not the full reply)

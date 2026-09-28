@@ -36,12 +36,23 @@ class Citation(BaseModel):
 
 class ResolveResponse(BaseModel):
     code: str
-    steps: list[str]
-    likely_causes: list[str] = Field(default_factory=list)  # technician+ only
+    steps: list[str] = Field(..., description="Ordered resolution steps, one per element")
+    likely_causes: list[str] = Field(
+        default_factory=list,
+        description="Up to 3 likely causes; technician/partner only, always [] for operators",
+    )
     citations: list[Citation] = Field(default_factory=list)
     tier: Tier
     ai_chat_available: bool = False # whether the caller may use /api/v1/chat
-    confidence: float = 0.0
+    confidence: float = Field(
+        0.0,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Cross-encoder relevance (0-1) of the top cited chunk; 0.0 when no "
+            "calibrated reranker is configured (RERANK_PROVIDER=none)"
+        ),
+    )
 
 
 class ChatRequest(BaseModel):

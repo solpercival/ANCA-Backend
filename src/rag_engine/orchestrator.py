@@ -9,6 +9,7 @@ Onboarding note:
 """
 from functools import lru_cache
 import logging
+import re
 import time
 from typing import Any
 
@@ -23,7 +24,7 @@ from rag_engine.api.schemas import (
     ResolveResponse,
 )
 from rag_engine.api.errors import ModelUnavailable, RetrievalUnavailable
-from rag_engine.auth.tiers import Tier
+from rag_engine.auth.tiers import Tier, can_view_likely_causes
 from rag_engine.config import get_settings
 from rag_engine.retrieval.hybrid import HybridRetriever
 from rag_engine.retrieval.interfaces import Chunk, Generator, Reranker
@@ -31,6 +32,15 @@ from rag_engine.retrieval.reranker import IdentityReranker, Qwen3Reranker
 from rag_engine.stores.search import PostgresDBConnection
 
 log = logging.getLogger("rag_engine.orchestrator")
+
+_NOT_COVERED = "The documentation does not cover this alarm."
+
+# models sometimes number or bullet lines despite the prompt; strip that prefix
+_STEP_PREFIX = re.compile(r"^\s*(?:\d+[.)]|[-*•])\s*")
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
+_CAUSE_HINT = re.compile(r"\b(caus\w*|due to|because|occurs? (?:when|if)|results? from)\b", re.I)
+_MAX_CAUSES = 3
+_MAX_CAUSE_CHARS = 200
 
 
 def _get_langfuse_client() -> Langfuse | None:
@@ -88,12 +98,50 @@ class Orchestrator:
     def _build_prompt(self, req: ResolveRequest, chunks: list[Chunk], tier: Tier) -> str:
         return (
             "You are a CNC troubleshooting assistant. Answer ONLY from the context.\n"
-            "Output at most 5 numbered steps, one short sentence each, citing sources as [n]. "
+            "Output at most 5 steps, one step per line, no numbering or bullets, "
+            "one short sentence each, citing sources as [n]. "
             "No introduction, no summary, no repetition of the question.\n"
             "If the fix is not in the context, reply exactly: "
-            "\"The documentation does not cover this alarm.\"\n"
+            f"\"{_NOT_COVERED}\"\n"
             f"Tier: {tier.value}\nAlarm: {req.code}\n\nContext:\n{self._format_context(chunks)}"
         )
+
+    @staticmethod
+    def _split_steps(answer: str) -> list[str]:
+        steps = [_STEP_PREFIX.sub("", ln).strip() for ln in answer.splitlines()]
+        return [s for s in steps if s] or [answer.strip()]
+
+    def _confidence(self, top: list[Chunk]) -> float:
+        """Score in [0, 1] for the best chunk; 0.0 means "no calibrated signal".
+
+        - IdentityReranker: chunk scores are raw RRF fusion values (~1/(60+rank)),
+          which are ordinal only, so no confidence is claimed and 0.0 is returned.
+        - Cross-encoder rerankers (Qwen3): score is P("yes") from a softmax, i.e.
+          the model's estimated relevance of the top chunk to the query, clamped
+          to [0, 1] defensively.
+        """
+        if not top or isinstance(self._reranker, IdentityReranker):
+            return 0.0
+        return min(1.0, max(0.0, float(top[0].score)))
+
+    @staticmethod
+    def _derive_likely_causes(chunks: list[Chunk]) -> list[str]:
+        # Interim heuristic until causes come from the alarm record: take the most
+        # cause-like sentence from each of the top chunks, falling back to its
+        # first sentence. Ordered by rerank position, deduplicated.
+        causes: list[str] = []
+        for c in chunks[:_MAX_CAUSES]:
+            sentences = [
+                s.strip() for s in _SENTENCE_SPLIT.split(" ".join((c.text or "").split())) if s.strip()
+            ]
+            if not sentences:
+                continue
+            pick = next((s for s in sentences if _CAUSE_HINT.search(s)), sentences[0])
+            if len(pick) > _MAX_CAUSE_CHARS:
+                pick = pick[: _MAX_CAUSE_CHARS - 1].rstrip() + "…"
+            if pick not in causes:
+                causes.append(pick)
+        return causes
 
     def _build_chat_prompt(self, message: str, chunks: list[Chunk]) -> str:
         return (
@@ -182,13 +230,22 @@ class Orchestrator:
                 }
             )
 
+        steps = self._split_steps(answer)
+        # the route also strips causes per tier; skipping here just avoids the work.
+        # No causes when the model found no fix, so we don't guess from weak chunks.
+        covered = _NOT_COVERED.lower() not in answer.lower()
+        likely_causes = (
+            self._derive_likely_causes(top) if covered and can_view_likely_causes(tier) else []
+        )
+
         rag_resolve_total.labels(outcome="ok").inc()
         return ResolveResponse(
             code=req.code,
-            steps=[answer],
+            steps=steps,
+            likely_causes=likely_causes,
             citations=[Citation(source=c.source, chunk_id=c.chunk_id) for c in top[:3]],
             tier=tier,
-            confidence=top[0].score if top else 0.0,
+            confidence=self._confidence(top),
         )
 
     async def chat(self, req: ChatRequest, tier: Tier) -> ChatResponse:
