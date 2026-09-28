@@ -81,7 +81,7 @@ def score_code(citations, gold_entry):
         "reciprocal_rank": reciprocal_rank,
     }
 
-API_URL = "http://localhost:8000"
+API_URL = "http://localhost:8080/api/v2"
 
 def fetch_answer(code, api_url=API_URL, token=None):
     """Ask the API to resolve alarm code and return its JSON response"""
@@ -92,11 +92,20 @@ def fetch_answer(code, api_url=API_URL, token=None):
     body = {"code": code, "env": {"versions": {}, "locale": "en-US"}}
 
     response = httpx.post(
-         f"{api_url}/api/v1/resolve", json=body, headers=headers, timeout=120
+        f"{api_url}/resolve", json=body, headers=headers, timeout=120
     )
     response.raise_for_status()
     return response.json()
-    
+
+def get_token(username, password, api_url=API_URL):
+    """Log in and return an access token for the API"""
+    response = httpx.post(
+        f"{api_url}/auth/token",
+        data={"username": username, "password": password},
+        timeout=30,
+    )
+    response.raise_for_status()
+    return response.json()["access_token"]
 
 def normalize_result(payload: dict) -> dict:
     """Convert a raw model result into a stable normalized artifact.
