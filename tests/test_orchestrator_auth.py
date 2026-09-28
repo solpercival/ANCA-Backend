@@ -51,6 +51,13 @@ def test_reranker_backend_factory_uses_configured_provider(monkeypatch, provider
 
 
 def test_orchestrator_resolve_uses_query_and_returns_top_results():
+    class FakePreprocessor:
+        async def process_prompt(self, query, conversation_id):
+            return query
+
+        def store_context(self, conversation_id, query, alarm):
+            return
+
     class FakeReranker:
         async def rerank(self, query, chunks, top_n):
             return chunks[:top_n]
@@ -84,7 +91,7 @@ def test_orchestrator_resolve_uses_query_and_returns_top_results():
         query="motor stalls after startup",
         env={"machine_variant": "X"},
     )
-    orch = Orchestrator(FakeRetriever(), FakeReranker(), FakeGenerator())
+    orch = Orchestrator(FakePreprocessor(), FakeRetriever(), FakeReranker(), FakeGenerator())
 
     response = pytest.importorskip("asyncio").run(orch.resolve(req, Tier.technician))
 
@@ -98,6 +105,13 @@ def test_orchestrator_resolve_uses_query_and_returns_top_results():
 
 
 def test_orchestrator_chat_returns_retrieved_citations():
+    class FakePreprocessor:
+        async def process_prompt(self, query, conversation_id):
+            return query
+
+        def store_context(self, conversation_id, query, alarm):
+            return
+        
     class FakeReranker:
         async def rerank(self, query, chunks, top_n):
             return chunks[:top_n]
@@ -122,7 +136,7 @@ def test_orchestrator_chat_returns_retrieved_citations():
             return "final reply"
 
     req = ChatRequest(conversation_id="c-1", message="what happened?")
-    orch = Orchestrator(FakeRetriever(), FakeReranker(), FakeGenerator())
+    orch = Orchestrator(FakePreprocessor(), FakeRetriever(), FakeReranker(), FakeGenerator())
 
     response = pytest.importorskip("asyncio").run(orch.chat(req, Tier.partner))
 

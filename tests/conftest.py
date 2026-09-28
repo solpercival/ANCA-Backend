@@ -49,12 +49,18 @@ class FakeGenerator:
     async def generate(self, prompt):
         return "Try step 1, then step 2."
 
+class FakePreprocessor():
+    async def process_prompt(self, raw_query, conversation_id):
+        return raw_query
+    
+    def store_context(self, conversation_id, query, alarm):
+        return
 
 def _fake_orchestrator() -> Orchestrator:
     retriever = HybridRetriever(
         FakeDenseEmbedder(), FakeSparseEmbedder(), FakeVectorStore(), FakeLexical()
     )
-    return Orchestrator(retriever, FakeReranker(), FakeGenerator())
+    return Orchestrator(FakePreprocessor(), retriever, FakeReranker(), FakeGenerator())
 
 
 @pytest.fixture

@@ -4,6 +4,7 @@ from rag_engine.retrieval.rewriter import Query, QueryPreprocessor
 @pytest.fixture(scope="module")
 def preprocessor():
     return QueryPreprocessor(
+        chat_db=None,
         keyword_db=None,
         rewrite_model=None,
         keywd_k=5,
