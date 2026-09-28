@@ -8,6 +8,7 @@ can compare it against a committed baseline in CI.
 from __future__ import annotations
 
 import json
+import httpx
 from pathlib import Path
 
 GOLD_PATH = "docs/docs-proto/starter-kit/alarms/reference-answers.json"
@@ -80,7 +81,22 @@ def score_code(citations, gold_entry):
         "reciprocal_rank": reciprocal_rank,
     }
 
+API_URL = "http://localhost:8000"
 
+def fetch_answer(code, api_url=API_URL, token=None):
+    """Ask the API to resolve alarm code and return its JSON response"""
+    headers = {}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    body = {"code": code, "env": {"versions": {}, "locale": "en-US"}}
+
+    response = httpx.post(
+         f"{api_url}/api/v1/resolve", json=body, headers=headers, timeout=120
+    )
+    response.raise_for_status()
+    return response.json()
+    
 
 def normalize_result(payload: dict) -> dict:
     """Convert a raw model result into a stable normalized artifact.
