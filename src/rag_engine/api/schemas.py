@@ -1,7 +1,11 @@
 """Request/response contracts for the resolve + chat API."""
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from rag_engine.auth.tiers import Tier
+
+DocCoverage = Literal["full", "partial", "none"]
 
 # TODO: confirm exact alarm-code format with the docs team; starter-kit data
 # regex should match the known examples 
@@ -36,7 +40,23 @@ class Citation(BaseModel):
 
 class ResolveResponse(BaseModel):
     code: str
-    steps: list[str] = Field(..., description="Ordered resolution steps, one per element")
+    # alarm header, rendered from the alarm catalogue (identifies the alarm only;
+    # never a source of guidance -- that comes from the docs via steps/causes)
+    title: str | None = None
+    domain: str | None = None
+    severity: int | None = Field(None, description="1-1000")
+    severity_category: str | None = Field(None, examples=["Error"])
+    steps: list[str] = Field(
+        ..., description="Doc-grounded explanation/guidance, one point per element"
+    )
+    doc_coverage: DocCoverage = Field(
+        "none",
+        description=(
+            "full: the docs give explicit steps that resolve the alarm; partial: the "
+            "docs explain the alarm/behaviour but no complete fix; none: the docs "
+            "don't cover it (same scale as reference-answers.json)"
+        ),
+    )
     likely_causes: list[str] = Field(
         default_factory=list,
         description="Up to 3 likely causes; technician/partner only, always [] for operators",
@@ -49,8 +69,8 @@ class ResolveResponse(BaseModel):
         ge=0.0,
         le=1.0,
         description=(
-            "Cross-encoder relevance (0-1) of the top cited chunk; 0.0 when no "
-            "calibrated reranker is configured (RERANK_PROVIDER=none)"
+            "Kept for the interface contract; derived from doc_coverage "
+            "(full 0.9, partial 0.5, none 0.0), not a model probability"
         ),
     )
 

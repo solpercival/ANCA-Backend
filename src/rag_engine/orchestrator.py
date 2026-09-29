@@ -8,6 +8,7 @@ Onboarding note:
   lexical index, and provider-backed generation path
 """
 from functools import lru_cache
+from difflib import SequenceMatcher
 import logging
 import re
 import time
@@ -20,15 +21,17 @@ from rag_engine.api.schemas import (
     ChatRequest,
     ChatResponse,
     Citation,
+    DocCoverage,
     ResolveRequest,
     ResolveResponse,
 )
-from rag_engine.api.errors import ModelUnavailable, RetrievalUnavailable
+from rag_engine.api.errors import ModelUnavailable, RetrievalUnavailable, UnknownAlarmCode
 from rag_engine.auth.tiers import Tier, can_view_likely_causes
 from rag_engine.config import get_settings
 from rag_engine.retrieval.hybrid import HybridRetriever
-from rag_engine.retrieval.interfaces import Chunk, Generator, Reranker
+from rag_engine.retrieval.interfaces import Alarm, AlarmStore, Chunk, Generator, Reranker
 from rag_engine.retrieval.reranker import IdentityReranker, Qwen3Reranker
+from rag_engine.stores.alarms import PostgresAlarmStore
 from rag_engine.stores.search import PostgresDBConnection
 
 log = logging.getLogger("rag_engine.orchestrator")
@@ -38,9 +41,24 @@ _NOT_COVERED = "The documentation does not cover this alarm."
 # models sometimes number or bullet lines despite the prompt; strip that prefix
 _STEP_PREFIX = re.compile(r"^\s*(?:\d+[.)]|[-*•])\s*")
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
-_CAUSE_HINT = re.compile(r"\b(caus\w*|due to|because|occurs? (?:when|if)|results? from)\b", re.I)
+# "CAUSE: <verbatim sentence>" lines the model emits for technician+ tiers
+_CAUSE_LINE = re.compile(r"^\W*cause\s*[:=-]\s*(.+?)\s*$", re.I)
+# inline citation markers ([1], [1, 2], [2-3], or a literal [n]) never reach the
+# response: sources are reported only through the structured citations list
+_CITE_MARKER = re.compile(r"\s*\[(?:n|\d+(?:\s*[,–-]\s*\d+)*)\]", re.I)
 _MAX_CAUSES = 3
-_MAX_CAUSE_CHARS = 200
+# how close a quoted cause must be to a real context sentence (difflib ratio);
+# tolerates a small model's punctuation/markup slips, not paraphrase
+_CAUSE_MATCH_RATIO = 0.85
+_MIN_PARTIAL_QUOTE = 30  # a shorter fragment is too weak to anchor a sentence
+# a step this close to the catalogue's alarm text is an echo, not doc guidance
+_ECHO_RATIO = 0.8
+
+# first line of a resolve answer, e.g. "COVERAGE: partial"; tolerate markdown bold
+_COVERAGE_LINE = re.compile(r"^\W*coverage\W*[:=-]\W*(full|partial|none)\b\W*$", re.I)
+# confidence is kept for the interface contract; it mirrors doc_coverage as the
+# starter-kit mock API does, rather than exposing an uncalibrated retrieval score
+_COVERAGE_CONFIDENCE = {"full": 0.9, "partial": 0.5, "none": 0.0}
 
 
 def _get_langfuse_client() -> Langfuse | None:
@@ -60,10 +78,79 @@ def get_vector_store_backend() -> Any:
 
 
 def get_reranker_backend() -> Reranker:
-    """Build the configured reranker backend."""
-    if get_settings().rerank_provider == "none":
+    """Build the configured reranker backend; an unknown provider fails loudly."""
+    provider = get_settings().rerank_provider.strip().lower()
+    if provider == "none":
         return IdentityReranker()
-    return Qwen3Reranker(max_length=512)
+    if provider == "qwen3":
+        return Qwen3Reranker(max_length=512)
+    raise ValueError(f"Unknown RERANK_PROVIDER={provider!r}; expected 'none' or 'qwen3'")
+
+
+_FENCE = re.compile(r"^\s*(```|~~~)")
+_HEADING = re.compile(r"^\s*#{1,6}(\s|$)")
+_TABLE_ROW = re.compile(r"^\s*\|.*\||^\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$")
+_LIST_MARKER = re.compile(r"^\s*(?:[-*+•]|\d+[.)])\s+|^\s*(?:[-*+•]|\d+[.)])\s*$")
+_ADMONITION = re.compile(r"^\s*(?:>\s*)+(?:\[![A-Z]+\]\s*)?")
+_CODE_LIKE = re.compile(r"^\s*[{}\[\]<]|[{};]\s*$|\"\s*:\s*[\"{\[\d]")
+_MD_LINK = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
+_MD_EMPHASIS = re.compile(r"(\*\*|__|\*|`)")
+_HTML_TAG = re.compile(r"<[^>]+>")
+_MIN_SENTENCE_WORDS = 4
+# last line of defence before a cause is returned: never markdown/JSON structure
+_STRUCTURAL = re.compile(r"```|~~~|^\s*#|^\s*[{}\[]|(?:\s\|\s.*){2}|^\s*\d+[.)]?\s*$")
+
+
+def _clean_inline(text: str) -> str:
+    text = _MD_LINK.sub(r"\1", text)
+    text = _HTML_TAG.sub(" ", text)
+    text = _MD_EMPHASIS.sub("", text).replace("\\_", "_")
+    return " ".join(text.split())
+
+
+@lru_cache(maxsize=512)
+def _context_sentences(text: str) -> tuple[str, ...]:
+    """Prose sentences of a markdown chunk, with its structure removed.
+
+    Headings, table rows, fenced code/JSON and code-like lines are skipped and
+    inline markup is stripped, so only readable doc text can be quoted back as
+    a cause. Each list item and paragraph is split into sentences separately,
+    so a heading or bullet never fuses with the prose after it.
+    """
+    paragraphs: list[list[str]] = []
+    current: list[str] = []
+    in_fence = False
+
+    def flush():
+        if current:
+            paragraphs.append(current.copy())
+            current.clear()
+
+    for raw in (text or "").splitlines():
+        if _FENCE.match(raw):
+            in_fence = not in_fence
+            flush()
+            continue
+        if in_fence or not raw.strip() or _HEADING.match(raw) or _TABLE_ROW.match(raw):
+            flush()
+            continue
+        line = _ADMONITION.sub("", raw)
+        if _LIST_MARKER.match(line):
+            flush()
+            line = _LIST_MARKER.sub("", line)
+        if not line.strip() or _CODE_LIKE.search(line):
+            flush()
+            continue
+        current.append(line)
+    flush()
+
+    sentences = []
+    for para in paragraphs:
+        for sentence in _SENTENCE_SPLIT.split(_clean_inline(" ".join(para))):
+            words = [w for w in sentence.split() if any(ch.isalpha() for ch in w)]
+            if len(words) >= _MIN_SENTENCE_WORDS:
+                sentences.append(sentence.strip())
+    return tuple(sentences)
 
 
 def _log_candidates(candidates: list[Chunk]) -> None:
@@ -79,6 +166,7 @@ class Orchestrator:
         retriever: HybridRetriever,
         reranker: Reranker,
         generator: Generator,
+        alarm_store: AlarmStore,
         rerank_top_n: int = 8,
         retrieval_top_k: int = 50,
         langfuse_client: Langfuse | None = None,
@@ -86,67 +174,200 @@ class Orchestrator:
         self._retriever = retriever
         self._reranker = reranker
         self._generator = generator
+        self._alarms = alarm_store
         self._top_n = rerank_top_n
         self._top_k = retrieval_top_k
         self._langfuse = langfuse_client
 
     @staticmethod
     def _format_context(chunks: list[Chunk]) -> str:
-        # short [n] labels so citations cost the model a few tokens, not a file path
-        return "\n\n".join(f"[{i}] ({c.source}) {c.text}" for i, c in enumerate(chunks, 1))
+        # no [n] labels: unlabelled context gives the model nothing to cite inline
+        return "\n\n---\n\n".join(f"({c.source})\n{c.text}" for c in chunks)
 
-    def _build_prompt(self, req: ResolveRequest, chunks: list[Chunk], tier: Tier) -> str:
+    @staticmethod
+    def _strip_citations(text: str) -> str:
+        return _CITE_MARKER.sub("", text).strip()
+
+    @staticmethod
+    def _retrieval_query(req: ResolveRequest, alarm: Alarm) -> str:
+        # the code itself is opaque to the embedder; retrieve on what the alarm means
+        return req.query or f"{alarm.title}. {alarm.alarm_text}"
+
+    def _build_prompt(
+        self, req: ResolveRequest, alarm: Alarm, chunks: list[Chunk], tier: Tier
+    ) -> str:
+        # The docs describe machine behaviour, not per-alarm fixes, so the model is
+        # asked for grounded guidance rather than a fix it would have to invent.
+        # Output tokens dominate latency here (~16-33 tok/s on the demo GPU), so answers
+        # are kept short. CAUSE lines only need to *locate* a sentence: the server
+        # matches the opening words and returns the full doc sentence itself.
+        causes = (
+            "After those lines, add up to 3 lines of the form\n"
+            "CAUSE: <the first 8 to 10 words of one context sentence, copied exactly>\n"
+            "only where the context explicitly states a cause of this alarm. "
+            "If it states none, add no CAUSE lines. Never write a cause in your own words.\n"
+            if can_view_likely_causes(tier)
+            else ""
+        )
         return (
-            "You are a CNC troubleshooting assistant. Answer ONLY from the context.\n"
-            "Output at most 5 steps, one step per line, no numbering or bullets, "
-            "one short sentence each, citing sources as [n]. "
-            "No introduction, no summary, no repetition of the question.\n"
-            "If the fix is not in the context, reply exactly: "
+            "You are a CNC troubleshooting assistant.\n"
+            "Using ONLY the context, explain the alarm and give whatever resolution "
+            "guidance the documentation supports. The documentation is descriptive and "
+            "often will NOT contain explicit fix steps — never invent steps that aren't "
+            "supported by the context.\n"
+            "First line, exactly one of:\n"
+            "COVERAGE: full    (the context gives explicit steps that resolve this alarm)\n"
+            "COVERAGE: partial (the context explains the alarm or behaviour, but no complete fix)\n"
+            "COVERAGE: none    (the context is unrelated to this alarm)\n"
+            "Then output one line per point, no numbering: at most 4 lines, each one short "
+            "sentence of at most 20 words, stated concisely in your own words. Never copy "
+            "code, program examples, coordinates, tables or long passages from the context. "
+            "No citation markers or brackets, no introduction, no summary.\n"
+            "For COVERAGE: none, the only following line must be exactly: "
             f"\"{_NOT_COVERED}\"\n"
-            f"Tier: {tier.value}\nAlarm: {req.code}\n\nContext:\n{self._format_context(chunks)}"
+            f"{causes}"
+            "The alarm header below is what the machine reported, not documentation: "
+            "use it to understand the alarm, but never repeat it as guidance.\n"
+            f"Tier: {tier.value}\nAlarm: {req.code} - {alarm.title}\n"
+            f"Alarm message: {alarm.alarm_text}\n\n"
+            f"Context:\n{self._format_context(chunks)}"
         )
 
-    @staticmethod
-    def _split_steps(answer: str) -> list[str]:
-        steps = [_STEP_PREFIX.sub("", ln).strip() for ln in answer.splitlines()]
-        return [s for s in steps if s] or [answer.strip()]
+    @classmethod
+    def _split_steps(cls, answer: str) -> list[str]:
+        steps = [cls._strip_citations(_STEP_PREFIX.sub("", ln)) for ln in answer.splitlines()]
+        return [s for s in steps if s]
 
-    def _confidence(self, top: list[Chunk]) -> float:
-        """Score in [0, 1] for the best chunk; 0.0 means "no calibrated signal".
+    @classmethod
+    def _drop_catalogue_echoes(
+        cls, steps: list[str], alarm: Alarm, chunks: list[Chunk]
+    ) -> list[str]:
+        """Remove steps that just restate the catalogue's alarm title/message.
 
-        - IdentityReranker: chunk scores are raw RRF fusion values (~1/(60+rank)),
-          which are ordinal only, so no confidence is claimed and 0.0 is returned.
-        - Cross-encoder rerankers (Qwen3): score is P("yes") from a softmax, i.e.
-          the model's estimated relevance of the top chunk to the query, clamped
-          to [0, 1] defensively.
+        The catalogue identifies the alarm; it is not documentation, so repeating
+        its text back must not pass as guidance. An echo is kept only when the
+        retrieved context says the same thing, i.e. the docs back it. Steps that
+        merely mention the alarm while explaining it are not echoes.
         """
-        if not top or isinstance(self._reranker, IdentityReranker):
-            return 0.0
-        return min(1.0, max(0.0, float(top[0].score)))
+        header = [cls._norm(t) for t in (alarm.alarm_text, alarm.title) if t]
+        kept = []
+        for step in steps:
+            s = cls._norm(step)
+            is_echo = bool(s) and any(
+                SequenceMatcher(None, s, h).ratio() >= _ECHO_RATIO
+                or (len(s) >= _MIN_PARTIAL_QUOTE and s in h)
+                for h in header
+            )
+            if is_echo and cls._match_context_sentence(step, chunks) is None:
+                log.info("step_dropped_catalogue_echo code=%s step=%r", alarm.code, step[:120])
+                continue
+            kept.append(step)
+        return kept
 
     @staticmethod
-    def _derive_likely_causes(chunks: list[Chunk]) -> list[str]:
-        # Interim heuristic until causes come from the alarm record: take the most
-        # cause-like sentence from each of the top chunks, falling back to its
-        # first sentence. Ordered by rerank position, deduplicated.
-        causes: list[str] = []
-        for c in chunks[:_MAX_CAUSES]:
-            sentences = [
-                s.strip() for s in _SENTENCE_SPLIT.split(" ".join((c.text or "").split())) if s.strip()
-            ]
-            if not sentences:
+    def _split_coverage(answer: str, code: str) -> tuple[DocCoverage, str]:
+        """Strip the leading COVERAGE line; return (claimed coverage, remaining answer).
+
+        A missing or malformed header is treated as "partial" -- the answer may
+        explain the alarm, but nothing confirmed a complete fix. The claim is only
+        provisional; `_settle_coverage` reconciles it with what the steps say.
+        """
+        lines = answer.splitlines()
+        first = next((i for i, ln in enumerate(lines) if ln.strip()), None)
+        match = _COVERAGE_LINE.match(lines[first]) if first is not None else None
+        if match:
+            return match.group(1).lower(), "\n".join(lines[first + 1:])
+        log.warning("coverage_header_missing code=%s", code)
+        return "partial", answer
+
+    @classmethod
+    def _settle_coverage(
+        cls, claimed: DocCoverage, steps: list[str], code: str
+    ) -> tuple[DocCoverage, list[str]]:
+        """Make the grounding guard all-or-nothing.
+
+        The "not covered" disclaimer is never mixed with guidance: it is either the
+        whole answer (coverage "none") or it is dropped because the model did give
+        real steps. In that second case the model contradicted itself, so coverage
+        is capped at "partial" -- it can't claim a full fix it also disclaimed, and
+        a "none" header is overruled by the steps it wrote anyway.
+        """
+        disclaimer = cls._norm(_NOT_COVERED)
+        real = [s for s in steps if disclaimer not in cls._norm(s)]
+        if not real:
+            return "none", [_NOT_COVERED]
+        if len(real) < len(steps) or claimed == "none":
+            log.info(
+                "coverage_contradiction code=%s claimed=%s steps=%d disclaimers=%d",
+                code, claimed, len(real), len(steps) - len(real),
+            )
+            return "partial", real
+        return claimed, real
+
+    @classmethod
+    def _split_causes(cls, body: str) -> tuple[list[str], str]:
+        """Pull CAUSE lines out of the answer; return (claimed quotes, remaining body)."""
+        claims: list[str] = []
+        kept: list[str] = []
+        for ln in body.splitlines():
+            m = _CAUSE_LINE.match(ln)
+            if not m:
+                kept.append(ln)
                 continue
-            pick = next((s for s in sentences if _CAUSE_HINT.search(s)), sentences[0])
-            if len(pick) > _MAX_CAUSE_CHARS:
-                pick = pick[: _MAX_CAUSE_CHARS - 1].rstrip() + "…"
-            if pick not in causes:
-                causes.append(pick)
+            quote = cls._strip_citations(m.group(1)).strip("\"'").strip()
+            if quote:
+                claims.append(quote)
+        return claims, "\n".join(kept)
+
+    @staticmethod
+    def _norm(text: str) -> str:
+        return " ".join(re.sub(r"[^\w\s]", " ", text.lower()).split())
+
+    @classmethod
+    def _ground_causes(cls, claims: list[str], chunks: list[Chunk], code: str) -> list[str]:
+        """Keep only causes that are real sentences of the retrieved context.
+
+        Each claimed quote is matched against every context sentence. The returned
+        text is the documentation's own sentence, never the model's wording, so
+        nothing synthesised survives.
+        """
+        causes: list[str] = []
+        for quote in claims:
+            if len(causes) == _MAX_CAUSES:
+                break
+            match = cls._match_context_sentence(quote, chunks)
+            if match is None or _STRUCTURAL.search(match):
+                log.info("cause_rejected code=%s quote=%r", code, quote[:120])
+                continue
+            if match not in causes:
+                causes.append(match)
         return causes
+
+    @classmethod
+    def _match_context_sentence(cls, quote: str, chunks: list[Chunk]) -> str | None:
+        """Return the (markup-free) context sentence `quote` reproduces, if any."""
+        q = cls._norm(quote)
+        best: tuple[float, str] | None = None
+        for chunk in chunks:
+            for sentence in _context_sentences(chunk.text or ""):
+                s = cls._norm(sentence)
+                if not s:
+                    continue
+                if len(q) >= _MIN_PARTIAL_QUOTE and q in s:
+                    score = 1.0
+                else:
+                    score = SequenceMatcher(None, q, s).ratio()
+                if best is None or score > best[0]:
+                    best = (score, sentence.strip())
+        if best is None or best[0] < _CAUSE_MATCH_RATIO:
+            return None
+        return best[1]
 
     def _build_chat_prompt(self, message: str, chunks: list[Chunk]) -> str:
         return (
             "You are a CNC troubleshooting assistant. Answer the user's question using only "
-            "the context, in at most 3 short sentences, citing sources as [n]. No preamble.\n"
+            "the context, in at most 3 short sentences. No citation markers or brackets, "
+            "no preamble.\n"
             "If the answer is not in the context, reply exactly: "
             "\"The documentation does not cover this.\"\n\n"
             f"Context:\n{self._format_context(chunks)}\n\nUser: {message}"
@@ -158,7 +379,17 @@ class Orchestrator:
             where["versions"] = req.env.versions
         if req.env.machine_variant:
             where["machine_variant"] = req.env.machine_variant
-        query = req.query or req.code
+        try:
+            alarm = await self._alarms.get_alarm(req.code)
+        except Exception as exc:
+            log.exception("alarm_lookup_error code=%s", req.code)
+            rag_resolve_total.labels(outcome="error").inc()
+            raise RetrievalUnavailable() from exc
+        if alarm is None:
+            rag_resolve_total.labels(outcome="unknown_code").inc()
+            raise UnknownAlarmCode()
+        query = self._retrieval_query(req, alarm)
+        log.info("resolve_query code=%s query=%r", req.code, query[:200])
 
         trace = None
         if self._langfuse:
@@ -200,7 +431,7 @@ class Orchestrator:
 
         t0 = time.perf_counter()
         try:
-            answer = await self._generator.generate(self._build_prompt(req, top, tier))
+            answer = await self._generator.generate(self._build_prompt(req, alarm, top, tier))
         except Exception as exc:
             log.exception("generation_error code=%s", req.code)
             rag_resolve_total.labels(outcome="error").inc()
@@ -230,22 +461,36 @@ class Orchestrator:
                 }
             )
 
-        steps = self._split_steps(answer)
-        # the route also strips causes per tier; skipping here just avoids the work.
-        # No causes when the model found no fix, so we don't guess from weak chunks.
-        covered = _NOT_COVERED.lower() not in answer.lower()
+        doc_coverage, body = self._split_coverage(answer, req.code)
+        # always strip CAUSE lines so they never leak into steps, whatever the tier
+        cause_claims, body = self._split_causes(body)
+        steps = self._drop_catalogue_echoes(self._split_steps(body), alarm, top)
+        # empty (header only / only catalogue echoes) or only the disclaimer -> "none"
+        doc_coverage, steps = self._settle_coverage(doc_coverage, steps, req.code)
+        # the route also strips causes per tier; skipping here just avoids the work
         likely_causes = (
-            self._derive_likely_causes(top) if covered and can_view_likely_causes(tier) else []
+            self._ground_causes(cause_claims, top, req.code)
+            if doc_coverage != "none" and can_view_likely_causes(tier)
+            else []
+        )
+        log.info(
+            "resolve_coverage code=%s doc_coverage=%s causes=%d/%d",
+            req.code, doc_coverage, len(likely_causes), len(cause_claims),
         )
 
         rag_resolve_total.labels(outcome="ok").inc()
         return ResolveResponse(
             code=req.code,
+            title=alarm.title,
+            domain=alarm.domain,
+            severity=alarm.severity_score,
+            severity_category=alarm.severity_category.capitalize(),  # "error" -> "Error"
             steps=steps,
             likely_causes=likely_causes,
             citations=[Citation(source=c.source, chunk_id=c.chunk_id) for c in top[:3]],
             tier=tier,
-            confidence=self._confidence(top),
+            doc_coverage=doc_coverage,
+            confidence=_COVERAGE_CONFIDENCE[doc_coverage],
         )
 
     async def chat(self, req: ChatRequest, tier: Tier) -> ChatResponse:
@@ -317,7 +562,7 @@ class Orchestrator:
         rag_resolve_total.labels(outcome="ok").inc()
         return ChatResponse(
             conversation_id=req.conversation_id,
-            reply=reply,
+            reply=self._strip_citations(reply),
             citations=[Citation(source=c.source, chunk_id=c.chunk_id) for c in top[:3]],
         )
 
@@ -348,5 +593,6 @@ def get_orchestrator() -> Orchestrator:  # pragma: no cover - wired at runtime
         retriever,
         reranker=get_reranker_backend(),
         generator=get_generation_backend(client=client),
+        alarm_store=PostgresAlarmStore(),
         langfuse_client=_get_langfuse_client(),
     )
