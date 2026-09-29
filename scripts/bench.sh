@@ -44,6 +44,32 @@ print("\n".join(s for s in steps if isinstance(s, str)))
 PY
 }
 
+# Prints doc coverage, steps, likely causes and citations from a resolve response
+# (or the error envelope for a non-200), indented under the timing row.
+show_details() {
+  python3 - "$1" <<'PY' 2>/dev/null || true
+import sys, json
+try:
+    data = json.load(open(sys.argv[1]))
+except Exception:
+    print("      (unparseable response)")
+    sys.exit(0)
+if "error" in data:
+    err = data["error"]
+    print(f"      error: {err.get('code')}: {err.get('message')}")
+    sys.exit(0)
+print(f"      alarm   : {data.get('title')} | {data.get('domain')} | "
+      f"{data.get('severity_category')} ({data.get('severity')})")
+print(f"      coverage: {data.get('doc_coverage')}  (confidence {data.get('confidence')})")
+for i, s in enumerate(data.get("steps") or [], 1):
+    print(f"      step {i}: {s}")
+for c in data.get("likely_causes") or []:
+    print(f"      cause : {c}")
+for c in data.get("citations") or []:
+    print(f"      cite  : {c.get('source')} #{c.get('chunk_id')}")
+PY
+}
+
 # ---- seed + login ----------------------------------------------------------
 
 echo "--- SEED USER ---"
@@ -81,11 +107,17 @@ echo "token acquired (len=${#TOKEN})"
 # ---- warm-up (cold number, not counted in the summary) ---------------------
 
 echo
-echo "--- WARM-UP (cold start: model load + lazy reranker; reported, not averaged) ---"
-COLD=$(curl -s -o /dev/null -w '%{time_total}' -X POST "$BASE/resolve" \
+echo "--- WARM-UP (cold start: model load + active reranker; reported, not averaged) ---"
+read -r COLD_HTTP COLD < <(curl -s -o /tmp/bench.json -w '%{http_code} %{time_total}\n' \
+  -X POST "$BASE/resolve" \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d "{\"code\": \"${CODES[0]}\"}")
-printf 'cold first call: %ss\n' "$COLD"
+printf 'cold first call: %ss (HTTP %s)\n' "$COLD" "$COLD_HTTP"
+if [ "$COLD_HTTP" = "404" ]; then
+  show_details /tmp/bench.json
+  echo "alarm ${CODES[0]} is not in the catalogue -- run 'make seed-alarms' (or 'make ingest') first"
+  exit 1
+fi
 
 # ---- timed batch -----------------------------------------------------------
 
@@ -94,16 +126,19 @@ echo "--- WARM BATCH (${#CODES[@]} codes) ---"
 TIMES=()
 FAILURES=0
 for code in "${CODES[@]}"; do
-  total=$(curl -s -o /tmp/bench.json \
-    -w '%{time_total}' -X POST "$BASE/resolve" \
+  read -r http total < <(curl -s -o /tmp/bench.json \
+    -w '%{http_code} %{time_total}\n' -X POST "$BASE/resolve" \
     -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
     -d "{\"code\": \"$code\"}")
 
   steps=$(extract_steps /tmp/bench.json)
 
-  # correctness gates: non-empty answer, no leaked reasoning trace
+  # correctness gates: 200, non-empty answer, no leaked reasoning trace
   status="ok"
-  if [ -z "$steps" ]; then
+  if [ "$http" != "200" ]; then
+    status="HTTP_$http"
+    FAILURES=$((FAILURES + 1))
+  elif [ -z "$steps" ]; then
     status="EMPTY"
     FAILURES=$((FAILURES + 1))
   elif echo "$steps" | grep -qiE "</?think>|we (do|don).?t have the actual content"; then
@@ -113,6 +148,7 @@ for code in "${CODES[@]}"; do
 
   TIMES+=("$total")
   printf '  %-12s %8ss   %s\n' "$code" "$total" "$status"
+  show_details /tmp/bench.json
 done
 
 # ---- summary ---------------------------------------------------------------
@@ -134,9 +170,13 @@ print(f"correctness  : {total_n - failures}/{total_n} passed"
 PY
 
 echo
-echo "--- STAGE SPLIT (last few resolve_timing log lines) ---"
-docker compose logs --tail=200 orchestrator 2>/dev/null \
-  | grep "resolve_timing" | tail -"${#CODES[@]}" || echo "  (no resolve_timing lines found in orchestrator log)"
+echo "--- RETRIEVAL + STAGE SPLIT (query -> retrieved -> rerank -> generate -> timing, per code) ---"
+# 5 lines per resolve: resolve_query, retrieved, rerank_forward (GPU reranker only),
+# generate_stats (prompt vs output tokens and tok/s), resolve_timing
+docker compose logs --tail=600 orchestrator 2>/dev/null \
+  | grep -E "resolve_query|retrieved count|rerank_forward|generate_stats|resolve_timing" \
+  | tail -"$(( ${#CODES[@]} * 5 ))" \
+  || echo "  (no resolve lines found in orchestrator log)"
 
 # ---- cleanup ---------------------------------------------------------------
 

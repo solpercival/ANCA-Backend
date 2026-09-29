@@ -10,7 +10,9 @@ services:
       dockerfile: docker/orchestrator.Dockerfile
     env_file: .env
     ports: ["8080:8080"]
-    depends_on: 
+    # Qwen3 reranker weights (~1.2 GB) survive container recreation
+    volumes: ["hf-cache:/root/.cache/huggingface"]
+    depends_on:
       postgres:
         condition: service_healthy
       redis:
@@ -74,6 +76,11 @@ services:
       retries: 10
       start_period: 60s
     ports: ["11434:11434"]
+    environment:
+      # shrink the generator's attention/KV-cache memory so it stays 100% on a 6 GB GPU
+      # next to the orchestrator's reranker (8-bit KV cache requires flash attention)
+      OLLAMA_FLASH_ATTENTION: "1"
+      OLLAMA_KV_CACHE_TYPE: q8_0
     volumes:
       - ollamadata:/root/.ollama
 
@@ -114,3 +121,4 @@ volumes:
   redisdata:
   ollamadata:
   model-cache:
+  hf-cache:

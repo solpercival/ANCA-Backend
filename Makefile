@@ -1,4 +1,4 @@
-.PHONY: install lint test up down build ingest models eval fmt smoke bootstrap
+.PHONY: install lint test up down build ingest seed-alarms models eval fmt smoke bootstrap
 VENV=.venv/bin
 # Reserves the GPU for Ollama when an NVIDIA GPU is present; plain CPU compose otherwise.
 COMPOSE := docker compose $(shell command -v nvidia-smi >/dev/null 2>&1 && echo -f docker-compose.yml -f docker-compose.gpu.yml)
@@ -41,6 +41,9 @@ build:          ## rebuild the orchestrator + ingestion images
 ingest:        ## offline: chunk docs -> embed -> pgvector
 	$(MAKE) models
 	$(COMPOSE) run --rm --build ingestion
+
+seed-alarms:    ## load alarms.sample.json into the alarm catalogue (no embedding)
+	$(COMPOSE) run --rm --build ingestion python -m ingestion.seed_alarms
 
 smoke:          ## end-to-end smoke test: auth -> resolve -> chat against the running stack
 	bash scripts/smoke_e2e.sh

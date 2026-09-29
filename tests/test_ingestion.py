@@ -513,6 +513,57 @@ def test_duplicate_document_insert():
 
 
 @pytest.mark.integration
+def test_reingest_replaces_instead_of_duplicating():
+    # top-level headings have parent_heading NULL and NULLs never conflict in a UNIQUE
+    # constraint, so a plain re-insert used to append a full copy on every run
+    settings = get_settings()
+    source = "idempotence-check.md"
+    chunks = [
+        RawChunk(text="top-level text", source=source, headers={"h1": "Top"}, kind="text"),
+        RawChunk(text="nested text", source=source, headers={"h1": "Top", "h2": "Sub"}, kind="text"),
+    ]
+    dense = [[0.1] * settings.semantic_dim for _ in chunks]
+    sparse = [{1: 0.5} for _ in chunks]
+
+    for _ in range(3):
+        indexers._write_embeddings(chunks, dense, sparse)
+
+    with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
+        with connection.cursor() as cursor:
+            n_chunks = cursor.execute(
+                "SELECT count(*) AS n FROM document_chunks WHERE document_source = %s", (source,)
+            ).fetchone()["n"]
+            n_headings = cursor.execute(
+                """SELECT count(*) AS n FROM heading h JOIN document d ON d.doc_id = h.document_id
+                   WHERE d.file_path = %s""",
+                (source,),
+            ).fetchone()["n"]
+
+    assert n_chunks == 2
+    assert n_headings == 2
+
+
+@pytest.mark.integration
+def test_write_without_prune_leaves_other_documents_alone():
+    settings = get_settings()
+    dense = [[0.1] * settings.semantic_dim]
+    keep = RawChunk(text="kept", source="prune-check-keep.md", headers={}, kind="text")
+    other = RawChunk(text="other", source="prune-check-other.md", headers={}, kind="text")
+
+    indexers._write_embeddings([keep], dense, [{}])
+    indexers._write_embeddings([other], dense, [{}])
+
+    with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
+        with connection.cursor() as cursor:
+            n = cursor.execute(
+                "SELECT count(*) AS n FROM document_chunks WHERE document_source = %s",
+                ("prune-check-keep.md",),
+            ).fetchone()["n"]
+
+    assert n == 1
+
+
+@pytest.mark.integration
 def test_single_combined_insert():
     # test if an insert of a document with chunks, headings and embeddings is valid
     settings = get_settings()

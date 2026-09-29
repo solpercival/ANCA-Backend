@@ -71,11 +71,19 @@ class Settings(BaseSettings):
     # ollama
     ollama_base_url: str = "http://ollama:11434"
     embedding_model: str = "qwen3-embedding:0.6b"
+    # query-time embedding context. Ollama's default (4096) makes the 0.6B embedder
+    # hold ~2.4 GB of VRAM; queries are short, and 1024 still covers the longest chat
+    # message (4096 chars ~ 1k tokens). Longer input is truncated, not rejected.
+    embedding_num_ctx: int = 1024
+    # layers of the query embedder Ollama puts on the GPU; 0 = CPU. One short query per
+    # request is cheap on CPU and frees ~1.4 GB of VRAM for the generator and reranker.
+    # Ingestion embeds through its own path and is unaffected.
+    embedding_num_gpu: int = 0
     # instruct (non-thinking) build: plain qwen3:4b is the always-thinking 2507 model,
     # which ignores think:false and spends num_predict on reasoning text
     llm_model: str = "qwen3:4b-instruct-2507-q4_K_M"
     # caps generated tokens; the single biggest CPU-side latency lever
-    llm_num_predict: int = 256
+    llm_num_predict: int = 180
 
     # generation http client (streaming keeps the connection alive between tokens,
     # so read_timeout only needs to cover the gap between chunks, not the full reply)
@@ -103,6 +111,8 @@ class Settings(BaseSettings):
     rerank_top_n: int = 8
     rerank_provider: str = "none"
     rerank_model: str = "Qwen/Qwen3-Reranker-0.6B"
+    # pairs per reranker forward pass; bounds GPU activation memory (scores unchanged)
+    rerank_batch_size: int = 5
     rrf_k: int = 60
 
     # embeddings

@@ -8,6 +8,7 @@ from rag_engine.auth.tokens import create_access_token, decode_access_token
 from rag_engine.config import get_settings
 from rag_engine.orchestrator import Orchestrator, get_reranker_backend
 from rag_engine.retrieval.reranker import IdentityReranker, Qwen3Reranker
+from tests.fakes import FakeAlarmStore
 
 
 @pytest.fixture(autouse=True)
@@ -50,6 +51,22 @@ def test_reranker_backend_factory_uses_configured_provider(monkeypatch, provider
     assert isinstance(get_reranker_backend(), expected_type)
 
 
+@pytest.mark.parametrize("provider", [" QWEN3 ", "Qwen3", "None"])
+def test_reranker_backend_factory_tolerates_case_and_whitespace(monkeypatch, provider):
+    monkeypatch.setenv("RERANK_PROVIDER", provider)
+
+    expected = IdentityReranker if provider.strip().lower() == "none" else Qwen3Reranker
+    assert isinstance(get_reranker_backend(), expected)
+
+
+@pytest.mark.parametrize("provider", ["qwn3", "qwen", "identity", ""])
+def test_reranker_backend_factory_rejects_unknown_provider(monkeypatch, provider):
+    monkeypatch.setenv("RERANK_PROVIDER", provider)
+
+    with pytest.raises(ValueError, match="Unknown RERANK_PROVIDER"):
+        get_reranker_backend()
+
+
 def test_orchestrator_resolve_uses_query_and_returns_top_results():
     class FakeReranker:
         async def rerank(self, query, chunks, top_n):
@@ -84,14 +101,15 @@ def test_orchestrator_resolve_uses_query_and_returns_top_results():
         query="motor stalls after startup",
         env={"machine_variant": "X"},
     )
-    orch = Orchestrator(FakeRetriever(), FakeReranker(), FakeGenerator())
+    orch = Orchestrator(FakeRetriever(), FakeReranker(), FakeGenerator(), FakeAlarmStore())
 
     response = pytest.importorskip("asyncio").run(orch.resolve(req, Tier.technician))
 
     assert response.code == "am.fb.0002"
     assert response.steps == ["answer"]
     assert response.citations[0].chunk_id == "c1"
-    assert response.confidence == 0.91
+    assert response.doc_coverage == "partial"  # no COVERAGE header from the fake
+    assert response.confidence == 0.5
     assert orch._generator.calls == 1
     assert "am.fb.0002" in orch._generator.prompt
     assert "Step 1" in orch._generator.prompt
@@ -122,7 +140,7 @@ def test_orchestrator_chat_returns_retrieved_citations():
             return "final reply"
 
     req = ChatRequest(conversation_id="c-1", message="what happened?")
-    orch = Orchestrator(FakeRetriever(), FakeReranker(), FakeGenerator())
+    orch = Orchestrator(FakeRetriever(), FakeReranker(), FakeGenerator(), FakeAlarmStore())
 
     response = pytest.importorskip("asyncio").run(orch.chat(req, Tier.partner))
 
