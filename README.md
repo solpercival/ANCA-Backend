@@ -99,30 +99,32 @@ make up-full
   pytest, and an image build. It never loads a model — model-backed code sits
   behind `Protocol` interfaces and is faked in tests, which is what keeps CI
   free of GPUs.
-- **`rag-eval.yml`** reads `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` from
-  GitHub Actions Secrets. It also reads `LANGFUSE_HOST` from a secret, falling
-  back to `http://localhost:3000`. `LANGFUSE_PUBLIC_KEY` is not sensitive by
-  design (it is intended to be embeddable client-side), but this workflow gets
-  it from Secrets alongside `LANGFUSE_SECRET_KEY`. Use GitHub Actions Secrets
-  for credentials needed by future workflows; do not hard-code them.
 
-## Secrets
+### Secrets
 
-The application loads settings from environment variables and `.env` for local
-development. Secret-bearing settings include `JWT_SECRET`, `POSTGRES_PASSWORD`,
-`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `HF_TOKEN`, and `LANGFUSE_SECRET_KEY`.
-`LANGFUSE_PUBLIC_KEY` is used to identify the Langfuse project; unlike the
-secret key, it is not sensitive by design. Other settings such as
-`LANGFUSE_HOST` are configuration, not credentials.
+Settings load from environment variables (`.env` locally; gitignored,
+never committed — see `.env.example` for local examples).
 
-For production, inject these values into the running service from a managed
-secrets store (for example, Vault) or another platform-native option selected
-by the team. This repository does not currently implement production deployment
-or secret retrieval. Outside local development, `JWT_SECRET` must be a random
-value of at least 32 characters; configuration validation rejects the local
-placeholder and shorter values. `POSTGRES_PASSWORD` still has a weak runtime
-default and no equivalent non-local validation, so production must explicitly
-override it; adding a fail-fast check remains a follow-up.
+**Secrets:** `JWT_SECRET`, `POSTGRES_PASSWORD`, `OPENAI_API_KEY`,
+`ANTHROPIC_API_KEY`, `HF_TOKEN`, `LANGFUSE_SECRET_KEY`.
+`LANGFUSE_PUBLIC_KEY` identifies the Langfuse project and isn't
+sensitive by design. Everything else (e.g. `LANGFUSE_HOST`) is
+plain config, not a credential.
+
+**CI** already injects secrets via GitHub Actions Secrets
+(`rag-eval.yml` reads `LANGFUSE_SECRET_KEY`, etc.) — the pattern to
+follow for any workflow that needs credentials.
+
+**Production** isn't implemented yet: no deployment or secret
+retrieval exists in this repo. Values should eventually come from a
+managed secrets store (Vault or another platform-native option) —
+backend choice still TBD.
+
+`JWT_SECRET` already fails fast outside `local` if it's the
+placeholder or under 32 characters. `POSTGRES_PASSWORD` has no
+equivalent guard yet and still defaults to `"rag"` — production
+must override it manually until that check exists (tracked as a
+follow-up).
 
 ## Cloning (submodule!)
 
