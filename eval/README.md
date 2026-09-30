@@ -1,7 +1,7 @@
 # Evaluation
 
 Scores the live engine against the documentation team's gold set
-(`docs/reference-answers.json`) using Ragas / DeepEval.
+(`docs/docs-proto/starter-kit/alarms/reference-answers.json`) using Ragas / DeepEval.
 
 - **Locally:** `make eval` (needs the model servers up and the docs submodule checked out).
 - **CI:** `.github/workflows/eval.yml` — disabled until a self-hosted GPU runner exists.
