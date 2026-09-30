@@ -1,5 +1,7 @@
 """Postgres adapter for persistent authentication users."""
 
+import asyncio
+
 import psycopg
 
 from rag_engine.api.errors import AuthUnavailable
@@ -47,13 +49,20 @@ def _to_user(row: dict) -> User:
 
 
 class PostgresUserRepository:
-    """Datamapper for the existing ``users`` and ``role`` tables."""
+    """Datamapper for the existing ``users`` and ``role`` tables.
+
+    The pool is synchronous psycopg, so every async method runs its query in a
+    worker thread via a _*_sync helper instead of blocking the event loop.
+    """
 
     @staticmethod
     def _unavailable(error: Exception) -> AuthUnavailable:
         return AuthUnavailable("Authentication database unavailable")
 
     async def get_by_id(self, user_id: int) -> User | None:
+        return await asyncio.to_thread(self._get_by_id_sync, user_id)
+
+    def _get_by_id_sync(self, user_id: int) -> User | None:
         try:
             with get_db_conn() as conn:
                 row = conn.execute(
@@ -65,6 +74,9 @@ class PostgresUserRepository:
         return _to_user(row) if row is not None else None
 
     async def get_by_username(self, username: str) -> User | None:
+        return await asyncio.to_thread(self._get_by_username_sync, username)
+
+    def _get_by_username_sync(self, username: str) -> User | None:
         try:
             with get_db_conn() as conn:
                 row = conn.execute(
@@ -76,6 +88,9 @@ class PostgresUserRepository:
         return _to_user(row) if row is not None else None
 
     async def create(self, username: str, password_hash: str, tier: Tier) -> User | None:
+        return await asyncio.to_thread(self._create_sync, username, password_hash, tier)
+
+    def _create_sync(self, username: str, password_hash: str, tier: Tier) -> User | None:
         try:
             with get_db_conn() as conn:
                 row = conn.execute(
@@ -103,6 +118,9 @@ class PostgresUserRepository:
         return _to_user(created)
 
     async def update_password_hash(self, user_id: int, password_hash: str) -> None:
+        return await asyncio.to_thread(self._update_password_hash_sync, user_id, password_hash)
+
+    def _update_password_hash_sync(self, user_id: int, password_hash: str) -> None:
         try:
             with get_db_conn() as conn:
                 conn.execute(
@@ -113,6 +131,9 @@ class PostgresUserRepository:
             raise self._unavailable(error) from error
 
     async def update_tier(self, user_id: int, tier: Tier) -> bool:
+        return await asyncio.to_thread(self._update_tier_sync, user_id, tier)
+
+    def _update_tier_sync(self, user_id: int, tier: Tier) -> bool:
         try:
             with get_db_conn() as conn:
                 result = conn.execute(
@@ -129,6 +150,9 @@ class PostgresUserRepository:
             raise self._unavailable(error) from error
 
     async def set_active(self, user_id: int, is_active: bool) -> bool:
+        return await asyncio.to_thread(self._set_active_sync, user_id, is_active)
+
+    def _set_active_sync(self, user_id: int, is_active: bool) -> bool:
         try:
             with get_db_conn() as conn:
                 result = conn.execute(

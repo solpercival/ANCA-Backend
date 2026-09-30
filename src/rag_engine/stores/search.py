@@ -3,18 +3,25 @@ from rag_engine.stores.db import get_db_conn
 from rag_engine.stores.cache import get_cache_conn
 from rag_engine.config import get_settings
 from pgvector import Vector
+import asyncio
 import json
 import hashlib
 import re
 import datetime
 
 class PostgresDBConnection:
+    # The pool from get_db_conn is synchronous psycopg, so each async method below
+    # runs its query in a worker thread (asyncio.to_thread) via a _*_sync helper;
+    # calling the pool directly would block the event loop and serialize requests.
+
     # VectorStore search
     async def semantic_search(self, vector: list[float], top_k: int, where: dict[str, str] | None = None) -> list[Chunk]:
-        result_chunks = []
-
         if not vector or top_k < 1:
             return []
+        return await asyncio.to_thread(self._semantic_search_sync, vector, top_k, where)
+
+    def _semantic_search_sync(self, vector: list[float], top_k: int, where: dict[str, str] | None) -> list[Chunk]:
+        result_chunks = []
 
         with get_db_conn() as conn:
             query_str = """
@@ -50,11 +57,13 @@ class PostgresDBConnection:
 
     # Lexical index search
     async def lexical_search(self, vector: dict[int,float], top_k: int, where: dict[str, str] | None = None) -> list[Chunk]:
-        result_chunks = []
-        settings = get_settings()
-
         if not vector or top_k < 1:
             return []
+        return await asyncio.to_thread(self._lexical_search_sync, vector, top_k, where)
+
+    def _lexical_search_sync(self, vector: dict[int,float], top_k: int, where: dict[str, str] | None) -> list[Chunk]:
+        result_chunks = []
+        settings = get_settings()
 
         with get_db_conn() as conn:
             query_str = f"""
@@ -97,6 +106,9 @@ class PostgresDBConnection:
         if len(alarm_code) != 3:
             return None
 
+        return await asyncio.to_thread(self._alarm_search_sync, request_json["code"], alarm_code)
+
+    def _alarm_search_sync(self, code: str, alarm_code: list[str]) -> Alarm | None:
         with get_db_conn() as conn:
             result = conn.execute(
                 """
@@ -121,14 +133,12 @@ class PostgresDBConnection:
             if not result:
                 return None
 
-        return Alarm(code=request_json["code"], title=result["title"], domain=result["domain"],
+        return Alarm(code=code, title=result["title"], domain=result["domain"],
                     severity_score=result["severity_score"], alarm_text=result["alarm_text"], 
                     data_fields=json.loads(result["data_fields"]))
 
     # KeywordStore search
     async def keyword_search(self, query: str, top_k: int) -> list[str]:
-        settings = get_settings()
-        
         # validate fields
         if (not query) or (top_k < 1):
             return None
@@ -136,6 +146,9 @@ class PostgresDBConnection:
         query_parts = re.split(r'[ ,!. ]+', query.strip())
         query_parts = [word for word in query_parts if word] # filter out empty strings
 
+        return await asyncio.to_thread(self._keyword_search_sync, query_parts, top_k)
+
+    def _keyword_search_sync(self, query_parts: list[str], top_k: int) -> list[str] | None:
         with get_db_conn() as conn:
             result = conn.execute("""
                 WITH exact_match AS (
@@ -171,6 +184,9 @@ class PostgresDBConnection:
         if not conversation_id:
             return None
 
+        return await asyncio.to_thread(self._context_search_sync, conversation_id)
+
+    def _context_search_sync(self, conversation_id: str) -> list[tuple[str, bool|None]]:
         context_result: list[tuple[str, bool|None]] = []
         with get_db_conn() as conn:
             result = conn.execute("""

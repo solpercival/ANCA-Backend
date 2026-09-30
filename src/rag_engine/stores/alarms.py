@@ -3,6 +3,8 @@
 The catalogue is seeded from the starter-kit alarms.sample.json by
 `python -m ingestion.seed_alarms` (also run as part of `make ingest`).
 """
+import asyncio
+
 from rag_engine.config import get_settings
 from rag_engine.retrieval.interfaces import Alarm
 from rag_engine.stores.db import get_db_conn
@@ -14,20 +16,8 @@ class PostgresAlarmStore:
         parts = code.split(get_settings().alarm_delim)
         if len(parts) != 3:
             return None
-        origin, module, sequence = parts
-
-        with get_db_conn() as conn:
-            row = conn.execute(
-                """
-                SELECT ac.title, ac.severity_score, ac.severity_category,
-                       ac.alarm_text, ac.data_fields, am.title AS domain
-                FROM alarm_code ac
-                JOIN alarm_module am ON am.id = ac.module
-                WHERE ac.origin = %s AND am.code = %s AND ac.alarm_sequence = %s
-                LIMIT 1;
-                """,
-                (origin, module, sequence),
-            ).fetchone()
+        # sync psycopg pool: query in a worker thread so the event loop isn't blocked
+        row = await asyncio.to_thread(self._fetch_alarm_row, *parts)
 
         if not row:
             return None
@@ -40,3 +30,18 @@ class PostgresAlarmStore:
             alarm_text=row["alarm_text"],
             data_fields=row["data_fields"] or {},  # JSONB is decoded by psycopg
         )
+
+    @staticmethod
+    def _fetch_alarm_row(origin: str, module: str, sequence: str) -> dict | None:
+        with get_db_conn() as conn:
+            return conn.execute(
+                """
+                SELECT ac.title, ac.severity_score, ac.severity_category,
+                       ac.alarm_text, ac.data_fields, am.title AS domain
+                FROM alarm_code ac
+                JOIN alarm_module am ON am.id = ac.module
+                WHERE ac.origin = %s AND am.code = %s AND ac.alarm_sequence = %s
+                LIMIT 1;
+                """,
+                (origin, module, sequence),
+            ).fetchone()
