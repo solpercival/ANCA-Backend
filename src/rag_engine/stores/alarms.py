@@ -33,6 +33,11 @@ class PostgresAlarmStore:
 
     @staticmethod
     def _fetch_alarm_row(origin: str, module: str, sequence: str) -> dict | None:
+        """Blocking catalogue query for get_alarm; runs in a worker thread.
+
+        `code` is "<origin>.<module>.<sequence>" (e.g. am.fb.0002): the module part
+        matches alarm_module.code, the other two match alarm_code columns.
+        """
         with get_db_conn() as conn:
             return conn.execute(
                 """

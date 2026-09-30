@@ -13,11 +13,13 @@ ALARM_CODE_PATTERN = r"^[a-z]{2,4}\.[a-z]{2,6}\.\d{4}$"
 
 
 class Env(BaseModel):
-    versions: dict[str, str] = Field(default_factory=dict)
+    """The caller's machine context; narrows retrieval to matching documentation."""
+    versions: dict[str, str] = Field(default_factory=dict)  # component -> version
     machine_variant: str | None = None
 
 
 class ResolveRequest(BaseModel):
+    """Body of POST /api/v2/resolve."""
     code: str = Field(
         ...,
         min_length=1,
@@ -34,11 +36,13 @@ class ResolveRequest(BaseModel):
 
 
 class Citation(BaseModel):
-    source: str
+    """A documentation chunk the answer was built from."""
+    source: str  # document path
     chunk_id: str
 
 
 class ResolveResponse(BaseModel):
+    """Guidance for one alarm. Tier rules are already applied (see api/routes.py)."""
     code: str
     # alarm header, rendered from the alarm catalogue (identifies the alarm only;
     # never a source of guidance -- that comes from the docs via steps/causes)
@@ -63,7 +67,7 @@ class ResolveResponse(BaseModel):
     )
     citations: list[Citation] = Field(default_factory=list)
     tier: Tier
-    ai_chat_available: bool = False # whether the caller may use /api/v1/chat
+    ai_chat_available: bool = False  # whether the caller may use /api/v2/chat
     confidence: float = Field(
         0.0,
         ge=0.0,
@@ -76,11 +80,13 @@ class ResolveResponse(BaseModel):
 
 
 class ChatRequest(BaseModel):
+    """Body of POST /api/v2/chat. Reuse conversation_id to continue a conversation."""
     conversation_id: str = Field(..., min_length=1, max_length=128)
     message: str = Field(..., min_length=1, max_length=4096)
 
 
 class ChatResponse(BaseModel):
+    """The assistant's reply and the documentation it drew on."""
     conversation_id: str
     reply: str
     citations: list[Citation] = Field(default_factory=list)

@@ -1,14 +1,27 @@
+"""Query preprocessing: turn a user's message into a standalone retrieval query.
+
+Every query is normalised (lowercased, conversational filler and trailing
+punctuation removed). For chat, if the conversation has history and the message
+needs it (it contains a pronoun, or is five words or fewer), a small LLM rewrites
+it into a standalone query. That rewrite prompt includes recent turns and domain
+keywords from the ingested docs, so product terms are kept verbatim. Resolve-by-code
+calls pass no conversation id and skip the rewrite entirely.
+"""
 import re
 import json
 from rag_engine.config import get_settings
 from rag_engine.retrieval.interfaces import KeywordStore, Generator, ChatStore, AlarmStore
 
+# a pronoun means the message probably refers back to earlier turns
 PRONOUN_RE = re.compile(r"\b(my|i|it|its|that|this|those|these|they|them|their|he|she|same)\b", re.IGNORECASE)
+# leading filler ("can you tell me about ...", "i want to know ...") that adds nothing to retrieval
 CONVERSATIONAL_RE = re.compile(
     r"^(?:please\s+)?(?:can|could|would)\s+you\s+(?:tell|show|explain|help)\s+(?:me\s+)?(?:about\s+|what\s+|how\s+)?|"
     r"^(?:i\s+want\s+to\s+know|i'm\s+looking\s+for|search\s+for)\s+", re.IGNORECASE )
 PUNCTUATION_RE = r"[?!.]+$"
 
+# System part of the rewrite prompt; process_prompt appends the glossary, context
+# and query sections it refers to.
 QUERY_REWRITE_PROMPT = """
     <instruction>
     You are a deterministic Conversational Query Reformulator for a hybrid search engine.
@@ -37,6 +50,9 @@ class Query:
         self.context = context
 
 class QueryPreprocessor:
+    """Normalises queries, rewrites context-dependent chat messages, and records
+    each finished turn in the chat store (store_context)."""
+
     def __init__(self, chat_db: ChatStore, keyword_db: KeywordStore, rewrite_model: Generator, keywd_k: int=1, context_k: int=1):
         self._keywd_k = keywd_k # top k keywords selected
         self._context_k = context_k # recent k context used
@@ -69,6 +85,8 @@ class QueryPreprocessor:
 
     async def _collect_keywords(self, query: Query, context: list[tuple[str, bool | None]]) -> str:
         # collects keywords from exact and fuzzy search to enforce preservation of domain specific terms/acronyms/labels
+        # Known issue: keyword_search returns None when nothing matches, and the
+        # join below then raises TypeError; guard with `or []` when fixing.
         terms = [entry[0] for entry in context]
         terms.append(query.resolved_query)
         context_query = " ".join(terms)
@@ -111,6 +129,8 @@ class QueryPreprocessor:
         return f"<user-query>{query.resolved_query}</user-query>"
 
     async def process_prompt(self, raw_query: str, conversation_id: str) -> str:
+        """The query to retrieve with: normalised, and rewritten with the
+        conversation's context when it needs it. "" for an empty message."""
         # normalize query, remove filler words/content
         norm_query = self._normalize_query(raw_query)
         if not norm_query:
@@ -151,4 +171,6 @@ class QueryPreprocessor:
         return (rewritten_query or "").strip() or norm_query
 
     def store_context(self, conversation_id: str, query: str, response: str, alarm: str | None) -> None:
+        """Record a finished turn so later messages can refer back to it. Blocking
+        (sync DB write): callers on the async path should run it in a thread."""
         self._chat_db.store_query_result(conversation_id, query, response, alarm)

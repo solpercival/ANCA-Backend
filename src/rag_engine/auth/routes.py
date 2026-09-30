@@ -1,8 +1,8 @@
 """
 API router for login, token refresh, logout, and the current account.
 
-Mounted under /api/v1/auth. Login returns the access token in the response body and
-sets the refresh token as an HttpOnly cookie scoped to /api/v1/auth, so the browser only
+Mounted under /api/v2/auth. Login returns the access token in the response body and
+sets the refresh token as an HttpOnly cookie scoped to /api/v2/auth, so the browser only
 sends it to these endpoints. The refresh and logout endpoints authenticate with
 that cookie and therefore run the check_origin CSRF guard.
 

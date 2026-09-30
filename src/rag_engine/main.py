@@ -1,4 +1,14 @@
-"""FastAPI application entrypoint."""
+"""FastAPI application entrypoint (`uvicorn rag_engine.main:app`).
+
+Startup (lifespan) builds the shared HTTP client, the orchestrator, and the
+Postgres/Redis pools. It degrades instead of crashing: if storage isn't reachable
+the app still starts, auth storage is marked unavailable, and /api/v2/ready
+reports which dependency is down.
+
+Request path, outermost first: host check -> security headers -> gzip -> CORS ->
+request-id/body-size middleware -> routes. The schema itself comes from the Alembic
+migrations (the `migrate` compose service), not from this process.
+"""
 import logging
 import time
 import uuid
@@ -54,7 +64,7 @@ async def lifespan(app: FastAPI):
     try:
         init_db_pool()
         init_cache_pool()
-        ensure_auth_schema()
+        ensure_auth_schema()  # idempotent auth-table patch for pre-migration databases
         storage_ready = True
     except Exception:
         log.warning("Storage pools not initialized; auth storage is unavailable.", exc_info=True)
@@ -77,6 +87,13 @@ app = FastAPI(lifespan=lifespan)
 
 @app.middleware("http")
 async def add_request_id(request: Request, call_next):
+    """Tag each request with an id, cap API body size, and write one access log line.
+
+    The id is the caller's X-Request-ID if sent, else a new one; it is echoed in the
+    response header and in error bodies. For /api/v2, bodies over
+    max_request_body_bytes get 413 -- checked on Content-Length first, then on the
+    actual body, since the header can be absent or wrong.
+    """
     request.state.request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
     request_id = request.state.request_id
     t0 = time.perf_counter()
@@ -135,8 +152,10 @@ app.include_router(router)
 app.include_router(auth_router)
 
 def get_httpx_client(request: Request) -> httpx.AsyncClient:
+    """FastAPI dependency: the shared outbound HTTP client created at startup."""
     return request.app.state.httpx_client
 
 @app.get("/", tags=["ops"])
 async def root() -> dict[str, str]:
+    """Service name and environment."""
     return {"service": "rag-engine", "env": settings.app_env}

@@ -1,3 +1,7 @@
+"""Shared pytest fixtures: an app client wired to a fake orchestrator (fake
+embedders, stores, reranker and generator), plus a bearer-token header.
+Nothing here needs Postgres, Redis or a model server.
+"""
 import pytest
 from fastapi.testclient import TestClient
 

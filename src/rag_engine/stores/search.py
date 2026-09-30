@@ -1,3 +1,11 @@
+"""Postgres and Redis adapters behind the retrieval interfaces.
+
+PostgresDBConnection implements VectorStore (semantic/lexical search), the keyword
+lookup and the chat store (conversation context read/write) from
+rag_engine.retrieval.interfaces. The connection pool is synchronous psycopg, so
+every async method runs its query in a worker thread through a `_*_sync` helper
+(see the PostgresDBConnection docstring).
+"""
 from rag_engine.retrieval.interfaces import Chunk, Alarm
 from rag_engine.stores.db import get_db_conn
 from rag_engine.stores.cache import get_cache_conn
@@ -10,17 +18,25 @@ import re
 import datetime
 
 class PostgresDBConnection:
-    # The pool from get_db_conn is synchronous psycopg, so each async method below
-    # runs its query in a worker thread (asyncio.to_thread) via a _*_sync helper;
-    # calling the pool directly would block the event loop and serialize requests.
+    """Postgres-backed retrieval stores.
+
+    Threading rule: the pool from get_db_conn is synchronous psycopg, so an async
+    method must never query it directly -- that blocks the event loop and every
+    concurrent request waits on the DB. Each async method validates its input,
+    then runs a `_<name>_sync` helper with asyncio.to_thread. When adding a query,
+    follow the same split. store_query_result is sync by interface and is called
+    from sync code.
+    """
 
     # VectorStore search
     async def semantic_search(self, vector: list[float], top_k: int, where: dict[str, str] | None = None) -> list[Chunk]:
+        """Nearest chunks by cosine distance on the dense embedding."""
         if not vector or top_k < 1:
             return []
         return await asyncio.to_thread(self._semantic_search_sync, vector, top_k, where)
 
     def _semantic_search_sync(self, vector: list[float], top_k: int, where: dict[str, str] | None) -> list[Chunk]:
+        """Blocking query for semantic_search; runs in a worker thread."""
         result_chunks = []
 
         with get_db_conn() as conn:
@@ -57,11 +73,13 @@ class PostgresDBConnection:
 
     # Lexical index search
     async def lexical_search(self, vector: dict[int,float], top_k: int, where: dict[str, str] | None = None) -> list[Chunk]:
+        """Best chunks by inner product on the sparse (lexical) embedding."""
         if not vector or top_k < 1:
             return []
         return await asyncio.to_thread(self._lexical_search_sync, vector, top_k, where)
 
     def _lexical_search_sync(self, vector: dict[int,float], top_k: int, where: dict[str, str] | None) -> list[Chunk]:
+        """Blocking query for lexical_search; runs in a worker thread."""
         result_chunks = []
         settings = get_settings()
 
@@ -94,7 +112,9 @@ class PostgresDBConnection:
 
             return result_chunks
 
-    # AlarmStore search
+    # AlarmStore search. Not used on the request path (PostgresAlarmStore in
+    # stores/alarms.py is), and its SQL names columns the schema doesn't have
+    # (ac.sequence, ac.id); left as-is pending a decision on removing it.
     async def alarm_search(self, request_json: dict) -> Alarm:
         # validate fields
         if (not request_json) or ("code" not in request_json) or ("env" not in request_json):
@@ -109,6 +129,7 @@ class PostgresDBConnection:
         return await asyncio.to_thread(self._alarm_search_sync, request_json["code"], alarm_code)
 
     def _alarm_search_sync(self, code: str, alarm_code: list[str]) -> Alarm | None:
+        """Blocking query for alarm_search; runs in a worker thread."""
         with get_db_conn() as conn:
             result = conn.execute(
                 """
@@ -139,6 +160,8 @@ class PostgresDBConnection:
 
     # KeywordStore search
     async def keyword_search(self, query: str, top_k: int) -> list[str]:
+        """Domain keywords matching the query: exact/alias matches first, then fuzzy
+        (trigram) matches, ranked by score then IDF. None when nothing matches."""
         # validate fields
         if (not query) or (top_k < 1):
             return None
@@ -149,6 +172,7 @@ class PostgresDBConnection:
         return await asyncio.to_thread(self._keyword_search_sync, query_parts, top_k)
 
     def _keyword_search_sync(self, query_parts: list[str], top_k: int) -> list[str] | None:
+        """Blocking query for keyword_search; runs in a worker thread."""
         with get_db_conn() as conn:
             result = conn.execute("""
                 WITH exact_match AS (
@@ -181,12 +205,15 @@ class PostgresDBConnection:
             return [entry["keyword"] for entry in result]
 
     async def context_search(self, conversation_id: str) -> list[tuple[str, bool|None]]:
+        """The conversation's past turns, oldest first, as alternating
+        (query, None) and (response, user_feedback) pairs."""
         if not conversation_id:
             return None
 
         return await asyncio.to_thread(self._context_search_sync, conversation_id)
 
     def _context_search_sync(self, conversation_id: str) -> list[tuple[str, bool|None]]:
+        """Blocking query for context_search; runs in a worker thread."""
         context_result: list[tuple[str, bool|None]] = []
         with get_db_conn() as conn:
             result = conn.execute("""
@@ -202,6 +229,12 @@ class PostgresDBConnection:
         return context_result
 
     def store_query_result(self, conversation_id: str, query: str, response: str, alarm_str: str | None) -> None:
+        """Save one query/response turn, linked to its alarm when alarm_str is given.
+
+        Known issue: the alarm lookup filters alarm_code on `code` and `sequence`,
+        which the schema doesn't have (it has `module` and `alarm_sequence`), so a
+        call with alarm_str raises and /resolve logs store_context_failed.
+        """
         settings = get_settings()
 
         with get_db_conn() as conn:
@@ -232,6 +265,13 @@ class PostgresDBConnection:
             conn.commit()
 
 class RedisConnection:
+    """Chunk/response cache in Redis. Nothing in src/ uses it yet.
+
+    The client from get_cache_conn is synchronous, so these async methods block the
+    event loop; before putting them on a request path, give them the same
+    asyncio.to_thread split as PostgresDBConnection.
+    """
+
     def _create_key(self, text: str) -> str:
         return hashlib.sha256(text.encode()).hexdigest()
     

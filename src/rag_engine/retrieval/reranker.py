@@ -14,6 +14,9 @@ from typing import Any
 from rag_engine.config import get_settings
 from rag_engine.retrieval.interfaces import Chunk
 
+# Qwen3-Reranker's published prompt format: the model answers "yes"/"no" to
+# "does this document meet the query?", and the score is P(yes). Changing PREFIX or
+# SUFFIX breaks the model's calibration; INSTRUCTION is the task-specific part.
 PREFIX = (
     '<|im_start|>system\nJudge whether the Document meets the requirements '
     'based on the Query and the Instruct provided. Note that the answer can '
@@ -41,6 +44,11 @@ class Qwen3Reranker:
 
     Model and tokenizer load lazily on first use so that importing this module
     stays free of heavy dependencies and CI can run without models.
+
+    max_length: tokens per query+chunk pair; longer chunks are truncated (the
+        orchestrator uses 512). batch_size: pairs per forward pass (RERANK_BATCH_SIZE).
+    min_score: drop chunks below this P(yes), always keeping the best
+        (RERANK_MIN_SCORE; 0 disables).
     """
 
     def __init__(

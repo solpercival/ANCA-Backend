@@ -1,4 +1,15 @@
-"""Model-backed embedding plus PostgreSQL/pgvector."""
+"""Model-backed embedding plus PostgreSQL/pgvector: the write side of retrieval.
+
+- embed_and_index: embed chunks (Ollama dense, TEI sparse when EMBEDDING_SETUP=dual)
+  and write document / heading / document_chunks rows, replacing each document's
+  previous rows in one transaction.
+- populate_alarms: upsert the alarm catalogue (alarm_module, alarm_code).
+- populate_keyword_table: rebuild keyword_lookup, the domain-term index used by
+  query rewriting.
+
+Each function opens its own connection (not the app's pool): this module runs in
+the offline ingestion job. Tables must already exist (Alembic migrations).
+"""
 import json
 from pathlib import Path
 from collections import defaultdict
@@ -20,10 +31,13 @@ from ingestion.chunker import RawChunk
 from rag_engine.config import get_settings
 
 class InvalidInputError(Exception):
+    """An alarms file entry is malformed; names the offending fields."""
+
     def __init__(self, invalid_fields: list):
         self.message = f"Input has invalid fields or in an invalid format. Invalid fields: {", ".join(invalid_fields)}."
         super().__init__(self.message)
 
+# must match the SEVERITY enum in migration 0001
 VALID_SEVERITY: tuple[str] = ('debug', 'info', 'warning', 'error', 'fatal')
 
 def _dense_embed(chunks: list[RawChunk], client: httpx.Client) -> list[list[float]]:
@@ -62,7 +76,7 @@ def _sparse_embed(chunks: list[RawChunk], client: httpx.Client) -> list[dict[str
     return [{int(entry["index"]): float(entry["value"]) for entry in sparse_chunk} for sparse_chunk in sparse_vecs]
 
 def insert_document(cursor, version: str, hash: str, file_path: str) -> int:
-    """Inserts single document into documents table"""
+    """Upsert a document row by file_path and return its doc_id."""
     res = cursor.execute(
         """
         INSERT INTO document (current_version, hash, file_path)
@@ -202,6 +216,11 @@ def _write_embeddings(chunks: list[RawChunk], dense_embeddings: list[list[float]
             connection.commit()                                
 
 def embed_and_index(chunks: list[RawChunk], prune: bool = False) -> None:  # pragma: no cover - integration
+    """Embed `chunks` and write them, replacing their documents' existing rows.
+
+    prune=True also deletes every document not present in `chunks`; only a
+    full-corpus run (ingestion.pipeline) may pass it.
+    """
     if not chunks:
         return
 
@@ -217,6 +236,12 @@ def embed_and_index(chunks: list[RawChunk], prune: bool = False) -> None:  # pra
     _write_embeddings(chunks=chunks, dense_embeddings=dense_embeddings, sparse_embeddings=sparse_embeddings, prune=prune)
 
 def populate_alarms(alarms_json: dict) -> None:
+    """Upsert the alarm catalogue from an alarms file (see ingestion/seed_alarms.py).
+
+    Codes are "<origin>.<module>.<sequence>"; the module part must be listed in
+    `_modules`. Raises InvalidInputError on the first malformed alarm, before its
+    row is written; the connection opens first, so this needs a reachable database.
+    """
     settings = get_settings()
     with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
         with connection.cursor() as cursor:
@@ -308,7 +333,14 @@ def populate_alarms(alarms_json: dict) -> None:
 
             connection.commit()
 
-def populate_keyword_table(specificity_threshold: float = 25.0) -> None:    
+def populate_keyword_table(specificity_threshold: float = 25.0) -> None:
+    """Rebuild keyword_lookup: domain terms -> the chunks that mention them + IDF.
+
+    Candidate terms are inline code, ALL-CAPS identifiers and ordinary words from
+    text/table/list chunks. A term is kept if it is structural (code/acronym) or at
+    least `specificity_threshold` times more frequent in the docs than in general
+    English (wordfreq); terms in over 25% of chunks are too common and skipped.
+    """
     TOKEN_RE = re.compile(
         r"`([^`\n]{2,40})`"                       # .md inline code ` `
         r"|(\b[A-Z]{2,}[A-Z0-9_-]*\b)"            # ALL_CAPS acronyms/codes

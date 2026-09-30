@@ -1,3 +1,7 @@
+"""Provider factories and adapters (providers.py) against mocked HTTP:
+settings overrides, backend selection, Ollama request options and timing logs,
+plus reciprocal rank fusion and the hybrid retriever.
+"""
 import asyncio
 import httpx
 import pytest

@@ -1,3 +1,6 @@
+"""Liveness endpoint, the standard error body for unknown routes, and that
+resolve rejects unauthenticated calls.
+"""
 def test_health(client):
     r = client.get("/api/v2/health")
     assert r.status_code == 200

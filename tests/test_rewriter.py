@@ -1,3 +1,6 @@
+"""Query preprocessing (retrieval/rewriter.py): normalisation, when a rewrite
+is needed, and how conversation context is formatted for the rewrite prompt.
+"""
 import pytest
 from rag_engine.retrieval.rewriter import Query, QueryPreprocessor
 from rag_engine.stores.search import PostgresDBConnection

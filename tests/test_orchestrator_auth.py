@@ -1,3 +1,6 @@
+"""Token decoding, the reranker factory, and resolve/chat through the
+orchestrator with fake backends.
+"""
 import jwt
 import pytest
 

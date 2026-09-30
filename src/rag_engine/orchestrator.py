@@ -1,11 +1,20 @@
 """Coordinates a single resolve/chat turn across the retrieval components.
 
-Onboarding note:
-- this is the main runtime orchestration layer for a single request turn
-- retrieval and generation stay behind interfaces; runtime wiring is the last
-  integration task
-- current status: tests use fakes; production wiring needs a valid vector store,
-  lexical index, and provider-backed generation path
+resolve (alarm code -> guidance):
+  1. look the code up in the alarm catalogue (404 if unknown)
+  2. build a retrieval query from the alarm's title + message (or the caller's query)
+  3. retrieve candidates, keep the first 20, rerank to rerank_top_n
+  4. prompt the LLM for a COVERAGE line, action steps and (technician+) CAUSE quotes
+  5. post-process the answer so only grounded content survives: drop catalogue
+     echoes and non-action filler, settle coverage, keep causes only when they
+     match a real sentence of the retrieved docs (the doc's wording is returned)
+  6. record the turn (store_context) and return steps, causes, citations (top 3)
+chat follows the same retrieve -> rerank -> generate path with a simpler prompt,
+after the query preprocessor rewrites the message using the conversation history.
+
+Every component sits behind an interface from retrieval/interfaces.py, so tests
+inject fakes; get_orchestrator wires the real backends. Stage timings go to the
+resolve_timing log line, Prometheus (api/metrics.py) and Langfuse when configured.
 """
 from functools import lru_cache
 from difflib import SequenceMatcher
@@ -92,6 +101,7 @@ def _get_langfuse_client() -> Langfuse | None:
 
 
 def get_vector_store_backend() -> Any:
+    """VectorStore for dense search; also serves as the KeywordStore for query rewriting."""
     return PostgresDBConnection()
 
 
@@ -105,6 +115,8 @@ def get_reranker_backend() -> Reranker:
     raise ValueError(f"Unknown RERANK_PROVIDER={provider!r}; expected 'none' or 'qwen3'")
 
 
+# Markdown structure stripped by _context_sentences, so causes are matched against
+# (and returned as) plain prose sentences, never tables, code or headings.
 _FENCE = re.compile(r"^\s*(```|~~~)")
 _HEADING = re.compile(r"^\s*#{1,6}(\s|$)")
 _TABLE_ROW = re.compile(r"^\s*\|.*\||^\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$")
@@ -120,6 +132,7 @@ _STRUCTURAL = re.compile(r"```|~~~|^\s*#|^\s*[{}\[]|(?:\s\|\s.*){2}|^\s*\d+[.)]?
 
 
 def _clean_inline(text: str) -> str:
+    """Strip inline markdown/HTML (links keep their text) and collapse whitespace."""
     text = _MD_LINK.sub(r"\1", text)
     text = _HTML_TAG.sub(" ", text)
     text = _MD_EMPHASIS.sub("", text).replace("\\_", "_")
@@ -179,6 +192,12 @@ def _log_candidates(candidates: list[Chunk]) -> None:
 
 
 class Orchestrator:
+    """One resolve or chat turn: retrieve, rerank, generate, then ground the answer.
+
+    retrieval_top_k is candidates per search; rerank_top_n is how many reranked
+    chunks go into the prompt (the first 3 are returned as citations).
+    """
+
     def __init__(
         self,
         preprocessor: QueryPreprocessor,
@@ -295,6 +314,7 @@ class Orchestrator:
 
     @staticmethod
     def _starts_with_action(step: str) -> bool:
+        """True if the step's first word is a known action verb (see _ACTION_VERBS)."""
         words = step.split()
         return bool(words) and words[0].strip(".,:;!\"'").lower() in _ACTION_VERBS
 
@@ -376,6 +396,7 @@ class Orchestrator:
 
     @staticmethod
     def _norm(text: str) -> str:
+        """Lowercase, punctuation to spaces, single-spaced: for fuzzy text comparison."""
         return " ".join(re.sub(r"[^\w\s]", " ", text.lower()).split())
 
     @classmethod
@@ -419,6 +440,7 @@ class Orchestrator:
         return best[1]
 
     def _build_chat_prompt(self, message: str, chunks: list[Chunk]) -> str:
+        """Prompt for a short free-text answer from the context, or an exact refusal."""
         return (
             "You are a CNC troubleshooting assistant. Answer the user's question using only "
             "the context, in at most 3 short sentences. No citation markers or brackets, "
@@ -429,6 +451,12 @@ class Orchestrator:
         )
 
     async def resolve(self, req: ResolveRequest, tier: Tier) -> ResolveResponse:
+        """Guidance for one alarm code (pipeline in the module docstring).
+
+        Raises UnknownAlarmCode for a code missing from the catalogue and
+        RetrievalUnavailable when the catalogue or retrieval backend fails. The
+        caller (api/routes.py) applies tier visibility rules to the result.
+        """
         where = {}
         if req.env.versions:
             where["versions"] = req.env.versions
@@ -560,6 +588,13 @@ class Orchestrator:
         )
 
     async def chat(self, req: ChatRequest, tier: Tier) -> ChatResponse:
+        """Answer a free-text message in the context of its conversation.
+
+        The message is first rewritten into a standalone query (QueryPreprocessor).
+        Note that req.message is replaced by that rewrite, so the rewritten text is
+        what gets retrieved on and stored as the turn's query. An empty message
+        returns an empty reply.
+        """
         rewritten_prompt = await self._preprocessor.process_prompt(req.message, req.conversation_id)
         if not rewritten_prompt:
             return ChatResponse(conversation_id=req.conversation_id, reply="", citations=[])
@@ -642,6 +677,14 @@ class Orchestrator:
 
 @lru_cache(maxsize=1)
 def get_orchestrator() -> Orchestrator:  # pragma: no cover - wired at runtime
+    """Build the production Orchestrator from settings (providers.py factories).
+
+    Cached (lru_cache), so the routes' Depends(get_orchestrator) share one instance
+    and the reranker model loads once per process. Imports are local to avoid an
+    import cycle with main and to keep model-provider imports out of test runs.
+    Note: HybridRetriever gets its default rrf_k (60), not settings.rrf_k, and the
+    Orchestrator its default top_k/top_n (50/8), not RETRIEVAL_TOP_K/RERANK_TOP_N.
+    """
     from rag_engine.main import app
 
     client = app.state.httpx_client

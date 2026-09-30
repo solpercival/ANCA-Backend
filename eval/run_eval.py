@@ -1,15 +1,32 @@
 """Eval harness for the resolve API.
 
 Two modes:
-- `python -m eval.run_eval --gold <file>`: live eval. Logs in, calls /resolve
-  for every alarm code in the gold set, scores the cited documents against the
-  gold doc_refs (hit rate, precision, recall, MRR) and the generated steps
-  against the gold resolution_steps (step_recall, actionable, coverage_match,
-  and fix_present: is the resolving action from eval/fix_terms.json there),
-  and writes eval/results/retrieval.json. Needs the stack running and
+- `python -m eval.run_eval --gold <file>` (normally via `make eval`): live eval.
+  Logs in, calls /resolve for every alarm code in the gold set and writes
+  eval/results/retrieval.json with per-code scores, the generated steps and
+  doc_coverage, and an averaged summary. Needs the stack running and
   EVAL_USERNAME / EVAL_PASSWORD set.
 - `python eval/run_eval.py`: the offline snapshot check used by the rag-eval
   and rag-snapshot CI workflows. Writes eval/results/latest.json.
+
+Scores (per code, then averaged; failed calls count as zero):
+  Retrieval, citations vs the gold doc_refs (document level):
+    hit              a gold document was cited
+    precision        share of citations that are gold documents
+    recall           share of gold documents that were cited
+    reciprocal_rank  1 / position of the first gold citation
+  Answer, generated steps vs the gold resolution_steps:
+    fix_present      share of the key fixes (eval/fix_terms.json) the steps
+                     contain; fix_solved counts codes with every fix. The best
+                     single answer to "does it solve the alarm".
+    step_recall      word overlap with the gold steps; falls as answers get
+                     shorter, so read it alongside fix_present
+    actionable       share of steps starting with an action verb
+    coverage_match   our doc_coverage equals the gold label. The gold labels
+                     come from engineering knowledge beyond the docs, so this is
+                     agreement, not a quality score.
+The answer scores are lexical heuristics, not an LLM judge. The model is not fully
+deterministic, so compare averages, not single codes.
 """
 
 from __future__ import annotations
@@ -169,7 +186,13 @@ def load_fix_terms(path=FIX_TERMS_PATH):
 
 def score_fix(steps, groups):
     """Share of the key fixes (e.g. 'restart', 'set opcua.enable false') that
-    appear in the steps. A group is met when any of its phrases appears."""
+    appear in the steps. A group is met when any of its phrases appears.
+
+    This is a lowercase substring match, so it is a rough signal: a negated step
+    ("do not restart") still counts, and a correct fix worded differently does
+    not. When a code's score looks wrong, read its saved steps in the results
+    file and adjust eval/fix_terms.json rather than trusting the number.
+    """
     text = " ".join(steps).lower()
     met = 0
     for phrases in groups:
@@ -294,6 +317,7 @@ def normalize_result(payload: dict) -> dict:
 
 
 def compare_snapshot(generated_path: Path | str, expected_path: Path | str) -> None:
+    """Exit non-zero if two normalized artifacts differ, printing both."""
     generated = json.loads(Path(generated_path).read_text(encoding="utf-8"))
     expected = json.loads(Path(expected_path).read_text(encoding="utf-8"))
 
@@ -306,7 +330,11 @@ def compare_snapshot(generated_path: Path | str, expected_path: Path | str) -> N
 
 
 def run_local_eval() -> dict:
-    """Placeholder to be replaced by the real app call and metric collection."""
+    """Placeholder to be replaced by the real app call and metric collection.
+
+    Returns a fixed, made-up result, so the snapshot CI check compares a constant
+    with itself and passes regardless of engine changes.
+    """
     result = {
         "query": "motor stalls after startup",
         "code": "am.fb.0002",
@@ -326,6 +354,7 @@ def run_local_eval() -> dict:
 
 
 def main() -> None:
+    """CLI: live eval with --gold, otherwise the offline snapshot (see module docstring)."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--gold", help="gold answers file; runs the live eval against the API")
     args = parser.parse_args()

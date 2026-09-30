@@ -1,12 +1,19 @@
-"""Provider adapters for embeddings and generation.
+"""Provider adapters for embeddings, generation and storage, plus the factories
+that pick one from settings.
 
-Onboarding note:
-- this module is the first integration point for model-provider switching
-- each backend should implement the same interface contract used by the app
-- current status: config exists and adapters are present for Ollama/OpenAI/
-  Anthropic, but the real app wiring still needs to be validated end-to-end
-- follow-up work: connect this layer into the actual retrieval and orchestrator
-  runtime, then test a real provider on a full stack
+Each adapter implements an interface from retrieval/interfaces.py, so the
+orchestrator never knows which vendor it talks to. orchestrator.get_orchestrator
+calls the get_*_backend factories; the *_PROVIDER settings choose:
+
+    DENSE_EMBEDDING_PROVIDER   ollama | openai            -> OllamaEmbedder | OpenAIEmbedder
+    SPARSE_EMBEDDING_PROVIDER  huggingface_tei            -> TEIEmbedder (dual setup only)
+    LLM_PROVIDER               ollama | openai | anthropic -> *Generator
+                               (query rewriting supports ollama only)
+    LEXICAL_PROVIDER / CHAT_STORE_PROVIDER  postgres      -> PostgresDBConnection
+
+The Ollama path is the one exercised end to end by `make bench` / `make eval`;
+the OpenAI and Anthropic adapters are not run there. All adapters share
+the app's httpx client, whose timeouts are set in main.lifespan.
 """
 from __future__ import annotations
 
@@ -22,6 +29,7 @@ from rag_engine.stores.search import PostgresDBConnection
 
 log = logging.getLogger("rag_engine.providers")
 
+# a qwen3 reasoning trace, closed or cut off at the end of the output
 _THINK_SPAN = re.compile(r"<think>.*?(?:</think>|$)", re.DOTALL)
 
 
@@ -49,7 +57,10 @@ def _log_generate_stats(final: dict) -> None:
     )
 
 
+# --- storage backends --------------------------------------------------------------
+
 def get_lexical_backend() -> Any:
+    """LexicalIndex for sparse search (only used when EMBEDDING_SETUP=dual)."""
     settings = get_settings()
     provider = settings.lexical_provider.lower()
 
@@ -59,6 +70,7 @@ def get_lexical_backend() -> Any:
     raise ValueError(f"Unsupported lexical provider: {provider}")
 
 def get_chat_store_backend() -> Any:
+    """ChatStore holding conversation history for query rewriting."""
     settings = get_settings()
     provider = settings.chat_store_provider.lower()
 
@@ -68,6 +80,9 @@ def get_chat_store_backend() -> Any:
     raise ValueError(f"Unsupported chat store provider: {provider}")
     
 def get_alarm_store_backend() -> Any:
+    """Unused: get_orchestrator builds stores.alarms.PostgresAlarmStore directly.
+    Note this returns PostgresDBConnection, which has no get_alarm method, so it
+    does not satisfy AlarmStore."""
     settings = get_settings()
     provider = settings.alarm_store_provider.lower()
 
@@ -76,7 +91,11 @@ def get_alarm_store_backend() -> Any:
     
     raise ValueError(f"Unsupported alarm store provider: {provider}")
     
+# --- embedders ---------------------------------------------------------------------
+
 class OllamaEmbedder:
+    """DenseEmbedder via Ollama's /api/embed (EMBEDDING_MODEL)."""
+
     def __init__(self, client: httpx.AsyncClient):
         self._client = client
 
@@ -102,6 +121,12 @@ class OllamaEmbedder:
 
 
 class OpenAIEmbedder:
+    """DenseEmbedder via an OpenAI-compatible /embeddings endpoint (OPENAI_BASE_URL).
+
+    The vector size must equal SEMANTIC_DIM and the vector(1024) column, so switching
+    model generally means a new migration and a full re-ingest.
+    """
+
     def __init__(self, client: httpx.AsyncClient):
         self._client = client
         
@@ -121,6 +146,8 @@ class OpenAIEmbedder:
 
 
 class AnthropicEmbedder:
+    """Placeholder: Anthropic has no embeddings API. Never returned by a factory."""
+
     def __init__(self, client: httpx.AsyncClient):
         self._client = client
 
@@ -128,6 +155,9 @@ class AnthropicEmbedder:
         raise NotImplementedError("Anthropic does not expose embeddings in the current provider layer.")
 
 class TEIEmbedder:
+    """SparseEmbedder via Hugging Face Text Embeddings Inference /embed_sparse
+    (SPLADE, TEI_ENDPOINT). Returns {vocab index: weight} per input."""
+
     def __init__(self, client: httpx.AsyncClient):
         self._client = client
 
@@ -141,7 +171,15 @@ class TEIEmbedder:
 
         return [{int(entry["index"]): float(entry["value"]) for entry in sparse_chunk} for sparse_chunk in sparse_vecs]
     
+# --- generators ----------------------------------------------------------------------
+
 class OllamaGenerator:
+    """Generator for answers via Ollama /api/generate (LLM_MODEL), streamed.
+
+    Output is capped at LLM_NUM_PREDICT tokens and any reasoning trace is stripped.
+    Timing stats are logged as generate_stats (read by scripts/bench.sh).
+    """
+
     def __init__(self, client: httpx.AsyncClient):
         self._client = client
 
@@ -177,6 +215,9 @@ class OllamaGenerator:
         return _THINK_SPAN.sub("", "".join(chunks)).strip()
 
 class OllamaRewriteGenerator:
+    """Generator for query rewriting (retrieval/rewriter.py) with the small
+    REWRITE_MODEL and its own REWRITE_NUM_PREDICT cap."""
+
     def __init__(self, client: httpx.AsyncClient):
             self._client = client
     
@@ -206,6 +247,9 @@ class OllamaRewriteGenerator:
         return "".join(chunks)
 
 class OpenAIGenerator:
+    """Generator via an OpenAI-compatible /chat/completions endpoint (OpenAI,
+    OpenRouter, LiteLLM...). Non-streaming; no output-token cap is set."""
+
     def __init__(self, client: httpx.AsyncClient):
         self._client = client
 
@@ -229,6 +273,9 @@ class OpenAIGenerator:
 
 
 class AnthropicGenerator:
+    """Generator via the Anthropic Messages API (ANTHROPIC_LLM_MODEL), non-streaming,
+    max_tokens 1024."""
+
     def __init__(self, client: httpx.AsyncClient):
         self._client = client
 
@@ -255,7 +302,10 @@ class AnthropicGenerator:
         payload = response.json()
         return payload["content"][0]["text"]
 
+# --- factories (selected by the *_PROVIDER settings) ---------------------------------
+
 def get_dense_embedding_backend(client: httpx.AsyncClient) -> Any:
+    """DenseEmbedder for DENSE_EMBEDDING_PROVIDER; ValueError for an unknown name."""
     settings = get_settings()
     provider = settings.dense_embedding_provider.lower()
 
@@ -274,6 +324,7 @@ def get_dense_embedding_backend(client: httpx.AsyncClient) -> Any:
     raise ValueError(f"Unsupported embedding provider: {provider}")
 
 def get_sparse_embedding_backend(client: httpx.AsyncClient) -> Any:
+    """SparseEmbedder for SPARSE_EMBEDDING_PROVIDER; ValueError for an unknown name."""
     settings = get_settings()
     provider = settings.sparse_embedding_provider.lower()
 
@@ -283,6 +334,7 @@ def get_sparse_embedding_backend(client: httpx.AsyncClient) -> Any:
     raise ValueError(f"Unsupported embedding provider: {provider}")
 
 def get_generation_backend(client: httpx.AsyncClient) -> Any:
+    """Answer Generator for LLM_PROVIDER; ValueError for an unknown name."""
     settings = get_settings()
     provider = settings.llm_provider.lower()
     if provider == "ollama":
@@ -294,6 +346,8 @@ def get_generation_backend(client: httpx.AsyncClient) -> Any:
     raise ValueError(f"Unsupported LLM provider: {provider}")
 
 def get_rewrite_backend(client: httpx.AsyncClient) -> Any:
+    """Query-rewrite Generator. Only Ollama is supported, so LLM_PROVIDER=openai or
+    anthropic currently makes get_orchestrator fail here."""
     settings = get_settings()
     provider = settings.llm_provider.lower()
     if provider == "ollama":
@@ -301,5 +355,6 @@ def get_rewrite_backend(client: httpx.AsyncClient) -> Any:
     raise ValueError(f"Unsupported LLM provider: {provider}")
 
 async def generate_text(prompt: str, client: httpx.AsyncClient) -> str:
+    """One-off generation with the configured provider (not used by the app itself)."""
     backend = get_generation_backend(client)
     return await backend.generate(prompt)

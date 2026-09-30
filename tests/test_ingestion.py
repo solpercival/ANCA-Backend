@@ -1,3 +1,7 @@
+"""Ingestion: markdown chunking (unit) plus embedding and database writes.
+Tests marked `integration` need the stack (Postgres, Ollama, TEI) and are
+deselected by default; run them with `pytest -m integration` while it is up.
+"""
 from pathlib import Path
 
 import pytest

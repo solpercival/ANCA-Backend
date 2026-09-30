@@ -1,9 +1,22 @@
+"""API error model: machine-readable codes, the JSON error envelope, and the
+exceptions that produce them.
+
+Raise an AppError subclass anywhere in request handling; the handlers in
+error_handlers.py turn it into
+
+    {"error": {"code": "...", "message": "...", "request_id": "...", "details": [...]}}
+
+with the subclass's HTTP status and headers. Clients should branch on `code`,
+never on `message`.
+"""
 from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
 class ErrorCode(StrEnum):
+    """Stable error identifiers returned in `error.code`; part of the API contract."""
+
     # auth
     unauthorized = "unauthorized"
     forbidden = "forbidden"
@@ -27,6 +40,7 @@ class ErrorCode(StrEnum):
 
 
 class ErrorDetail(BaseModel):
+    """One problem with the request, e.g. a failed field validation."""
     field: str | None = None
     message: str
 
@@ -34,13 +48,19 @@ class ErrorDetail(BaseModel):
 class ErrorBody(BaseModel):
     code: ErrorCode
     message: str
-    request_id: str | None = None
+    request_id: str | None = None  # echoes X-Request-ID so logs can be matched to a report
     details: list[ErrorDetail] = Field(default_factory=list)
 
 class ErrorResponse(BaseModel):
+    """Top-level envelope: every error response body is {"error": ErrorBody}."""
     error: ErrorBody
 
 class AppError(Exception):
+    """Base for errors that map to a specific HTTP response.
+
+    Subclasses set status_code, code, message and optionally headers as class
+    attributes; a raise site may override the message, add details, or add headers.
+    """
     status_code: int = 500
     code: ErrorCode = ErrorCode.internal_error
     message: str = "Internal server error"
@@ -58,6 +78,8 @@ class AppError(Exception):
         self.headers = headers or self.headers
         super().__init__(self.message)
 
+
+# --- concrete errors (401s carry WWW-Authenticate: Bearer per RFC 6750) ----------
 
 class Unauthorized(AppError):
     status_code, code, message = 401, ErrorCode.unauthorized, "Authentication required"
@@ -87,6 +109,7 @@ class RateLimited(AppError):
     status_code, code, message = 429, ErrorCode.rate_limited, "Too many attempts; try again later"
 
     def __init__(self, retry_after: int):
+        """retry_after: seconds until the caller may retry (sent as Retry-After)."""
         super().__init__(headers={"Retry-After": str(retry_after)})
 
 class ModelUnavailable(AppError):

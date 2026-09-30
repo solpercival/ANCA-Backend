@@ -13,7 +13,20 @@ from rag_engine.stores.cache import get_cache_conn
 
 
 class RedisSessionStore(SessionStore):
-    """Store refresh-token sessions and login rate limits in the shared Redis pool."""
+    """Store refresh-token sessions and login rate limits in the shared Redis pool.
+
+    Method contracts are documented on SessionStore (auth/interfaces.py). Key layout:
+
+        auth:rt:<digest>           live refresh token -> family id (consumed on use)
+        auth:rt_used:<digest>      already-rotated token -> Rotation JSON (reuse detection)
+        auth:fam:<family_id>       session family JSON (user id, created_at)
+        auth:user_fams:<user_id>   set of the user's family ids (for logout-all)
+        auth:nbf:<user_id>         tokens issued before this timestamp are rejected
+        auth:rl:<key>              failed-login counter for the rate-limit window
+
+    The Redis client is synchronous, so every operation runs in a worker thread
+    (_run); a Redis error surfaces as AuthUnavailable (503).
+    """
 
     async def put_token(self, digest: str, family_id: str, ttl: int) -> None:
         await self._run(lambda client: client.set(f"auth:rt:{digest}", family_id, ex=ttl))

@@ -1,4 +1,10 @@
-"""Dense or hybrid retrieval, depending on the embedding setup."""
+"""Dense or hybrid retrieval, depending on the embedding setup.
+
+EMBEDDING_SETUP=unified: embed the query once, return the vector store's top_k.
+EMBEDDING_SETUP=dual: also run sparse (lexical) search and merge the two ranked
+lists with reciprocal rank fusion, which needs no score normalisation between the
+two very different scoring scales.
+"""
 import logging
 import time
 
@@ -17,7 +23,12 @@ log = logging.getLogger("rag_engine.retrieval.hybrid")
 def reciprocal_rank_fusion(
     rankings: list[list[Chunk]], k: int = 60
 ) -> list[Chunk]:
-    """Fuse multiple ranked lists. Pure function -> fully unit-testable."""
+    """Fuse multiple ranked lists. Pure function -> fully unit-testable.
+
+    Each chunk scores sum(1 / (k + rank + 1)) over the lists it appears in, so
+    chunks ranked well by several retrievers rise to the top. Sets chunk.score to
+    the fused score. Larger k flattens the advantage of the very top ranks.
+    """
     scores: dict[str, float] = {}
     by_id: dict[str, Chunk] = {}
     for ranking in rankings:
@@ -34,6 +45,9 @@ def reciprocal_rank_fusion(
 
 
 class HybridRetriever:
+    """Query -> candidate chunks. The sparse embedder and lexical index are only
+    needed (and only checked) when EMBEDDING_SETUP=dual."""
+
     def __init__(
         self,
         dense_embedder: DenseEmbedder,
@@ -51,6 +65,8 @@ class HybridRetriever:
     async def retrieve(
         self, query: str, top_k: int, where: dict[str, str] | None = None
     ) -> list[Chunk]:
+        """Up to top_k chunks per search (dual mode can return up to 2 * top_k after
+        fusion). Logs embed/search timings as retrieve_timing."""
         t0 = time.perf_counter()
         dense_vector = (await self._dense_embedder.dense_embed([query]))[0]
         t_embed = time.perf_counter() - t0

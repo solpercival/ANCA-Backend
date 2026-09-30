@@ -2,6 +2,11 @@
 
 Run offline (make ingest / scheduled job / on docs-submodule bump), not in the
 serving path. Model-backed embedding is imported lazily.
+
+Order of a full run: seed the alarm catalogue, chunk + embed every markdown file
+(replacing each document's previous rows and pruning documents that disappeared),
+then rebuild the keyword lookup table used by query rewriting. The tables must
+already exist: `make ingest` applies the Alembic migrations first.
 """
 from __future__ import annotations
 
@@ -18,6 +23,7 @@ EXCLUDED_DIRS = frozenset({"mock-api", "alarms"})
 
 
 def iter_markdown_files(docs_dir: Path) -> list[Path]:
+    """Every .md file under docs_dir, sorted, skipping EXCLUDED_DIRS at any depth."""
     return [
         path
         for path in sorted(docs_dir.rglob("*.md"))
@@ -26,6 +32,7 @@ def iter_markdown_files(docs_dir: Path) -> list[Path]:
 
 
 def collect_markdown(docs_dir: Path) -> list[RawChunk]:
+    """Chunk every collected markdown file; each chunk's source is its file path."""
     # lazy: the chunker pulls in the tokenizer stack
     from ingestion.chunker import chunk_markdown
 
@@ -36,6 +43,7 @@ def collect_markdown(docs_dir: Path) -> list[RawChunk]:
 
 
 def run(docs_dir: str = "docs") -> int:  # pragma: no cover - integration
+    """Full ingestion of docs_dir; returns the number of chunks indexed."""
     chunks = collect_markdown(Path(docs_dir))
     # Lazy import keeps hosted CI free of torch.
     from ingestion.indexers import embed_and_index, populate_keyword_table

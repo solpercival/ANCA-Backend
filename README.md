@@ -53,6 +53,7 @@ checkout is typically available under `/mnt/c/Users/<your-user>/...`.
 
 ```bash
 cp .env.example .env
+make help             # list all make targets with a one-line description
 make install          # venv + dev deps (no models)
 make test             # unit tests
 make up               # orchestrator + PostgreSQL(pgvector) + redis + Ollama
