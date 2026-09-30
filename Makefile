@@ -1,4 +1,4 @@
-.PHONY: install lint test up down build ingest seed-alarms models eval fmt smoke bootstrap restart retest
+.PHONY: install lint test up down build migrate migrate-down migrate-status ingest seed-alarms models eval fmt smoke bootstrap restart retest
 VENV=.venv/bin
 # Reserves the GPU for Ollama when an NVIDIA GPU is present; plain CPU compose otherwise.
 COMPOSE := docker compose $(shell command -v nvidia-smi >/dev/null 2>&1 && echo -f docker-compose.yml -f docker-compose.gpu.yml)
@@ -38,7 +38,17 @@ down:
 build:          ## rebuild the orchestrator + ingestion images
 	$(COMPOSE) build orchestrator ingestion
 
+migrate:        ## apply schema migrations (alembic upgrade head) in the migrate container
+	$(COMPOSE) run --rm --build migrate
+
+migrate-down:   ## roll back ONE migration (alembic downgrade -1)
+	$(COMPOSE) run --rm --build migrate alembic downgrade -1
+
+migrate-status: ## show the current revision and the history
+	$(COMPOSE) run --rm --build migrate sh -c "alembic current && alembic history"
+
 ingest:        ## offline: chunk docs -> embed -> pgvector
+	$(MAKE) migrate
 	$(MAKE) models
 	$(COMPOSE) run --rm --build ingestion
 
@@ -52,7 +62,7 @@ eval:          ## run Ragas/DeepEval against docs/docs-proto/starter-kit/alarms/
 	bash scripts/run_eval.sh
 
 restart:        ## rebuild + recreate the orchestrator (GPU override included) and wait until healthy
-	$(COMPOSE) up -d --build --wait orchestrator
+	$(COMPOSE) up -d --build orchestrator
 
 retest:         ## after a code change: unit tests -> restart orchestrator -> bench -> eval
 	@echo "=== UNIT TESTS ==="

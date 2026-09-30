@@ -1,5 +1,6 @@
--- Enable pgvector on first boot. Real schema/migrations live in the app
--- (SQLAlchemy + Alembic) and are owned by the RAG team.
+-- SUPERSEDED: the schema is now created by Alembic (migrations/versions/0001_initial_schema.py
+-- is a statement-for-statement copy of this file). This script is no longer mounted into
+-- Postgres; it is kept for reference only. Change the schema with a new migration, not here.
 
 -- Postgres automatically creates indexes for primary keys, but not for foreign keys.
 -- We create those indexes here to improve query performance.

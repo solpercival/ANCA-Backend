@@ -343,6 +343,7 @@ def test_multiple_alarm_insert():
                 assert any(entry["severity_category"] == alarm["severity_category"].lower() for entry in code_test)
                 assert any(entry["alarm_text"] == alarm["alarm_text"] for entry in code_test)
 
+@pytest.mark.integration  # populate_alarms connects to Postgres before validating
 def test_invalid_input():
     settings = get_settings()
     # empty code test

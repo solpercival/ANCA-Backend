@@ -142,72 +142,6 @@ def insert_chunk(cursor, data: dict, doc_id: int, heading_cache: dict[tuple, int
         (chunk.text, "{}", chunk.kind, chunk.source, f"{sparse}/30522" if sparse else None, dense, heading_id)
     )
 
-def validate_tables(cursor) -> None:
-    # FK dependencies means tables need to be created in a specific order
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS document (
-            doc_id SERIAL PRIMARY KEY,
-            current_version VARCHAR(16) NOT NULL,
-            hash BYTEA NOT NULL,
-            file_path TEXT NOT NULL UNIQUE
-        )
-        """
-    )
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS heading (
-            heading_id BIGSERIAL PRIMARY KEY,
-            heading_order TEXT NOT NULL,
-            hierarchy VARCHAR(45) NOT NULL,
-            document_id INTEGER NOT NULL,
-            parent_heading BIGINT,
-            CONSTRAINT prevent_duplicate_heading UNIQUE(document_id, parent_heading, heading_order),
-            CONSTRAINT fk_heading_document
-                FOREIGN KEY (document_id)
-                REFERENCES document (doc_id)
-                ON DELETE NO ACTION
-                ON UPDATE NO ACTION,
-            CONSTRAINT fk_heading_parent_heading
-                FOREIGN KEY (parent_heading)
-                REFERENCES heading (heading_id)
-                ON DELETE NO ACTION
-                ON UPDATE NO ACTION
-        )
-        """
-    )
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS document_chunks (
-            chunk_id BIGSERIAL PRIMARY KEY,
-            content TEXT NOT NULL,
-            metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-            dc_type CHUNK_TYPE NOT NULL DEFAULT 'text',
-            document_source TEXT NOT NULL,
-            lexical_embedding sparsevec(30522),
-            semantic_embedding vector(1024) NOT NULL,
-            closest_heading BIGINT,
-            CONSTRAINT fk_document_chunks_heading
-                FOREIGN KEY (closest_heading)
-                REFERENCES heading (heading_id)
-                ON DELETE NO ACTION
-		        ON UPDATE NO ACTION
-        )
-        """
-    )
-    cursor.execute(
-        "ALTER TABLE document_chunks ALTER COLUMN lexical_embedding DROP NOT NULL"
-    )
-    cursor.execute(
-        "ALTER TABLE heading ALTER COLUMN heading_order TYPE TEXT"
-    )
-    cursor.execute(
-        "ALTER TABLE document ALTER COLUMN file_path TYPE TEXT"
-    )
-    cursor.execute(
-        "ALTER TABLE document_chunks ALTER COLUMN document_source TYPE TEXT"
-    )
-
 def _clear_sources(cursor, sources: list[str], keep: bool) -> None:
     """Delete indexed chunks/headings/documents for `sources` (keep=False) or for
     everything *except* `sources` (keep=True).
@@ -249,8 +183,7 @@ def _write_embeddings(chunks: list[RawChunk], dense_embeddings: list[list[float]
     with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
         register_vector(connection)
         with connection.cursor() as cursor:
-            # check if tables created
-            validate_tables(cursor=cursor)
+            # tables come from the Alembic migrations (`make migrate`), not from here
             heading_cache = {}
 
             # in one transaction: optionally drop documents no longer collected (e.g.

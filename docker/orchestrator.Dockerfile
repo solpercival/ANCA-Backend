@@ -33,6 +33,9 @@ RUN apt-get update \
 COPY pyproject.toml ./
 COPY src/ ./src/
 COPY ingestion/ ./ingestion/
+# schema migrations; the compose `migrate` service runs `alembic upgrade head` from this image
+COPY alembic.ini ./
+COPY migrations/ ./migrations/
 
 RUN if [ -n "$EXTRAS" ]; then pip install --no-cache-dir -e ".[$EXTRAS]"; \
     else pip install --no-cache-dir -e .; fi && rm -rf /root/.cache
