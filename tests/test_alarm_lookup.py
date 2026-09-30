@@ -11,7 +11,7 @@ from rag_engine.orchestrator import Orchestrator, get_orchestrator
 from rag_engine.retrieval.interfaces import Chunk
 from rag_engine.stores import alarms as alarms_module
 from rag_engine.stores.alarms import PostgresAlarmStore
-from tests.fakes import FB_0002, FakeAlarmStore
+from tests.fakes import FB_0002, FakeAlarmStore, FakePreprocessor
 
 
 class RecordingRetriever:
@@ -47,6 +47,7 @@ class BrokenAlarmStore:
 
 def _orch(store=None, answer="Check the cable [1]."):
     return Orchestrator(
+        FakePreprocessor(),
         RecordingRetriever(), FakeReranker(), FakeGenerator(answer), store or FakeAlarmStore()
     )
 
@@ -128,6 +129,7 @@ def test_step_restating_catalogue_text_is_dropped(echo):
 def test_echo_is_kept_when_the_docs_say_the_same():
     # the docs themselves state it, so it is doc guidance that happens to match the alarm
     orch = Orchestrator(
+        FakePreprocessor(),
         RecordingRetriever("If a slave dies, EtherCAT slave 3 stopped responding is reported."),
         FakeReranker(),
         FakeGenerator("COVERAGE: partial\nEtherCAT slave 3 stopped responding [1]."),

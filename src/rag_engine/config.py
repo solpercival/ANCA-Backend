@@ -117,6 +117,11 @@ class Settings(BaseSettings):
     rerank_model: str = "Qwen/Qwen3-Reranker-0.6B"
     # pairs per reranker forward pass; bounds GPU activation memory (scores unchanged)
     rerank_batch_size: int = 5
+    # Qwen3 reranker only: drop chunks whose relevance probability is below this
+    # (the best chunk is always kept). 0 disables. Off by default: on the sample
+    # alarms off-topic chunks scored 0.6-0.95 (same topic, wrong task) while a gold
+    # chunk for am.nc.0004 scored <=0.10, so 0.2 dropped the wrong ones.
+    rerank_min_score: float = 0.0
     rrf_k: int = 60
 
     # embeddings

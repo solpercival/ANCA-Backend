@@ -171,11 +171,12 @@ PY
 
 echo
 echo "--- RETRIEVAL + STAGE SPLIT (query -> retrieved -> rerank -> generate -> timing, per code) ---"
-# 5 lines per resolve: resolve_query, retrieved, rerank_forward (GPU reranker only),
+# 6 lines per resolve: resolve_query, retrieved, rerank_forward (GPU reranker only),
+# rerank_cutoff (qwen3 reranker: per-chunk scores, kept/total),
 # generate_stats (prompt vs output tokens and tok/s), resolve_timing
 docker compose logs --tail=600 orchestrator 2>/dev/null \
-  | grep -E "resolve_query|retrieved count|rerank_forward|generate_stats|resolve_timing" \
-  | tail -"$(( ${#CODES[@]} * 5 ))" \
+  | grep -E "resolve_query|retrieved count|rerank_forward|rerank_cutoff|generate_stats|resolve_timing" \
+  | tail -"$(( ${#CODES[@]} * 6 ))" \
   || echo "  (no resolve lines found in orchestrator log)"
 
 # ---- cleanup ---------------------------------------------------------------

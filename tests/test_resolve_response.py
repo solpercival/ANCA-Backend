@@ -9,7 +9,7 @@ from rag_engine.auth.tokens import create_access_token
 from rag_engine.orchestrator import Orchestrator
 from rag_engine.retrieval.interfaces import Chunk
 from rag_engine.retrieval.reranker import IdentityReranker
-from tests.fakes import FB_0002, FakeAlarmStore
+from tests.fakes import FB_0002, FakeAlarmStore, FakePreprocessor
 
 REQ = ResolveRequest(code="am.fb.0002")
 
@@ -49,6 +49,7 @@ def _chunks(*scores):
 
 def _resolve(answer="Reset the drive [1].", chunks=None, reranker=None, tier=Tier.technician):
     orch = Orchestrator(
+        FakePreprocessor(),
         FakeRetriever(chunks if chunks is not None else _chunks(0.9, 0.5)),
         reranker or FakeReranker(),
         FakeGenerator(answer),
@@ -76,7 +77,7 @@ def test_single_line_answer_is_one_step():
 
 
 def _prompt():
-    orch = Orchestrator(FakeRetriever([]), FakeReranker(), FakeGenerator(""), FakeAlarmStore())
+    orch = Orchestrator(FakePreprocessor(), FakeRetriever([]), FakeReranker(), FakeGenerator(""), FakeAlarmStore())
     return orch._build_prompt(REQ, FB_0002, _chunks(0.9), Tier.technician)
 
 
@@ -99,12 +100,26 @@ def test_prompt_keeps_answers_short():
 def test_prompt_asks_for_grounded_guidance_not_invented_fixes():
     prompt = _prompt()
 
-    assert "Using ONLY the context, explain the alarm" in prompt
+    assert "Using ONLY the context, tell the technician how to resolve this alarm" in prompt
     assert "often will NOT contain explicit fix steps" in prompt
     assert "never invent steps" in prompt
     # refusal is for irrelevant context, not for "no explicit fix"
     assert "COVERAGE: none    (the context is unrelated to this alarm)" in prompt
     assert "If the fix is not in the context" not in prompt
+
+
+def test_prompt_asks_for_actionable_steps_not_restatements():
+    # bench showed steps restating the alarm and leaking off-topic chunks
+    prompt = _prompt()
+
+    assert "Start each line with a verb" in prompt
+    # bench: 17/24 steps were Check/Verify/Confirm and the restart fix was missing
+    assert "Put the action that resolves the alarm first" in prompt
+    assert "at most two diagnostic lines" in prompt
+    assert "requires a restart or reinitialisation, that must be one of the lines" in prompt
+    assert "Never write a line that only describes the alarm" in prompt
+    assert "Fewer lines are better than filler" in prompt
+    assert "Ignore context about a different task or feature" in prompt
 
 
 def test_prompt_asks_for_coverage_header_first():
@@ -257,6 +272,39 @@ def test_header_only_answer_becomes_none():
 
     assert resp.doc_coverage == "none"
     assert resp.steps == ["The documentation does not cover this alarm."]
+
+
+def test_non_action_filler_beside_action_steps_is_dropped():
+    # real eval output: a doc-example line slipped in after the actual fix
+    resp = _resolve(
+        "COVERAGE: partial\n"
+        "Set the Joint logical device for the joint to the logical address of the device.\n"
+        "Verify the logical device is assigned to only one joint.\n"
+        "Data-block mapping maps device 1 to devices 2, 4, and 5.\n"
+    )
+
+    assert resp.steps == [
+        "Set the Joint logical device for the joint to the logical address of the device.",
+        "Verify the logical device is assigned to only one joint.",
+    ]
+
+
+def test_explanation_only_answer_is_kept_whole():
+    # no action line at all: the docs explain but give no fix, which is legitimate
+    answer = "COVERAGE: partial\nThe drive lost EtherCAT contact [1].\nThe master resets the bus [2]."
+
+    assert _resolve(answer).steps == [
+        "The drive lost EtherCAT contact.",
+        "The master resets the bus.",
+    ]
+
+
+def test_disclaimer_is_not_treated_as_filler():
+    # _settle_coverage, not the filler filter, decides what happens to the disclaimer
+    resp = _resolve("\n".join(["COVERAGE: full", *REAL, "The documentation does not cover this alarm."]))
+
+    assert resp.steps == REAL
+    assert resp.doc_coverage == "partial"
 
 
 def test_coverage_line_later_in_answer_is_not_treated_as_header():
@@ -427,7 +475,7 @@ def test_likely_causes_empty_when_docs_do_not_cover_alarm():
 
 
 def test_prompt_asks_privileged_tiers_for_verbatim_causes_only():
-    orch = Orchestrator(FakeRetriever([]), FakeReranker(), FakeGenerator(""), FakeAlarmStore())
+    orch = Orchestrator(FakePreprocessor(), FakeRetriever([]), FakeReranker(), FakeGenerator(""), FakeAlarmStore())
 
     tech = orch._build_prompt(REQ, FB_0002, _chunks(0.9), Tier.technician)
     oper = orch._build_prompt(REQ, FB_0002, _chunks(0.9), Tier.operator)

@@ -1,0 +1,14 @@
+{
+  "_note": "Key fix of each gold answer (reference-answers.json), for the eval's fix_present score. Each code has groups; a group is met when ANY of its phrases appears (lowercase substring) in the generated steps. fix_present = groups met / groups. Groups are the action that resolves the alarm, not diagnostic checks.",
+  "am.nc.0001": [["same logical machine"]],
+  "am.nc.0002": [["release", "detach"]],
+  "am.nc.0003": [["search hierarchy"], ["plc", "mcode.101"]],
+  "am.nc.0004": [["three control points", "3 control points", "add control point", "more control points"]],
+  "am.nc.0005": [["separate block", "split", "remove duplicate class 1"]],
+  "am.cfg.0001": [["unique", "different", "reconfigure", "set the joint logical device"], ["restart"]],
+  "am.lic.0001": [["false", "disable"], ["licen", "anca"]],
+  "am.fb.0001": [["restart", "reinitiali", "re-initiali", "power-cycle", "power cycle"]],
+  "am.fb.0002": [["reinitiali", "re-initiali", "restart"], ["manufacturer"]],
+  "am.fb.0003": [["restart", "reinitiali", "re-initiali"], ["dsa.log", "ecatmaster", "logs"]],
+  "am.fb.0004": [["upload", "upgrade"], ["preop", "start device"]]
+}

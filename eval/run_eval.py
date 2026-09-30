@@ -3,9 +3,11 @@
 Two modes:
 - `python -m eval.run_eval --gold <file>`: live eval. Logs in, calls /resolve
   for every alarm code in the gold set, scores the cited documents against the
-  gold doc_refs (hit rate, precision, recall, MRR) and writes
-  eval/results/retrieval.json. Needs the stack running and EVAL_USERNAME /
-  EVAL_PASSWORD set.
+  gold doc_refs (hit rate, precision, recall, MRR) and the generated steps
+  against the gold resolution_steps (step_recall, actionable, coverage_match,
+  and fix_present: is the resolving action from eval/fix_terms.json there),
+  and writes eval/results/retrieval.json. Needs the stack running and
+  EVAL_USERNAME / EVAL_PASSWORD set.
 - `python eval/run_eval.py`: the offline snapshot check used by the rag-eval
   and rag-snapshot CI workflows. Writes eval/results/latest.json.
 """
@@ -15,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 
 import httpx
@@ -89,6 +92,91 @@ def score_code(citations, gold_entry):
         "reciprocal_rank": reciprocal_rank,
     }
 
+# Words that carry no meaning on their own, ignored when comparing steps
+STOPWORDS = {
+    "the", "and", "for", "that", "this", "with", "from", "are", "was", "has", "have",
+    "its", "it's", "into", "any", "all", "not", "but", "can", "may", "will", "then",
+    "your", "you", "per", "via", "each", "same", "one", "only", "again", "if",
+}
+
+# Verbs a resolution step should start with ("Restart the system", "Check ...")
+ACTION_VERBS = {
+    "check", "verify", "confirm", "ensure", "set", "reset", "restart", "reboot",
+    "reinitialise", "reinitialize", "power-cycle", "power", "replace", "inspect",
+    "record", "note", "review", "clear", "acknowledge", "enable", "disable", "update",
+    "upgrade", "reduce", "increase", "add", "remove", "correct", "fix", "assign",
+    "map", "change", "adjust", "configure", "reconfigure", "install", "reinstall",
+    "purchase", "contact", "compare", "measure", "test", "use", "create", "rename",
+    "move", "edit", "open", "run", "reload", "retry", "wait", "reseat", "tighten",
+    "reconnect", "connect", "disconnect", "locate", "find", "look", "make", "define",
+    "provide", "specify", "program", "activate", "deactivate",
+    # kept in step with the engine's _ACTION_VERBS so the two agree on what a step is
+    "acknowledge", "attach", "detach", "release", "split", "upload", "transfer",
+    "re-initialise", "re-initialize", "re-run", "rerun", "recover", "place", "insert",
+    "reinitialise", "reinitialize", "synchronise", "synchronize", "coordinate",
+    "identify", "determine", "interpret", "investigate", "consult", "refer", "read",
+    "select", "switch", "turn", "apply", "save", "load", "start", "stop", "restore",
+}
+
+def content_stems(text):
+    """Meaningful words of a sentence, cut to 5 letters so that
+    'restart'/'restarting' or 'reinitialise'/'reinitialising' still match"""
+    words = [w.strip("._-") for w in re.findall(r"[a-z0-9][a-z0-9_.\-]*", text.lower())]
+    return {w[:5] for w in words if len(w) >= 3 and w not in STOPWORDS}
+
+def score_answer(answer, gold_entry):
+    """Score the generated steps against the gold resolution steps
+
+    step_recall: for each gold step, the share of its key words found anywhere
+        in the generated steps, averaged over the gold steps
+    actionable: share of generated steps that start with an action verb
+        (a step that just restates the alarm fails this)
+    coverage_match: 1 if our doc_coverage equals the gold doc_coverage
+    """
+    steps = answer.get("steps", [])
+    answer_stems = set()
+    for step in steps:
+        answer_stems |= content_stems(step)
+
+    recalls = []
+    for gold_step in gold_entry.get("resolution_steps", []):
+        gold_stems = content_stems(gold_step)
+        if gold_stems:
+            recalls.append(len(gold_stems & answer_stems) / len(gold_stems))
+    step_recall = sum(recalls) / len(recalls) if recalls else 0.0
+
+    action_steps = 0
+    for step in steps:
+        words = step.split()
+        if words and words[0].lower().strip(".,:;") in ACTION_VERBS:
+            action_steps += 1
+    actionable = action_steps / len(steps) if steps else 0.0
+
+    coverage_match = answer.get("doc_coverage") == gold_entry.get("doc_coverage")
+
+    return {
+        "step_recall": step_recall,
+        "actionable": actionable,
+        "coverage_match": float(coverage_match),
+    }
+
+FIX_TERMS_PATH = Path(__file__).parent / "fix_terms.json"
+
+def load_fix_terms(path=FIX_TERMS_PATH):
+    """Return the key-fix phrase groups keyed by alarm code"""
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    return {code: groups for code, groups in data.items() if not code.startswith("_")}
+
+def score_fix(steps, groups):
+    """Share of the key fixes (e.g. 'restart', 'set opcua.enable false') that
+    appear in the steps. A group is met when any of its phrases appears."""
+    text = " ".join(steps).lower()
+    met = 0
+    for phrases in groups:
+        if any(phrase in text for phrase in phrases):
+            met += 1
+    return met / len(groups)
+
 API_URL = "http://localhost:8080/api/v2"
 
 def fetch_answer(code, api_url=API_URL, token=None):
@@ -118,6 +206,7 @@ def get_token(username, password, api_url=API_URL):
 def run_eval(username, password, api_url=API_URL, gold_path=GOLD_PATH):
     """Call the API for every gold alarm code and score each answer."""
     gold = load_gold(gold_path)
+    fix_terms = load_fix_terms()
     token = get_token(username, password, api_url)
 
     results = []
@@ -130,15 +219,24 @@ def run_eval(username, password, api_url=API_URL, gold_path=GOLD_PATH):
             continue
 
         scores = score_code(answer["citations"], gold_entry)
+        scores.update(score_answer(answer, gold_entry))
+        if code in fix_terms:
+            scores["fix_present"] = score_fix(answer.get("steps", []), fix_terms[code])
         scores["code"] = code
         results.append(scores)
         print(f"{code}: {scores}")
+        # saved to the results file (not printed) so answers can be inspected later
+        scores["steps"] = answer.get("steps", [])
+        scores["doc_coverage"] = answer.get("doc_coverage")
 
     return results
 
 def summarize(results):
     """Average each score across all alarm codes. Failed calls count as zero"""
-    totals = {"hit": 0, "precision": 0, "recall": 0, "reciprocal_rank": 0}
+    totals = {
+        "hit": 0, "precision": 0, "recall": 0, "reciprocal_rank": 0,
+        "step_recall": 0, "actionable": 0, "coverage_match": 0,
+    }
     errors = 0
 
     for result in results:
@@ -151,6 +249,12 @@ def summarize(results):
     summary = {}
     for name in totals:
         summary[name] = round(totals[name]/len(results), 3)
+
+    # fix_present only exists for codes listed in fix_terms.json
+    fix_scores = [r["fix_present"] for r in results if "fix_present" in r]
+    if fix_scores:
+        summary["fix_present"] = round(sum(fix_scores)/len(fix_scores), 3)
+        summary["fix_solved"] = sum(1 for s in fix_scores if s == 1.0)
     summary["codes"] = len(results)
     summary["errors"] = errors
     return summary

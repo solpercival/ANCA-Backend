@@ -44,6 +44,39 @@ async def test_qwen3_orders_by_score_and_truncates() -> None:
     assert result[0].score == 9.0
 
 
+def _scored_reranker(scores: list[float], min_score: float) -> Qwen3Reranker:
+    reranker = Qwen3Reranker(min_score=min_score)
+    reranker._ensure_loaded = lambda: None  # type: ignore[method-assign]
+    reranker._score = lambda query, texts: scores  # type: ignore[method-assign]
+    return reranker
+
+
+async def test_qwen3_drops_chunks_below_min_score() -> None:
+    """Low-relevance chunks are cut even when they fit within top_n."""
+    reranker = _scored_reranker([0.9, 0.05, 0.6, 0.1], min_score=0.2)
+
+    result = await reranker.rerank("any query", _chunks(4), top_n=4)
+
+    assert [c.chunk_id for c in result] == ["0", "2"]
+
+
+async def test_qwen3_keeps_best_chunk_when_all_below_min_score() -> None:
+    """The generator always gets at least one chunk to judge coverage from."""
+    reranker = _scored_reranker([0.05, 0.1, 0.01], min_score=0.2)
+
+    result = await reranker.rerank("any query", _chunks(3), top_n=3)
+
+    assert [c.chunk_id for c in result] == ["1"]
+
+
+async def test_qwen3_min_score_zero_disables_cutoff() -> None:
+    reranker = _scored_reranker([0.05, 0.1, 0.01], min_score=0.0)
+
+    result = await reranker.rerank("any query", _chunks(3), top_n=3)
+
+    assert len(result) == 3
+
+
 async def test_qwen3_empty_input_returns_empty() -> None:
     """An empty candidate list comes back empty without loading the model."""
     assert await Qwen3Reranker().rerank("any query", [], top_n=5) == []

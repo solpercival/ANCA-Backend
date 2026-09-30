@@ -54,6 +54,23 @@ _CAUSE_MATCH_RATIO = 0.85
 _MIN_PARTIAL_QUOTE = 30  # a shorter fragment is too weak to anchor a sentence
 # a step this close to the catalogue's alarm text is an echo, not doc guidance
 _ECHO_RATIO = 0.8
+# Verbs an action step starts with. Deliberately broad: a real step missing from
+# this list is dropped only when the answer also has other action steps.
+_ACTION_VERBS = frozenset("""
+    acknowledge activate add adjust align allow apply assign attach avoid back
+    calibrate call change check clean clear close compare configure confirm connect
+    consult contact coordinate copy correct create cycle deactivate decrease define
+    delete detach determine disable disconnect document downgrade edit enable ensure
+    enter examine execute find fix go identify increase insert inspect install
+    interpret investigate jog keep limit load locate look lower make map mark measure
+    modify monitor move note obtain open order perform place power power-cycle press
+    program provide purchase raise read re-initialise re-initialize re-run reboot
+    reconfigure reconnect record recover reduce refer reinitialise reinitialize
+    reinstall release reload remove rename repair replace report request rerun reseat
+    reset restart restore retry review run save select set specify split start stop
+    switch synchronise synchronize test tighten transfer try turn type uninstall
+    unmap update upgrade upload use validate verify wait write
+""".split())
 
 # first line of a resolve answer, e.g. "COVERAGE: partial"; tolerate markdown bold
 _COVERAGE_LINE = re.compile(r"^\W*coverage\W*[:=-]\W*(full|partial|none)\b\W*$", re.I)
@@ -214,18 +231,27 @@ class Orchestrator:
         )
         return (
             "You are a CNC troubleshooting assistant.\n"
-            "Using ONLY the context, explain the alarm and give whatever resolution "
-            "guidance the documentation supports. The documentation is descriptive and "
-            "often will NOT contain explicit fix steps — never invent steps that aren't "
-            "supported by the context.\n"
+            "Using ONLY the context, tell the technician how to resolve this alarm. "
+            "The documentation is descriptive and often will NOT contain explicit "
+            "fix steps — never invent steps that aren't supported by the context; turn "
+            "what it describes into an action instead.\n"
             "First line, exactly one of:\n"
             "COVERAGE: full    (the context gives explicit steps that resolve this alarm)\n"
             "COVERAGE: partial (the context explains the alarm or behaviour, but no complete fix)\n"
             "COVERAGE: none    (the context is unrelated to this alarm)\n"
             "Then output one line per point, no numbering: at most 4 lines, each one short "
-            "sentence of at most 20 words, stated concisely in your own words. Never copy "
-            "code, program examples, coordinates, tables or long passages from the context. "
-            "No citation markers or brackets, no introduction, no summary.\n"
+            "sentence of at most 20 words, stated concisely in your own words. "
+            "Start each line with a verb. Put the action that resolves the alarm first "
+            "(for example Restart, Reinitialise, Set, Change, Reconfigure, Add or Move), "
+            "then at most two diagnostic lines (Check, Verify). If the context says the "
+            "alarm requires a restart or reinitialisation, that must be one of the lines. "
+            "Never write a line that only describes the alarm or restates its "
+            "message or error code. Fewer lines are better than filler: stop when the "
+            "context has nothing more that applies.\n"
+            "Ignore context about a different task or feature than this alarm, and never "
+            "give advice that would cause this alarm again.\n"
+            "Never copy code, program examples, coordinates, tables or long passages from "
+            "the context. No citation markers or brackets, no introduction, no summary.\n"
             "For COVERAGE: none, the only following line must be exactly: "
             f"\"{_NOT_COVERED}\"\n"
             f"{causes}"
@@ -265,6 +291,32 @@ class Orchestrator:
                 log.info("step_dropped_catalogue_echo code=%s step=%r", alarm.code, step[:120])
                 continue
             kept.append(step)
+        return kept
+
+    @staticmethod
+    def _starts_with_action(step: str) -> bool:
+        words = step.split()
+        return bool(words) and words[0].strip(".,:;!\"'").lower() in _ACTION_VERBS
+
+    @classmethod
+    def _drop_filler_beside_actions(cls, steps: list[str], code: str) -> list[str]:
+        """Drop non-action lines when the answer also gives action steps.
+
+        The prompt asks for verb-led steps; lines like "Data-block mapping maps
+        device 1 to devices 2, 4, and 5." that slip through next to real actions
+        are filler copied from the context. An answer with no action line at all
+        is a legitimate explanation-only answer (the docs give no fix) and is kept
+        whole. The not-covered disclaimer is left for `_settle_coverage`.
+        """
+        disclaimer = cls._norm(_NOT_COVERED)
+        if not any(cls._starts_with_action(s) for s in steps):
+            return steps
+        kept = []
+        for step in steps:
+            if cls._starts_with_action(step) or disclaimer in cls._norm(step):
+                kept.append(step)
+            else:
+                log.info("step_dropped_non_action code=%s step=%r", code, step[:120])
         return kept
 
     @staticmethod
@@ -478,6 +530,7 @@ class Orchestrator:
         # always strip CAUSE lines so they never leak into steps, whatever the tier
         cause_claims, body = self._split_causes(body)
         steps = self._drop_catalogue_echoes(self._split_steps(body), alarm, top)
+        steps = self._drop_filler_beside_actions(steps, req.code)
         # empty (header only / only catalogue echoes) or only the disclaimer -> "none"
         doc_coverage, steps = self._settle_coverage(doc_coverage, steps, req.code)
         # the route also strips causes per tier; skipping here just avoids the work

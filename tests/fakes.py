@@ -20,3 +20,13 @@ class FakeAlarmStore:
 
     async def get_alarm(self, code: str) -> Alarm | None:
         return self._alarms.get(code)
+
+
+class FakePreprocessor:
+    """Passes the query through unchanged and stores no conversation context."""
+
+    async def process_prompt(self, raw_query, conversation_id):
+        return raw_query
+
+    def store_context(self, conversation_id, query, response, alarm):
+        return

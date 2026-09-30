@@ -44,11 +44,16 @@ class Qwen3Reranker:
     """
 
     def __init__(
-        self, model_name: str | None = None, max_length: int = 4096, batch_size: int | None = None
+        self,
+        model_name: str | None = None,
+        max_length: int = 4096,
+        batch_size: int | None = None,
+        min_score: float | None = None,
     ):
         self._model_name = model_name or get_settings().rerank_model
         self._max_length = max_length
         self._batch_size = max(1, batch_size or get_settings().rerank_batch_size)
+        self._min_score = get_settings().rerank_min_score if min_score is None else min_score
         self._model: Any = None
         self._tokenizer: Any = None
         self._yes_id: int = -1
@@ -164,4 +169,14 @@ class Qwen3Reranker:
         scores = await asyncio.to_thread(self._score, query, [c.text for c in chunks])
         for chunk, score in zip(chunks, scores, strict=True):
             chunk.score = score
-        return sorted(chunks, key=lambda c: c.score, reverse=True)[:top_n]
+        ranked = sorted(chunks, key=lambda c: c.score, reverse=True)[:top_n]
+        # Scores are P("yes, this document answers the query"). Off-topic chunks that
+        # still make the top_n reach the prompt and get used (e.g. a firmware-upgrade
+        # page cited for an EtherCAT state alarm), so drop them -- but always keep the
+        # best one, so the generator can still decide coverage itself.
+        kept = [c for c in ranked if c.score >= self._min_score] or ranked[:1]
+        log.info(
+            "rerank_cutoff min_score=%.2f kept=%d/%d scores=%s",
+            self._min_score, len(kept), len(ranked), [round(c.score, 2) for c in ranked],
+        )
+        return kept

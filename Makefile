@@ -1,4 +1,4 @@
-.PHONY: install lint test up down build ingest seed-alarms models eval fmt smoke bootstrap
+.PHONY: install lint test up down build ingest seed-alarms models eval fmt smoke bootstrap restart retest
 VENV=.venv/bin
 # Reserves the GPU for Ollama when an NVIDIA GPU is present; plain CPU compose otherwise.
 COMPOSE := docker compose $(shell command -v nvidia-smi >/dev/null 2>&1 && echo -f docker-compose.yml -f docker-compose.gpu.yml)
@@ -49,4 +49,17 @@ smoke:          ## end-to-end smoke test: auth -> resolve -> chat against the ru
 	bash scripts/smoke_e2e.sh
 
 eval:          ## run Ragas/DeepEval against docs/docs-proto/starter-kit/alarms/reference-answers.json
+	bash scripts/run_eval.sh
+
+restart:        ## rebuild + recreate the orchestrator (GPU override included) and wait until healthy
+	$(COMPOSE) up -d --build --wait orchestrator
+
+retest:         ## after a code change: unit tests -> restart orchestrator -> bench -> eval
+	@echo "=== UNIT TESTS ==="
+	POSTGRES_HOST=localhost $(VENV)/pytest -q --tb=line
+	@echo "=== RESTART ORCHESTRATOR ==="
+	$(MAKE) restart
+	@echo "=== BENCH ==="
+	bash scripts/bench.sh
+	@echo "=== EVAL ==="
 	bash scripts/run_eval.sh
