@@ -59,12 +59,18 @@ class FakeGenerator:
             "CAUSE: A loose EtherCAT cable causes the drive to fault."
         )
 
+class FakePreprocessor():
+    async def process_prompt(self, raw_query, conversation_id):
+        return raw_query
+    
+    def store_context(self, conversation_id, query, response, alarm):
+        return
 
 def _fake_orchestrator() -> Orchestrator:
     retriever = HybridRetriever(
         FakeDenseEmbedder(), FakeSparseEmbedder(), FakeVectorStore(), FakeLexical()
     )
-    return Orchestrator(retriever, FakeReranker(), FakeGenerator(), FakeAlarmStore())
+    return Orchestrator(FakePreprocessor(), retriever, FakeReranker(), FakeGenerator(), FakeAlarmStore())
 
 
 @pytest.fixture

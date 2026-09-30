@@ -33,6 +33,7 @@ from rag_engine.retrieval.interfaces import Alarm, AlarmStore, Chunk, Generator,
 from rag_engine.retrieval.reranker import IdentityReranker, Qwen3Reranker
 from rag_engine.stores.alarms import PostgresAlarmStore
 from rag_engine.stores.search import PostgresDBConnection
+from rag_engine.retrieval.rewriter import QueryPreprocessor
 
 log = logging.getLogger("rag_engine.orchestrator")
 
@@ -163,6 +164,7 @@ def _log_candidates(candidates: list[Chunk]) -> None:
 class Orchestrator:
     def __init__(
         self,
+        preprocessor: QueryPreprocessor,
         retriever: HybridRetriever,
         reranker: Reranker,
         generator: Generator,
@@ -171,6 +173,7 @@ class Orchestrator:
         retrieval_top_k: int = 50,
         langfuse_client: Langfuse | None = None,
     ):
+        self._preprocessor = preprocessor
         self._retriever = retriever
         self._reranker = reranker
         self._generator = generator
@@ -396,6 +399,11 @@ class Orchestrator:
             trace = self._langfuse.trace(name="resolve", input={"code": req.code, "query": query})
 
         t0 = time.perf_counter()
+        query = await self._preprocessor.process_prompt(query, "")
+        t_rewrite = time.perf_counter() - t0
+        rag_stage_seconds.labels(stage="rewrite").observe(t_rewrite)
+
+        t0 = time.perf_counter()
         try:
             candidates = await self._retriever.retrieve(query, top_k=self._top_k, where=where or None)
         except Exception as exc:
@@ -447,6 +455,8 @@ class Orchestrator:
                 duration_ms=int(t_generate * 1000),
             )
 
+        self._preprocessor.store_context("", query, answer, req.code) 
+
         log.info(
             "resolve_timing code=%s retrieve=%.4fs rerank=%.4fs generate=%.4fs total=%.4fs",
             req.code, t_retrieve, t_rerank, t_generate, t_retrieve + t_rerank + t_generate,
@@ -494,6 +504,11 @@ class Orchestrator:
         )
 
     async def chat(self, req: ChatRequest, tier: Tier) -> ChatResponse:
+        rewritten_prompt = await self._preprocessor.process_prompt(req.message, req.conversation_id)
+        if not rewritten_prompt:
+            return ChatResponse(conversation_id=req.conversation_id, reply="", citations=[])
+        req.message = rewritten_prompt
+
         trace = None
         if self._langfuse:
             trace = self._langfuse.trace(name="chat", input={"conversation_id": req.conversation_id, "message": req.message})
@@ -550,6 +565,8 @@ class Orchestrator:
                 duration_ms=int(t_generate * 1000),
             )
 
+        self._preprocessor.store_context(req.conversation_id, req.message, reply, None)
+
         if self._langfuse and trace:
             trace.update(
                 output={
@@ -578,6 +595,8 @@ def get_orchestrator() -> Orchestrator:  # pragma: no cover - wired at runtime
         get_generation_backend,
         get_lexical_backend,
         get_sparse_embedding_backend,
+        get_rewrite_backend,
+        get_chat_store_backend,
     )
 
     dense_embedder = get_dense_embedding_backend(client=client)
@@ -588,9 +607,20 @@ def get_orchestrator() -> Orchestrator:  # pragma: no cover - wired at runtime
     else:
         sparse_embedder = None
         lexical = None
+
     retriever = HybridRetriever(dense_embedder, sparse_embedder, vector_store, lexical)
+
+    rewrite_model = get_rewrite_backend(client)
+    chat_store = get_chat_store_backend()
+    query_rewriter = QueryPreprocessor(chat_store,
+                                       vector_store, 
+                                       rewrite_model, 
+                                       get_settings().KEYWORD_K, 
+                                       get_settings().CONTEXT_K)
+    
     return Orchestrator(
-        retriever,
+        preprocessor=query_rewriter,
+        retriever=retriever,
         reranker=get_reranker_backend(),
         generator=get_generation_backend(client=client),
         alarm_store=PostgresAlarmStore(),

@@ -67,10 +67,16 @@ class Settings(BaseSettings):
     sparse_embedding_provider: str = "huggingface_tei"
     lexical_provider: str = "postgres"
     llm_provider: str = "ollama"
+    chat_store_provider: str = "postgres"
+    alarm_store_provider: str = "postgres"
 
     # ollama
     ollama_base_url: str = "http://ollama:11434"
     embedding_model: str = "qwen3-embedding:0.6b"
+    # instruct (non-thinking) build: plain qwen3:4b is the always-thinking 2507 model,
+    # which ignores think:false and spends num_predict on reasoning text
+    llm_model: str = "qwen3:4b-instruct-2507-q4_K_M"
+    rewrite_model: str = "qwen3:0.6b"
     # query-time embedding context. Ollama's default (4096) makes the 0.6B embedder
     # hold ~2.4 GB of VRAM; queries are short, and 1024 still covers the longest chat
     # message (4096 chars ~ 1k tokens). Longer input is truncated, not rejected.
@@ -79,11 +85,9 @@ class Settings(BaseSettings):
     # request is cheap on CPU and frees ~1.4 GB of VRAM for the generator and reranker.
     # Ingestion embeds through its own path and is unaffected.
     embedding_num_gpu: int = 0
-    # instruct (non-thinking) build: plain qwen3:4b is the always-thinking 2507 model,
-    # which ignores think:false and spends num_predict on reasoning text
-    llm_model: str = "qwen3:4b-instruct-2507-q4_K_M"
     # caps generated tokens; the single biggest CPU-side latency lever
     llm_num_predict: int = 180
+    rewrite_num_predict: int = 512
 
     # generation http client (streaming keeps the connection alive between tokens,
     # so read_timeout only needs to cover the gap between chunks, not the full reply)
@@ -128,6 +132,10 @@ class Settings(BaseSettings):
     # alarms data
     alarm_delim: str = "."
 
+    # query rewriting
+    KEYWORD_K: int = 10
+    CONTEXT_K: int = 10
+    
     @model_validator(mode="after")
     def _require_explicit_allowed_hosts_outside_local(self) -> Self:
         """A deployment that accepts any Host can be used to forge links back to itself."""

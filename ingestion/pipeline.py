@@ -38,12 +38,13 @@ def collect_markdown(docs_dir: Path) -> list[RawChunk]:
 def run(docs_dir: str = "docs") -> int:  # pragma: no cover - integration
     chunks = collect_markdown(Path(docs_dir))
     # Lazy import keeps hosted CI free of torch.
-    from ingestion.indexers import embed_and_index
+    from ingestion.indexers import embed_and_index, populate_keyword_table
     from ingestion.seed_alarms import seed
 
     seed()
     # full corpus: prune removes documents that are no longer collected
     embed_and_index(chunks, prune=True)
+    populate_keyword_table()  # DROP this line + the import if v2 no longer defines it
     return len(chunks)
 
 

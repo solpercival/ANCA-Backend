@@ -68,6 +68,13 @@ def test_reranker_backend_factory_rejects_unknown_provider(monkeypatch, provider
 
 
 def test_orchestrator_resolve_uses_query_and_returns_top_results():
+    class FakePreprocessor:
+        async def process_prompt(self, query, conversation_id):
+            return query
+
+        def store_context(self, conversation_id, query, response, alarm):
+            return
+
     class FakeReranker:
         async def rerank(self, query, chunks, top_n):
             return chunks[:top_n]
@@ -75,16 +82,8 @@ def test_orchestrator_resolve_uses_query_and_returns_top_results():
     class FakeRetriever:
         async def retrieve(self, query, top_k, where=None):
             return [
-                type(
-                    "Chunk",
-                    (),
-                    {"text": "Step 1", "source": "manual.md", "chunk_id": "c1", "score": 0.91},
-                )(),
-                type(
-                    "Chunk",
-                    (),
-                    {"text": "Step 2", "source": "manual.md", "chunk_id": "c2", "score": 0.81},
-                )(),
+                type("Chunk", (), {"text": "Step 1", "source": "manual.md", "chunk_id": "c1", "score": 0.91})(),
+                type("Chunk", (), {"text": "Step 2", "source": "manual.md", "chunk_id": "c2", "score": 0.81})(),
             ]
 
     class FakeGenerator:
@@ -101,7 +100,7 @@ def test_orchestrator_resolve_uses_query_and_returns_top_results():
         query="motor stalls after startup",
         env={"machine_variant": "X"},
     )
-    orch = Orchestrator(FakeRetriever(), FakeReranker(), FakeGenerator(), FakeAlarmStore())
+    orch = Orchestrator(FakePreprocessor(), FakeRetriever(), FakeReranker(), FakeGenerator(), FakeAlarmStore())
 
     response = pytest.importorskip("asyncio").run(orch.resolve(req, Tier.technician))
 
@@ -116,6 +115,13 @@ def test_orchestrator_resolve_uses_query_and_returns_top_results():
 
 
 def test_orchestrator_chat_returns_retrieved_citations():
+    class FakePreprocessor:
+        async def process_prompt(self, query, conversation_id):
+            return query
+
+        def store_context(self, conversation_id, query, response, alarm):
+            return
+
     class FakeReranker:
         async def rerank(self, query, chunks, top_n):
             return chunks[:top_n]
@@ -123,11 +129,7 @@ def test_orchestrator_chat_returns_retrieved_citations():
     class FakeRetriever:
         async def retrieve(self, query, top_k, where=None):
             return [
-                type(
-                    "Chunk",
-                    (),
-                    {"text": "text", "source": "faq.md", "chunk_id": "c1", "score": 0.5},
-                )(),
+                type("Chunk", (), {"text": "text", "source": "faq.md", "chunk_id": "c1", "score": 0.5})(),
             ]
 
     class FakeGenerator:
@@ -140,7 +142,7 @@ def test_orchestrator_chat_returns_retrieved_citations():
             return "final reply"
 
     req = ChatRequest(conversation_id="c-1", message="what happened?")
-    orch = Orchestrator(FakeRetriever(), FakeReranker(), FakeGenerator(), FakeAlarmStore())
+    orch = Orchestrator(FakePreprocessor(), FakeRetriever(), FakeReranker(), FakeGenerator(), FakeAlarmStore())
 
     response = pytest.importorskip("asyncio").run(orch.chat(req, Tier.partner))
 
