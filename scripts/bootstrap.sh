@@ -51,6 +51,15 @@ else
     log "No NVIDIA GPU detected (nvidia-smi missing); Ollama will run on CPU"
 fi
 
+# Same file set as the Makefile's COMPOSE. Every `up` must include the GPU override:
+# a plain `docker compose up` recreates ollama/orchestrator *without* their GPU
+# reservation (their config differs from the running containers), so generation
+# and the reranker silently fall back to CPU.
+COMPOSE=(docker compose)
+if command -v nvidia-smi >/dev/null 2>&1; then
+    COMPOSE+=(-f docker-compose.yml -f docker-compose.gpu.yml)
+fi
+
 # --- 2. Python 3.12 venv ------------------------------------------------------
 if [ ! -x .venv/bin/python ]; then
     log "Creating Python 3.12 virtualenv"
@@ -71,7 +80,7 @@ fi
 
 # --- 4. Data + model services ---------------------------------------------------
 log "Starting postgres, redis"
-docker compose up -d postgres redis
+"${COMPOSE[@]}" up -d postgres redis
 
 log "Starting Ollama and pulling local models (qwen3-embedding, qwen3)"
 make models   # GPU-aware: applies docker-compose.gpu.yml when nvidia-smi is present
@@ -81,7 +90,7 @@ log "Building orchestrator + ingestion images"
 make build
 
 log "Starting the orchestrator"
-docker compose up -d orchestrator
+"${COMPOSE[@]}" up -d orchestrator
 
 # --- 6. Ingest the docs corpus --------------------------------------------------
 log "Running ingestion (docs -> embeddings -> pgvector)"

@@ -428,14 +428,23 @@ def populate_keyword_table(specificity_threshold: float = 25.0) -> None:
                     sorted_chunks = sorted(chunk_set)
                     payload.append((term, sorted_chunks, idf))
 
-            # insert all entries
-            cursor.execute("""
+            # insert all entries. psycopg 3 has no psycopg2-style `VALUES %s` bulk
+            # expansion (it saw 1 placeholder vs thousands of params); executemany
+            # batches the rows in a pipeline instead
+            cursor.executemany("""
                 INSERT INTO keyword_lookup (keyword, related_chunks, idf_weight)
-                VALUES %s
+                VALUES (%s, %s, %s)
                 ON CONFLICT (keyword) DO UPDATE
                 SET related_chunks = EXCLUDED.related_chunks,
                     idf_weight = EXCLUDED.idf_weight;
             """, payload)
-            
+
+            # re-ingest replaces chunks (new chunk_ids), so terms that weren't
+            # re-emitted would keep pointing at chunks that no longer exist
+            cursor.execute(
+                "DELETE FROM keyword_lookup WHERE keyword <> ALL(%s)",
+                ([term for term, _, _ in payload],),
+            )
+
             connection.commit()
             

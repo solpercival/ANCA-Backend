@@ -455,7 +455,10 @@ class Orchestrator:
                 duration_ms=int(t_generate * 1000),
             )
 
-        self._preprocessor.store_context("", query, answer, req.code) 
+        try:
+            self._preprocessor.store_context("", query, answer, req.code)
+        except Exception:
+            log.warning("store_context_failed code=%s (non-fatal)", req.code, exc_info=True)
 
         log.info(
             "resolve_timing code=%s retrieve=%.4fs rerank=%.4fs generate=%.4fs total=%.4fs",
