@@ -208,7 +208,37 @@ def validate_tables(cursor) -> None:
         "ALTER TABLE document_chunks ALTER COLUMN document_source TYPE TEXT"
     )
 
-def _write_embeddings(chunks: list[RawChunk], dense_embeddings: list[list[float]], sparse_embeddings: list[dict[str,float]]) -> None:
+def _clear_sources(cursor, sources: list[str], keep: bool) -> None:
+    """Delete indexed chunks/headings/documents for `sources` (keep=False) or for
+    everything *except* `sources` (keep=True).
+
+    Re-ingesting must replace a document, not append to it: the uniqueness
+    constraints on heading/document_chunks include nullable columns, and NULLs
+    never conflict, so a plain re-insert duplicated every chunk on each run.
+    """
+    match = "<> ALL(%s)" if keep else "= ANY(%s)"
+    if cursor.execute("SELECT to_regclass('response_sources') AS t").fetchone()["t"]:
+        cursor.execute(
+            f"""
+            DELETE FROM response_sources WHERE doc_chunks_id IN
+                (SELECT chunk_id FROM document_chunks WHERE document_source {match})
+            """,
+            (sources,),
+        )
+    cursor.execute(f"DELETE FROM document_chunks WHERE document_source {match}", (sources,))
+    cursor.execute(
+        f"DELETE FROM heading WHERE document_id IN (SELECT doc_id FROM document WHERE file_path {match})",
+        (sources,),
+    )
+    if keep:
+        cursor.execute(f"DELETE FROM document WHERE file_path {match}", (sources,))
+
+def _write_embeddings(chunks: list[RawChunk], dense_embeddings: list[list[float]], sparse_embeddings: list[dict[str,float]], prune: bool = False) -> None:
+    """Write chunks, replacing each written document's previous rows.
+
+    prune=True also deletes every indexed document that is not in `chunks`; only
+    a full-corpus run (the pipeline) may ask for that, or it would wipe the index.
+    """
     doc_chunks: dict[str, list[dict[str,list|RawChunk]]] = defaultdict(list)
 
     # Group chunks, dense and sparse embeddings together using source document as key
@@ -223,6 +253,13 @@ def _write_embeddings(chunks: list[RawChunk], dense_embeddings: list[list[float]
             validate_tables(cursor=cursor)
             heading_cache = {}
 
+            # in one transaction: optionally drop documents no longer collected (e.g.
+            # newly excluded dirs), then replace each written document's chunks/headings
+            sources = list(doc_chunks)
+            if prune:
+                _clear_sources(cursor, sources, keep=True)
+            _clear_sources(cursor, sources, keep=False)
+
             # insert document into table
             for doc in doc_chunks:
                 doc_id = insert_document(cursor=cursor, version=1, hash=b"", file_path=doc)
@@ -231,7 +268,7 @@ def _write_embeddings(chunks: list[RawChunk], dense_embeddings: list[list[float]
 
             connection.commit()                                
 
-def embed_and_index(chunks: list[RawChunk]) -> None:  # pragma: no cover - integration
+def embed_and_index(chunks: list[RawChunk], prune: bool = False) -> None:  # pragma: no cover - integration
     if not chunks:
         return
 
@@ -244,7 +281,7 @@ def embed_and_index(chunks: list[RawChunk]) -> None:  # pragma: no cover - integ
             else [{} for _ in chunks]
         )
     
-    _write_embeddings(chunks=chunks, dense_embeddings=dense_embeddings, sparse_embeddings=sparse_embeddings)
+    _write_embeddings(chunks=chunks, dense_embeddings=dense_embeddings, sparse_embeddings=sparse_embeddings, prune=prune)
 
 def populate_alarms(alarms_json: dict) -> None:
     settings = get_settings()

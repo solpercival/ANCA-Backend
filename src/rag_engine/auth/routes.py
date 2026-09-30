@@ -1,8 +1,8 @@
 """
 API router for login, token refresh, logout, and the current account.
 
-Mounted under /auth. Login returns the access token in the response body and
-sets the refresh token as an HttpOnly cookie scoped to /auth, so the browser only
+Mounted under /api/v1/auth. Login returns the access token in the response body and
+sets the refresh token as an HttpOnly cookie scoped to /api/v1/auth, so the browser only
 sends it to these endpoints. The refresh and logout endpoints authenticate with
 that cookie and therefore run the check_origin CSRF guard.
 
@@ -28,10 +28,10 @@ from rag_engine.auth.schemas import (
 from rag_engine.auth.service import AuthService, TokenPair
 from rag_engine.config import get_settings
 
-router = APIRouter(prefix="/auth", tags=["auth"])
+router = APIRouter(prefix="/api/v2/auth", tags=["auth"])
 
 REFRESH_COOKIE = "refresh_token"
-REFRESH_COOKIE_PATH = "/auth"
+REFRESH_COOKIE_PATH = "/api/v2/auth"
 
 
 def _token_response(response: Response, pair: TokenPair) -> TokenResponse:

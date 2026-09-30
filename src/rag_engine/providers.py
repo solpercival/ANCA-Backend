@@ -11,12 +11,42 @@ Onboarding note:
 from __future__ import annotations
 
 import json
+import logging
+import re
 from typing import Any
 
 import httpx
 
 from rag_engine.config import get_settings
 from rag_engine.stores.search import PostgresDBConnection
+
+log = logging.getLogger("rag_engine.providers")
+
+_THINK_SPAN = re.compile(r"<think>.*?(?:</think>|$)", re.DOTALL)
+
+
+def _log_generate_stats(final: dict) -> None:
+    """Split Ollama's generation time into prompt reading and answer writing.
+
+    The last streamed message carries token counts and nanosecond durations;
+    low output tok/s points at GPU placement, a big prompt_secs at context size.
+    """
+    def secs(key: str) -> float:
+        return (final.get(key) or 0) / 1e9
+
+    def rate(count_key: str, duration_key: str) -> float:
+        d = secs(duration_key)
+        return (final.get(count_key) or 0) / d if d else 0.0
+
+    log.info(
+        "generate_stats prompt_tokens=%s prompt_secs=%.2f prompt_tok_s=%.0f "
+        "output_tokens=%s output_secs=%.2f output_tok_s=%.1f load_secs=%.2f "
+        "total_secs=%.2f done_reason=%s",
+        final.get("prompt_eval_count"), secs("prompt_eval_duration"),
+        rate("prompt_eval_count", "prompt_eval_duration"),
+        final.get("eval_count"), secs("eval_duration"), rate("eval_count", "eval_duration"),
+        secs("load_duration"), secs("total_duration"), final.get("done_reason"),
+    )
 
 
 def get_lexical_backend() -> Any:
@@ -54,7 +84,16 @@ class OllamaEmbedder:
         settings = get_settings()
         response = await self._client.post(
             f"{settings.ollama_base_url.rstrip('/')}/api/embed",
-            json={"model": settings.embedding_model, "input": texts},
+            json={
+                "model": settings.embedding_model,
+                "input": texts,
+                # small context and (by default) CPU placement keep the query embedder
+                # off the GPU budget, so the generator and the reranker fit on one card
+                "options": {
+                    "num_ctx": settings.embedding_num_ctx,
+                    "num_gpu": settings.embedding_num_gpu,
+                },
+            },
         )
 
         response.raise_for_status()
@@ -118,6 +157,9 @@ class OllamaGenerator:
                 "model": settings.llm_model,
                 "prompt": prompt,
                 "stream": True,
+                # skip qwen3's hidden reasoning trace, which otherwise burns num_predict
+                # tokens before any answer text is produced
+                "think": False,
                 "options": {"num_predict": settings.llm_num_predict},
             },
         ) as response:
@@ -128,8 +170,11 @@ class OllamaGenerator:
                 payload = json.loads(line)
                 chunks.append(payload.get("response", ""))
                 if payload.get("done"):
+                    _log_generate_stats(payload)
                     break
-        return "".join(chunks)
+        # older Ollama versions ignore "think" and inline the trace; drop it, including
+        # an unclosed span left when num_predict cuts generation off mid-thought
+        return _THINK_SPAN.sub("", "".join(chunks)).strip()
 
 class OllamaRewriteGenerator:
     def __init__(self, client: httpx.AsyncClient):

@@ -1,4 +1,6 @@
 """HTTP surface: health, resolve-by-code, and conversational chat."""
+import asyncio
+
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 
@@ -15,7 +17,7 @@ from rag_engine.auth.tiers import Principal, can_view_likely_causes, can_use_cha
 from rag_engine.config import get_settings
 from rag_engine.orchestrator import Orchestrator, get_orchestrator
 
-router = APIRouter()
+router = APIRouter(prefix="/api/v2", tags=["api"])
 settings = get_settings()
 resolve_rate_limit = rate_limit_dependency(
     "resolve", "resolve_rate_limit_per_ip", "resolve_rate_limit_per_tier"
@@ -37,6 +39,12 @@ def get_orchestrator_from_request(request: Request):
     return orch
 
 
+def _ping_postgres(pool) -> bool:
+    # bounded wait so an exhausted pool or unreachable DB fails the check instead of hanging
+    with pool.connection(timeout=3.0) as conn:
+        return conn.execute("SELECT 1").fetchone() is not None
+
+
 @router.get("/health", tags=["ops"])
 async def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -50,12 +58,11 @@ async def ready(request: Request) -> dict[str, object]:
         "model_server": False,
     }
 
+    # Postgres: the pool is sync (psycopg_pool.ConnectionPool), so probe it off the event loop
     pg_pool = getattr(request.app.state, "pg_pool", None)
     if pg_pool is not None:
         try:
-            async with pg_pool.connection() as conn:
-                await conn.execute("SELECT 1")
-            checks["postgres"] = True
+            checks["postgres"] = await asyncio.to_thread(_ping_postgres, pg_pool)
         except Exception:
             checks["postgres"] = False
 
@@ -66,7 +73,7 @@ async def ready(request: Request) -> dict[str, object]:
             checks["redis"] = await redis_client.ping()
         except Exception:
             checks["redis"] = False
-    
+
     # Model server (Ollama/OpenAI-compatible endpoint)
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
@@ -84,7 +91,7 @@ async def ready(request: Request) -> dict[str, object]:
     )
 
 
-@router.post("/api/v1/resolve", response_model=ResolveResponse, tags=["resolve"])
+@router.post("/resolve", response_model=ResolveResponse, tags=["resolve"])
 async def resolve(
     req: ResolveRequest,
     principal: Principal = Depends(current_principal),
@@ -100,7 +107,7 @@ async def resolve(
     return resp
 
 
-@router.post("/api/v1/chat", response_model=ChatResponse, tags=["chat"])
+@router.post("/chat", response_model=ChatResponse, tags=["chat"])
 async def chat(
     req: ChatRequest,
     principal: Principal = Depends(require(can_use_chat)),

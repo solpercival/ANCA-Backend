@@ -55,6 +55,83 @@ def test_dense_embedding_backend_factory_returns_expected_provider(monkeypatch, 
     assert isinstance(backend, expected_type)
 
 
+@pytest.mark.parametrize(("env", "expected"), [(None, 1024), ("512", 512)])
+def test_ollama_embedder_sends_small_num_ctx(monkeypatch, env, expected):
+    # Ollama's default 4096 ctx made the embedder hold ~2.4 GB of VRAM
+    import json
+
+    if env:
+        monkeypatch.setenv("EMBEDDING_NUM_CTX", env)
+    else:
+        monkeypatch.delenv("EMBEDDING_NUM_CTX", raising=False)
+    sent = {}
+
+    def handler(request):
+        sent.update(json.loads(request.content))
+        return httpx.Response(200, json={"embeddings": [[0.1, 0.2]]})
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await OllamaEmbedder(client).dense_embed(["query"])
+
+    assert asyncio.run(run()) == [[0.1, 0.2]]
+    assert sent["options"]["num_ctx"] == expected
+    assert sent["input"] == ["query"]
+
+
+def test_ollama_generator_logs_prompt_and_output_timing(caplog):
+    import json
+
+    lines = [
+        {"response": "COVERAGE: partial\n", "done": False},
+        {"response": "Check the cable.", "done": False},
+        {
+            "response": "", "done": True, "done_reason": "length",
+            "prompt_eval_count": 3000, "prompt_eval_duration": 2_000_000_000,
+            "eval_count": 180, "eval_duration": 6_000_000_000,
+            "load_duration": 50_000_000, "total_duration": 8_100_000_000,
+        },
+    ]
+    body = "\n".join(json.dumps(x) for x in lines)
+
+    async def run():
+        transport = httpx.MockTransport(lambda request: httpx.Response(200, text=body))
+        async with httpx.AsyncClient(transport=transport) as client:
+            return await OllamaGenerator(client).generate("prompt")
+
+    with caplog.at_level("INFO", logger="rag_engine.providers"):
+        reply = asyncio.run(run())
+
+    assert reply == "COVERAGE: partial\nCheck the cable."
+    stats = next(r.getMessage() for r in caplog.records if "generate_stats" in r.getMessage())
+    assert "prompt_tokens=3000 prompt_secs=2.00 prompt_tok_s=1500" in stats
+    assert "output_tokens=180 output_secs=6.00 output_tok_s=30.0" in stats
+    assert "done_reason=length" in stats
+
+
+@pytest.mark.parametrize(("env", "expected"), [(None, 0), ("99", 99)])
+def test_ollama_query_embedder_defaults_to_cpu(monkeypatch, env, expected):
+    # num_gpu=0 keeps the query embedder off the 6 GB GPU budget
+    import json
+
+    if env:
+        monkeypatch.setenv("EMBEDDING_NUM_GPU", env)
+    else:
+        monkeypatch.delenv("EMBEDDING_NUM_GPU", raising=False)
+    sent = {}
+
+    def handler(request):
+        sent.update(json.loads(request.content))
+        return httpx.Response(200, json={"embeddings": [[0.1]]})
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            await OllamaEmbedder(client).dense_embed(["query"])
+
+    asyncio.run(run())
+    assert sent["options"]["num_gpu"] == expected
+
+
 def test_anthropic_embedding_provider_fails_at_factory(monkeypatch):
     monkeypatch.setenv("DENSE_EMBEDDING_PROVIDER", "anthropic")
 
@@ -138,7 +215,7 @@ def test_hybrid_retriever_uses_dense_and_lexical_lists(monkeypatch):
             ]
 
     class FakeLexical:
-        async def lexical_search(self, query, top_k):
+        async def lexical_search(self, query, top_k, where=None):
             return [
                 Chunk(chunk_id="v1", text="dense_result", source="manual.md"),
                 Chunk(chunk_id="l1", text="lexical_result", source="faq.md"),

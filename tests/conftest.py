@@ -7,6 +7,7 @@ from rag_engine.main import app
 from rag_engine.orchestrator import Orchestrator, get_orchestrator
 from rag_engine.retrieval.hybrid import HybridRetriever
 from rag_engine.retrieval.interfaces import Chunk
+from tests.fakes import FakeAlarmStore
 
 
 class FakeRateLimitBackend:
@@ -32,7 +33,11 @@ class FakeSparseEmbedder:
 
 class FakeVectorStore:
     async def semantic_search(self, vector, top_k, where=None):
-        return [Chunk(chunk_id="v1", text="Reset the drive.", source="manual.md")]
+        return [Chunk(
+            chunk_id="v1",
+            text="Reset the drive. A loose EtherCAT cable causes the drive to fault.",
+            source="manual.md",
+        )]
 
 
 class FakeLexical:
@@ -47,7 +52,12 @@ class FakeReranker:
 
 class FakeGenerator:
     async def generate(self, prompt):
-        return "Try step 1, then step 2."
+        # uncited CAUSE: the fake can't know chunk order, so it's matched against all
+        return (
+            "COVERAGE: partial\n"
+            "Try step 1, then step 2.\n"
+            "CAUSE: A loose EtherCAT cable causes the drive to fault."
+        )
 
 class FakePreprocessor():
     async def process_prompt(self, raw_query, conversation_id):
@@ -60,7 +70,7 @@ def _fake_orchestrator() -> Orchestrator:
     retriever = HybridRetriever(
         FakeDenseEmbedder(), FakeSparseEmbedder(), FakeVectorStore(), FakeLexical()
     )
-    return Orchestrator(FakePreprocessor(), retriever, FakeReranker(), FakeGenerator())
+    return Orchestrator(FakePreprocessor(), retriever, FakeReranker(), FakeGenerator(), FakeAlarmStore())
 
 
 @pytest.fixture
