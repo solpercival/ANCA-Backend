@@ -1,4 +1,4 @@
-.PHONY: install lint test up down build migrate migrate-down migrate-status ingest seed-alarms models eval fmt smoke bootstrap restart retest
+.PHONY: install lint test bench up up-full down build migrate migrate-down migrate-status db-reset revision ingest seed-alarms models eval fmt smoke bootstrap restart retest
 VENV=.venv/bin
 # Reserves the GPU for Ollama when an NVIDIA GPU is present; plain CPU compose otherwise.
 COMPOSE := docker compose $(shell command -v nvidia-smi >/dev/null 2>&1 && echo -f docker-compose.yml -f docker-compose.gpu.yml)
@@ -35,14 +35,25 @@ models:        ## start Ollama and download the local models
 down:
 	$(COMPOSE) down
 
-build:          ## rebuild the orchestrator + ingestion images
-	$(COMPOSE) build orchestrator ingestion
+build:          ## rebuild the orchestrator + migrate + ingestion images
+	$(COMPOSE) build orchestrator migrate ingestion
 
 migrate:        ## apply schema migrations (alembic upgrade head) in the migrate container
 	$(COMPOSE) run --rm --build migrate
 
 migrate-down:   ## roll back ONE migration (alembic downgrade -1)
 	$(COMPOSE) run --rm --build migrate alembic downgrade -1
+
+# The orchestrator's pooled connections cache the vector type's OID, which the reset
+# recreates (downgrade drops the extension), so stop it; it reconnects fresh on restart.
+db-reset:       ## DESTRUCTIVE: drop the whole schema and rebuild it empty (then: make ingest && make restart)
+	$(COMPOSE) stop orchestrator
+	$(COMPOSE) run --rm --build migrate sh -c "alembic downgrade base && alembic upgrade head"
+	@echo "Schema rebuilt empty. Next: make ingest && make restart"
+
+revision:       ## new empty migration: make revision m="add response.rating"
+	@test -n "$(m)" || { echo 'usage: make revision m="short description"'; exit 1; }
+	$(VENV)/alembic revision -m "$(m)"
 
 migrate-status: ## show the current revision and the history
 	$(COMPOSE) run --rm --build migrate sh -c "alembic current && alembic history"

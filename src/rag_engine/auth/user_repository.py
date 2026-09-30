@@ -17,11 +17,11 @@ _USER_SELECT = """
 
 
 def ensure_auth_schema() -> None:
-    """Bring an already-initialized database in line with scripts/init_pgvector.sql.
+    """Bring an older database's auth tables in line with migration 0001.
 
-    That script only runs on a fresh Postgres volume, so a database created
-    before these columns/rows existed needs them applied here instead. Safe to
-    call on every startup.
+    Databases created before users.is_active / the username index / the role
+    seed rows existed need them applied; the same objects are in
+    migrations/versions/0001_initial_schema.py. Safe to call on every startup.
     """
     with get_db_conn() as conn:
         conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE")

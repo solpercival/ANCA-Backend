@@ -75,8 +75,8 @@ make ingest           # applies migrations, then writes pgvector rows
 ### Database migrations
 
 The schema is versioned with [Alembic](https://alembic.sqlalchemy.org/) in
-`migrations/`. Tables are created **only** by migrations: ingestion no longer
-creates tables at runtime, and Postgres no longer runs an init script.
+`migrations/`. The migrations are the only schema definition: there is no SQL
+init script, and ingestion doesn't create tables at runtime.
 `migrations/env.py` reads the database URL from the app settings
 (`POSTGRES_*` in `.env`), so there is no URL to configure.
 
@@ -87,7 +87,14 @@ one-shot `migrate` compose service. To run them yourself:
 make migrate          # alembic upgrade head
 make migrate-status   # current revision + history
 make migrate-down     # roll back one revision (alembic downgrade -1)
+make db-reset         # drop everything and rebuild empty (downgrade base + upgrade head)
 ```
+
+`make db-reset` deletes all data (ingested chunks, users, the alarm catalogue) and
+stops the orchestrator; run `make ingest && make restart` afterwards. New
+revisions: `make revision m="short description"`. Don't reset by dropping tables by hand: that
+leaves Alembic's `alembic_version` row behind, and `upgrade head` then creates
+nothing.
 
 From the host venv instead of Docker, point it at the published port:
 
@@ -99,15 +106,15 @@ POSTGRES_HOST=localhost .venv/bin/alembic upgrade head --sql   # print SQL, don'
 ```
 
 **Changing the schema:** add a new revision rather than editing an existing
-one. `revision 0001` is a copy of the original `scripts/init_pgvector.sql` and must
-stay that way.
+one. Revision `0001` is a copy of the former `scripts/init_pgvector.sql` init
+script (still in git history) and must stay that way.
 
 ```bash
 .venv/bin/alembic revision -m "add response.rating"   # then write upgrade()/downgrade()
 ```
 
-**Existing databases** created by the old `init_pgvector.sql` already have the
-0001 schema. Mark them as migrated once, instead of upgrading:
+**Existing databases** created by the old init script already have the 0001
+schema. Mark them as migrated once, instead of upgrading:
 
 ```bash
 make migrate-status                                         # "current" is empty

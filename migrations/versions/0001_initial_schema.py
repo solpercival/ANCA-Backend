@@ -1,12 +1,13 @@
-"""initial schema: lift-and-shift of scripts/init_pgvector.sql
+"""initial schema: lift-and-shift of the former docker init script
 
-A statement-for-statement copy of scripts/init_pgvector.sql as of this revision,
-so a database built by migrations is identical to one built by the old docker
-init script. Nothing is redesigned or "fixed" here (including the keyword_lookup
+A statement-for-statement copy of scripts/init_pgvector.sql, the docker-entrypoint
+init script this revision replaced (removed afterwards; see git history). A
+pg_dump --schema-only of a database built by this revision matched one built by
+that script. Nothing is redesigned or "fixed" here (including the keyword_lookup
 statements that lack IF NOT EXISTS); schema changes belong in later revisions.
 
-An existing database that was created by init_pgvector.sql already has this
-schema: mark it as migrated with `alembic stamp 0001` rather than upgrading.
+A database created by the old init script already has this schema: mark it as
+migrated with `alembic stamp 0001` rather than upgrading.
 
 Revision ID: 0001
 Revises:
