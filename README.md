@@ -59,6 +59,10 @@ make up               # orchestrator + PostgreSQL(pgvector) + redis + Ollama
 # open http://localhost:8080/docs  (OpenAPI / Swagger)
 ```
 
+`.env` is for local development and is gitignored. Keep real credentials out of
+commits, logs, and container images. Do not use this file as a production
+secrets mechanism.
+
 Download the local Ollama models after the stack is running:
 
 ```bash
@@ -95,8 +99,30 @@ make up-full
   pytest, and an image build. It never loads a model — model-backed code sits
   behind `Protocol` interfaces and is faked in tests, which is what keeps CI
   free of GPUs.
-- **`eval.yml`** is **disabled** until a self-hosted GPU runner exists. It loads
-  the real models and scores the engine against `docs/reference-answers.json`.
+- **`rag-eval.yml`** reads `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` from
+  GitHub Actions Secrets. It also reads `LANGFUSE_HOST` from a secret, falling
+  back to `http://localhost:3000`. `LANGFUSE_PUBLIC_KEY` is not sensitive by
+  design (it is intended to be embeddable client-side), but this workflow gets
+  it from Secrets alongside `LANGFUSE_SECRET_KEY`. Use GitHub Actions Secrets
+  for credentials needed by future workflows; do not hard-code them.
+
+## Secrets
+
+The application loads settings from environment variables and `.env` for local
+development. Secret-bearing settings include `JWT_SECRET`, `POSTGRES_PASSWORD`,
+`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `HF_TOKEN`, and `LANGFUSE_SECRET_KEY`.
+`LANGFUSE_PUBLIC_KEY` is used to identify the Langfuse project; unlike the
+secret key, it is not sensitive by design. Other settings such as
+`LANGFUSE_HOST` are configuration, not credentials.
+
+For production, inject these values into the running service from a managed
+secrets store (for example, Vault) or another platform-native option selected
+by the team. This repository does not currently implement production deployment
+or secret retrieval. Outside local development, `JWT_SECRET` must be a random
+value of at least 32 characters; configuration validation rejects the local
+placeholder and shorter values. `POSTGRES_PASSWORD` still has a weak runtime
+default and no equivalent non-local validation, so production must explicitly
+override it; adding a fail-fast check remains a follow-up.
 
 ## Cloning (submodule!)
 
