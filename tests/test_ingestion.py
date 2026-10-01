@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 import ingestion.indexers as indexers
 from ingestion.chunker import chunk_markdown, RawChunk
-from ingestion.pipeline import collect_markdown
+from ingestion.pipeline import collect_markdown, hash_file
 from rag_engine.config import get_settings
 import psycopg
 from pgvector.psycopg import register_vector
@@ -515,6 +515,28 @@ def test_duplicate_document_insert():
             assert(res[0]["current_version"] == fake_version)
             assert(res[0]["hash"].decode('utf-8') == fake_hash)
             assert(res[0]["file_path"] == fake_fp)
+
+
+@pytest.mark.integration
+def test_write_embeddings_stores_document_hash(tmp_path):
+    settings = get_settings()
+    path = tmp_path / "hashed.md"
+    path.write_bytes(b"# title\n")
+    source = str(path)
+    digest = hash_file(path)
+    chunks = [RawChunk(text="# title\n", source=source, headers={"h1": "title"}, kind="text")]
+    dense = [[0.1] * settings.semantic_dim]
+
+    indexers._write_embeddings(chunks, dense, [{}], document_hashes={source: digest})
+
+    with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
+        with connection.cursor() as cursor:
+            row = cursor.execute(
+                "SELECT hash FROM document WHERE file_path = %s",
+                (source,),
+            ).fetchone()
+
+    assert row["hash"].decode("utf-8") == digest
 
 
 @pytest.mark.integration

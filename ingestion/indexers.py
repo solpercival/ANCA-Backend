@@ -2,7 +2,8 @@
 
 - embed_and_index: embed chunks (Ollama dense, TEI sparse when EMBEDDING_SETUP=dual)
   and write document / heading / document_chunks rows, replacing each document's
-  previous rows in one transaction.
+  previous rows in one transaction. document.hash stores the file's SHA-256 hex
+  digest when the caller supplies one.
 - populate_alarms: upsert the alarm catalogue (alarm_module, alarm_code).
 - populate_keyword_table: rebuild keyword_lookup, the domain-term index used by
   query rewriting.
@@ -181,11 +182,19 @@ def _clear_sources(cursor, sources: list[str], keep: bool) -> None:
     if keep:
         cursor.execute(f"DELETE FROM document WHERE file_path {match}", (sources,))
 
-def _write_embeddings(chunks: list[RawChunk], dense_embeddings: list[list[float]], sparse_embeddings: list[dict[str,float]], prune: bool = False) -> None:
+def _write_embeddings(
+    chunks: list[RawChunk],
+    dense_embeddings: list[list[float]],
+    sparse_embeddings: list[dict[str, float]],
+    prune: bool = False,
+    document_hashes: dict[str, str] | None = None,
+) -> None:
     """Write chunks, replacing each written document's previous rows.
 
     prune=True also deletes every indexed document that is not in `chunks`; only
     a full-corpus run (the pipeline) may ask for that, or it would wipe the index.
+    document_hashes maps each chunk source path to the file's SHA-256 hex digest,
+    stored on document.hash. Callers that omit it leave the hash empty.
     """
     doc_chunks: dict[str, list[dict[str,list|RawChunk]]] = defaultdict(list)
 
@@ -209,17 +218,23 @@ def _write_embeddings(chunks: list[RawChunk], dense_embeddings: list[list[float]
 
             # insert document into table
             for doc in doc_chunks:
-                doc_id = insert_document(cursor=cursor, version=1, hash=b"", file_path=doc)
+                digest = document_hashes[doc] if document_hashes is not None else b""
+                doc_id = insert_document(cursor=cursor, version=1, hash=digest, file_path=doc)
                 for chunk_group in doc_chunks[doc]:
                     insert_chunk(cursor=cursor, data=chunk_group, doc_id=doc_id, heading_cache=heading_cache)
 
             connection.commit()                                
 
-def embed_and_index(chunks: list[RawChunk], prune: bool = False) -> None:  # pragma: no cover - integration
+def embed_and_index(
+    chunks: list[RawChunk],
+    prune: bool = False,
+    document_hashes: dict[str, str] | None = None,
+) -> None:  # pragma: no cover - integration
     """Embed `chunks` and write them, replacing their documents' existing rows.
 
     prune=True also deletes every document not present in `chunks`; only a
-    full-corpus run (ingestion.pipeline) may pass it.
+    full-corpus run (ingestion.pipeline) may pass it. document_hashes, when
+    given, is stored on each document row as its SHA-256 hex digest.
     """
     if not chunks:
         return
@@ -233,7 +248,13 @@ def embed_and_index(chunks: list[RawChunk], prune: bool = False) -> None:  # pra
             else [{} for _ in chunks]
         )
     
-    _write_embeddings(chunks=chunks, dense_embeddings=dense_embeddings, sparse_embeddings=sparse_embeddings, prune=prune)
+    _write_embeddings(
+        chunks=chunks,
+        dense_embeddings=dense_embeddings,
+        sparse_embeddings=sparse_embeddings,
+        prune=prune,
+        document_hashes=document_hashes,
+    )
 
 def populate_alarms(alarms_json: dict) -> None:
     """Upsert the alarm catalogue from an alarms file (see ingestion/seed_alarms.py).

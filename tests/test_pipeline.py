@@ -1,7 +1,7 @@
 """Which markdown files ingestion indexes."""
 from pathlib import Path
 
-from ingestion.pipeline import EXCLUDED_DIRS, hash_file, iter_markdown_files
+from ingestion.pipeline import EXCLUDED_DIRS, hash_file, hash_markdown_files, iter_markdown_files
 
 
 def _touch(root, rel):
@@ -55,6 +55,24 @@ def test_hash_file_changes_when_one_byte_changes(tmp_path):
 
     assert hash_file(path) == "e62b7fceab05e0b1b3092f9a214f1f3c836d64126880474f4dfe395c5f32d55a"
     assert hash_file(path) != original
+
+
+def test_hash_markdown_files_maps_sources_and_skips_excluded_dirs(tmp_path):
+    kept = tmp_path / "guide.md"
+    other = tmp_path / "nested" / "other.md"
+    skipped = tmp_path / "mock-api" / "skip.md"
+    kept.write_bytes(b"# title\n")
+    other.parent.mkdir()
+    other.write_bytes(b"# other\n")
+    skipped.parent.mkdir()
+    skipped.write_bytes(b"# skip\n")
+
+    hashes = hash_markdown_files(tmp_path)
+
+    assert hashes == {
+        str(kept): "497c96e612373c14de69c0cbd79e8c6b870cc73ae6da4037f1a1e0c58bcc9315",
+        str(other): hash_file(other),
+    }
 
 
 def test_real_corpus_keeps_the_emcy_doc_and_drops_mock_api():

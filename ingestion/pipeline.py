@@ -4,9 +4,10 @@ Run offline (make ingest / scheduled job / on docs-submodule bump), not in the
 serving path. Model-backed embedding is imported lazily.
 
 Order of a full run: seed the alarm catalogue, chunk + embed every markdown file
-(replacing each document's previous rows and pruning documents that disappeared),
-then rebuild the keyword lookup table used by query rewriting. The tables must
-already exist: `make ingest` applies the Alembic migrations first.
+(replacing each document's previous rows, storing that file's SHA-256 hex digest
+on document.hash, and pruning documents that disappeared), then rebuild the
+keyword lookup table used by query rewriting. The tables must already exist:
+`make ingest` applies the Alembic migrations first.
 """
 from __future__ import annotations
 
@@ -41,6 +42,11 @@ def hash_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def hash_markdown_files(docs_dir: Path) -> dict[str, str]:
+    """SHA-256 hex digest of each collected markdown file, keyed by chunk source path."""
+    return {str(path): hash_file(path) for path in iter_markdown_files(docs_dir)}
+
+
 def collect_markdown(docs_dir: Path) -> list[RawChunk]:
     """Chunk every collected markdown file; each chunk's source is its file path."""
     # lazy: the chunker pulls in the tokenizer stack
@@ -54,14 +60,16 @@ def collect_markdown(docs_dir: Path) -> list[RawChunk]:
 
 def run(docs_dir: str = "docs") -> int:  # pragma: no cover - integration
     """Full ingestion of docs_dir; returns the number of chunks indexed."""
-    chunks = collect_markdown(Path(docs_dir))
+    docs_path = Path(docs_dir)
+    chunks = collect_markdown(docs_path)
+    document_hashes = hash_markdown_files(docs_path)
     # Lazy import keeps hosted CI free of torch.
     from ingestion.indexers import embed_and_index, populate_keyword_table
     from ingestion.seed_alarms import seed
 
     seed()
     # full corpus: prune removes documents that are no longer collected
-    embed_and_index(chunks, prune=True)
+    embed_and_index(chunks, prune=True, document_hashes=document_hashes)
     populate_keyword_table()  # DROP this line + the import if v2 no longer defines it
     return len(chunks)
 
