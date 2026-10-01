@@ -4,6 +4,8 @@
   and write document / heading / document_chunks rows, replacing each document's
   previous rows in one transaction. document.hash stores the file's SHA-256 hex
   digest when the caller supplies one.
+  prune deletes documents missing from keep_paths; files skipped
+  because their hash matched stay in that list so their chunks are kept.
 - populate_alarms: upsert the alarm catalogue (alarm_module, alarm_code).
 - populate_keyword_table: rebuild keyword_lookup, the domain-term index used by
   query rewriting.
@@ -75,6 +77,31 @@ def _sparse_embed(chunks: list[RawChunk], client: httpx.Client) -> list[dict[str
     ).raise_for_status().json()
     
     return [{int(entry["index"]): float(entry["value"]) for entry in sparse_chunk} for sparse_chunk in sparse_vecs]
+
+def _document_hash_text(value: object) -> str:
+    """Decode document.hash to the hex digest string, or "" when it is empty."""
+    if isinstance(value, memoryview):
+        value = value.tobytes()
+    if isinstance(value, bytearray):
+        value = bytes(value)
+    if isinstance(value, bytes):
+        try:
+            return value.decode("utf-8")
+        except UnicodeDecodeError:
+            return ""
+    if value is None:
+        return ""
+    return str(value)
+
+
+def load_document_hashes() -> dict[str, str]:
+    """file_path -> document.hash, decoded the same way ingestion compares it."""
+    settings = get_settings()
+    with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
+        with connection.cursor() as cursor:
+            rows = cursor.execute("SELECT file_path, hash FROM document").fetchall()
+    return {row["file_path"]: _document_hash_text(row["hash"]) for row in rows}
+
 
 def insert_document(cursor, version: str, hash: str, file_path: str) -> int:
     """Upsert a document row by file_path and return its doc_id."""
@@ -182,18 +209,34 @@ def _clear_sources(cursor, sources: list[str], keep: bool) -> None:
     if keep:
         cursor.execute(f"DELETE FROM document WHERE file_path {match}", (sources,))
 
+def prune_documents(keep_paths: list[str]) -> None:
+    """Delete indexed documents whose file_path is not in keep_paths.
+
+    keep_paths is every markdown file still on disk. Unchanged files belong in
+    that list so their document, heading, and chunk rows stay.
+    """
+    settings = get_settings()
+    with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
+        with connection.cursor() as cursor:
+            _clear_sources(cursor, keep_paths, keep=True)
+            connection.commit()
+
+
 def _write_embeddings(
     chunks: list[RawChunk],
     dense_embeddings: list[list[float]],
     sparse_embeddings: list[dict[str, float]],
     prune: bool = False,
     document_hashes: dict[str, str] | None = None,
+    keep_paths: list[str] | None = None,
 ) -> None:
     """Write chunks, replacing each written document's previous rows.
 
-    prune=True also deletes every indexed document that is not in `chunks`; only
-    a full-corpus run (the pipeline) may ask for that, or it would wipe the index.
-    document_hashes maps each chunk source path to the file's SHA-256 hex digest,
+    prune=True deletes indexed documents whose file_path is outside keep_paths.
+    keep_paths defaults to the documents being written. A full-corpus run passes
+    every file still on disk, including files skipped because their hash matched,
+    so those rows and chunks are kept. Only a full-corpus run may prune.
+    document_hashes maps each written source path to the file's SHA-256 hex digest,
     stored on document.hash. Callers that omit it leave the hash empty.
     """
     doc_chunks: dict[str, list[dict[str,list|RawChunk]]] = defaultdict(list)
@@ -213,7 +256,9 @@ def _write_embeddings(
             # newly excluded dirs), then replace each written document's chunks/headings
             sources = list(doc_chunks)
             if prune:
-                _clear_sources(cursor, sources, keep=True)
+                # files still on disk, not merely the files being rewritten
+                retained = sources if keep_paths is None else keep_paths
+                _clear_sources(cursor, retained, keep=True)
             _clear_sources(cursor, sources, keep=False)
 
             # insert document into table
@@ -229,12 +274,13 @@ def embed_and_index(
     chunks: list[RawChunk],
     prune: bool = False,
     document_hashes: dict[str, str] | None = None,
+    keep_paths: list[str] | None = None,
 ) -> None:  # pragma: no cover - integration
     """Embed `chunks` and write them, replacing their documents' existing rows.
 
-    prune=True also deletes every document not present in `chunks`; only a
-    full-corpus run (ingestion.pipeline) may pass it. document_hashes, when
-    given, is stored on each document row as its SHA-256 hex digest.
+    prune=True deletes documents missing from keep_paths. The pipeline passes
+    every file still on disk so unchanged documents are kept. document_hashes,
+    when given, is stored on each written document row as its SHA-256 hex digest.
     """
     if not chunks:
         return
@@ -254,6 +300,7 @@ def embed_and_index(
         sparse_embeddings=sparse_embeddings,
         prune=prune,
         document_hashes=document_hashes,
+        keep_paths=keep_paths,
     )
 
 def populate_alarms(alarms_json: dict) -> None:

@@ -1,7 +1,14 @@
 """Which markdown files ingestion indexes."""
 from pathlib import Path
 
-from ingestion.pipeline import EXCLUDED_DIRS, hash_file, hash_markdown_files, iter_markdown_files
+from ingestion.pipeline import (
+    EXCLUDED_DIRS,
+    changed_document_hashes,
+    collect_markdown,
+    hash_file,
+    hash_markdown_files,
+    iter_markdown_files,
+)
 
 
 def _touch(root, rel):
@@ -73,6 +80,42 @@ def test_hash_markdown_files_maps_sources_and_skips_excluded_dirs(tmp_path):
         str(kept): "497c96e612373c14de69c0cbd79e8c6b870cc73ae6da4037f1a1e0c58bcc9315",
         str(other): hash_file(other),
     }
+
+
+def test_changed_document_hashes_selects_missing_empty_and_different():
+    current = {
+        "same.md": "aaa",
+        "edited.md": "bbb",
+        "new.md": "ccc",
+        "blank.md": "ddd",
+    }
+    stored = {
+        "same.md": "aaa",
+        "edited.md": "old",
+        "blank.md": "",
+        "gone.md": "zzz",
+    }
+
+    assert changed_document_hashes(current, stored) == {
+        "edited.md": "bbb",
+        "new.md": "ccc",
+        "blank.md": "ddd",
+    }
+
+
+def test_collect_markdown_skips_sources_that_are_not_requested(tmp_path):
+    docs = tmp_path / "docs"
+    changed = docs / "changed.md"
+    same = docs / "nested" / "same.md"
+    changed.parent.mkdir()
+    same.parent.mkdir(parents=True)
+    changed.write_text("# Changed\nnew\n", encoding="utf-8")
+    same.write_text("# Same\nold\n", encoding="utf-8")
+
+    chunks = collect_markdown(docs, {str(changed)})
+
+    assert chunks
+    assert {chunk.source for chunk in chunks} == {str(changed)}
 
 
 def test_real_corpus_keeps_the_emcy_doc_and_drops_mock_api():

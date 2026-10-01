@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 import ingestion.indexers as indexers
 from ingestion.chunker import chunk_markdown, RawChunk
-from ingestion.pipeline import collect_markdown, hash_file
+from ingestion.pipeline import changed_document_hashes, collect_markdown, hash_file
 from rag_engine.config import get_settings
 import psycopg
 from pgvector.psycopg import register_vector
@@ -15,6 +15,14 @@ from pgvector import SparseVector
 from psycopg.rows import dict_row
 import httpx
 import hashlib
+
+def test_document_hash_text_decodes_stored_bytes():
+    assert indexers._document_hash_text(b"abc") == "abc"
+    assert indexers._document_hash_text(b"") == ""
+    assert indexers._document_hash_text(memoryview(b"abc")) == "abc"
+    assert indexers._document_hash_text(None) == ""
+    assert indexers._document_hash_text(b"\xff") == ""
+
 
 def test_chunk_markdown_splits_on_headers_and_keeps_content():
     markdown = """# Intro
@@ -537,6 +545,96 @@ def test_write_embeddings_stores_document_hash(tmp_path):
             ).fetchone()
 
     assert row["hash"].decode("utf-8") == digest
+
+
+@pytest.mark.integration
+def test_matching_hash_is_left_out_of_reingest(tmp_path):
+    settings = get_settings()
+    path = tmp_path / "stable.md"
+    path.write_bytes(b"# title\n")
+    source = str(path)
+    digest = hash_file(path)
+    chunks = [RawChunk(text="# title\n", source=source, headers={"h1": "title"}, kind="text")]
+    dense = [[0.1] * settings.semantic_dim]
+
+    indexers._write_embeddings(chunks, dense, [{}], document_hashes={source: digest})
+    stored = indexers.load_document_hashes()
+
+    assert stored[source] == digest
+    assert source not in changed_document_hashes({source: digest}, stored)
+    assert changed_document_hashes({source: "0" * 64}, stored) == {source: "0" * 64}
+
+
+@pytest.mark.integration
+def test_prune_keeps_unchanged_files_omitted_from_the_write():
+    # keep_paths must include every document that should survive. Listing only
+    # the fixture paths would prune the rest of the shared database.
+    settings = get_settings()
+    dense = [[0.1] * settings.semantic_dim]
+    unchanged = RawChunk(
+        text="leave this chunk", source="hash-keep-unchanged.md", headers={"h1": "Stay"}, kind="text"
+    )
+    removed = RawChunk(
+        text="drop this chunk", source="hash-keep-removed.md", headers={"h1": "Go"}, kind="text"
+    )
+    rewritten = RawChunk(
+        text="replace this chunk", source="hash-keep-changed.md", headers={"h1": "New"}, kind="text"
+    )
+
+    indexers._write_embeddings(
+        [unchanged], dense, [{}], document_hashes={"hash-keep-unchanged.md": "same-digest"}
+    )
+    indexers._write_embeddings(
+        [removed], dense, [{}], document_hashes={"hash-keep-removed.md": "old-digest"}
+    )
+    before = set(indexers.load_document_hashes())
+    keep_paths = [path for path in before if path != "hash-keep-removed.md"]
+    keep_paths.append("hash-keep-changed.md")
+
+    indexers._write_embeddings(
+        [rewritten],
+        dense,
+        [{}],
+        prune=True,
+        document_hashes={"hash-keep-changed.md": "new-digest"},
+        keep_paths=keep_paths,
+    )
+
+    with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
+        with connection.cursor() as cursor:
+            def chunk_count(source: str) -> int:
+                return cursor.execute(
+                    "SELECT count(*) AS n FROM document_chunks WHERE document_source = %s",
+                    (source,),
+                ).fetchone()["n"]
+
+            def stored_hash(source: str) -> str | None:
+                row = cursor.execute(
+                    "SELECT hash FROM document WHERE file_path = %s",
+                    (source,),
+                ).fetchone()
+                if row is None:
+                    return None
+                return row["hash"].decode("utf-8")
+
+            unchanged_chunks = chunk_count("hash-keep-unchanged.md")
+            removed_chunks = chunk_count("hash-keep-removed.md")
+            rewritten_chunks = chunk_count("hash-keep-changed.md")
+            unchanged_hash = stored_hash("hash-keep-unchanged.md")
+            removed_hash = stored_hash("hash-keep-removed.md")
+            rewritten_hash = stored_hash("hash-keep-changed.md")
+            after = {
+                row["file_path"]
+                for row in cursor.execute("SELECT file_path FROM document").fetchall()
+            }
+
+    assert unchanged_chunks == 1
+    assert removed_chunks == 0
+    assert rewritten_chunks == 1
+    assert unchanged_hash == "same-digest"
+    assert removed_hash is None
+    assert rewritten_hash == "new-digest"
+    assert after >= (before - {"hash-keep-removed.md"})
 
 
 @pytest.mark.integration
