@@ -96,14 +96,14 @@ make up-full
 ## CI/CD
 
 - **`ci.yml`** runs on every push/PR on **hosted runners**: ruff, pylint, mypy,
-  pytest, and an image build. It never loads a model — model-backed code sits
+  pytest, and an image build. It never loads a model. Model-backed code sits
   behind `Protocol` interfaces and is faked in tests, which is what keeps CI
   free of GPUs.
 
 ### Secrets
 
 Settings load from environment variables (`.env` locally; gitignored,
-never committed — see `.env.example` for local examples).
+never committed, see `.env.example` for local examples).
 
 **Secrets:** `JWT_SECRET`, `POSTGRES_PASSWORD`, `OPENAI_API_KEY`,
 `ANTHROPIC_API_KEY`, `HF_TOKEN`, `LANGFUSE_SECRET_KEY`.
@@ -112,12 +112,12 @@ sensitive by design. Everything else (e.g. `LANGFUSE_HOST`) is
 plain config, not a credential.
 
 **CI** already injects secrets via GitHub Actions Secrets
-(`rag-eval.yml` reads `LANGFUSE_SECRET_KEY`, etc.) — the pattern to
+(`rag-eval.yml` reads `LANGFUSE_SECRET_KEY`, etc.) -> the pattern to
 follow for any workflow that needs credentials.
 
 **Production** isn't implemented yet: no deployment or secret
 retrieval exists in this repo. Values should eventually come from a
-managed secrets store (Vault or another platform-native option) —
+managed secrets store (Vault or another platform-native option)
 backend choice still TBD.
 
 `JWT_SECRET` already fails fast outside `local` if it's the
