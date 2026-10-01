@@ -122,9 +122,9 @@ backend choice still TBD.
 
 `JWT_SECRET` already fails fast outside `local` if it's the
 placeholder or under 32 characters. `POSTGRES_PASSWORD` has no
-equivalent guard yet and still defaults to `"rag"` — production
-must override it manually until that check exists (tracked as a
-follow-up).
+equivalent minimum-length check, but now rejects blank values and the
+known placeholders (`"rag"` and `"change_in_prod"`) outside `local`.
+Production must set a non-placeholder password.
 
 ## Cloning (submodule!)
 
