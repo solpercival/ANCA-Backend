@@ -8,7 +8,8 @@ orchestrator returns, so access never depends on what generation produced.
 import asyncio
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import JSONResponse
 
 from rag_engine.api.errors import RetrievalUnavailable
 from rag_engine.api.rate_limit import rate_limit_dependency
@@ -63,11 +64,14 @@ async def health() -> dict[str, str]:
 
 
 @router.get("/ready", tags=["ops"])
-async def ready(request: Request) -> dict[str, object]:
+async def ready(request: Request) -> dict[str, object] | JSONResponse:
     """Readiness: Postgres, Redis and the model server all answer.
 
     200 with the per-dependency checks when all pass, otherwise 503 with the same
-    checks so the failing one is visible. Each probe has a short timeout.
+    checks so the failing one is visible.
+    Each probe has a short timeout.
+    The 503 is a JSONResponse so the
+    error handler does not stringify the checks body.
     """
     checks = {
         "postgres": False,
@@ -102,9 +106,9 @@ async def ready(request: Request) -> dict[str, object]:
     if all(checks.values()):
         return {"status": "ok", "checks": checks}
 
-    raise HTTPException(
+    return JSONResponse(
         status_code=503,
-        detail={"status": "not_ready", "checks": checks},
+        content={"status": "not_ready", "checks": checks},
     )
 
 
