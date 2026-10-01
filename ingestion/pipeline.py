@@ -10,6 +10,7 @@ already exist: `make ingest` applies the Alembic migrations first.
 """
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -29,6 +30,15 @@ def iter_markdown_files(docs_dir: Path) -> list[Path]:
         for path in sorted(docs_dir.rglob("*.md"))
         if not EXCLUDED_DIRS.intersection(path.relative_to(docs_dir).parts[:-1])
     ]
+
+
+def hash_file(path: Path) -> str:
+    """SHA-256 hex digest of the file's raw bytes.
+
+    Hashes the bytes on disk, not the chunk text. Later ingestion can compare
+    this digest with document.hash to decide whether the file needs re-embedding.
+    """
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def collect_markdown(docs_dir: Path) -> list[RawChunk]:
