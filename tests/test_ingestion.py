@@ -7,7 +7,12 @@ from pathlib import Path
 import pytest
 import ingestion.indexers as indexers
 from ingestion.chunker import chunk_markdown, RawChunk
-from ingestion.pipeline import changed_document_hashes, collect_markdown, hash_file
+from ingestion.pipeline import (
+    changed_document_hashes,
+    collect_markdown,
+    hash_file,
+    hash_markdown_files,
+)
 from rag_engine.config import get_settings
 import psycopg
 from pgvector.psycopg import register_vector
@@ -563,6 +568,85 @@ def test_matching_hash_is_left_out_of_reingest(tmp_path):
     assert stored[source] == digest
     assert source not in changed_document_hashes({source: digest}, stored)
     assert changed_document_hashes({source: "0" * 64}, stored) == {source: "0" * 64}
+
+
+def _chunk_ids_and_hash(source: str) -> tuple[list[int], str]:
+    settings = get_settings()
+    with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
+        with connection.cursor() as cursor:
+            ids = [
+                row["chunk_id"]
+                for row in cursor.execute(
+                    """SELECT chunk_id FROM document_chunks
+                       WHERE document_source = %s ORDER BY chunk_id""",
+                    (source,),
+                ).fetchall()
+            ]
+            stored = cursor.execute(
+                "SELECT hash FROM document WHERE file_path = %s",
+                (source,),
+            ).fetchone()["hash"].decode("utf-8")
+    return ids, stored
+
+
+def _write_collected(docs: Path, sources: set[str], hashes: dict[str, str]) -> list[RawChunk]:
+    """Chunk `sources` and store them, using the same hashes a reingest would."""
+    settings = get_settings()
+    chunks = collect_markdown(docs, sources)
+    dense = [[0.1] * settings.semantic_dim for _ in chunks]
+    indexers._write_embeddings(
+        chunks, dense, [{} for _ in chunks], document_hashes=hashes
+    )
+    return chunks
+
+
+@pytest.mark.integration
+def test_unchanged_file_keeps_the_same_chunk_ids(tmp_path):
+    # run() chunks only files whose digest differs. A matching hash skips
+    # collect_markdown, so the stored chunk ids stay. This does not call run():
+    # run() would prune every document outside this temp directory.
+    path = tmp_path / "stable.md"
+    path.write_bytes(b"# title\nbody\n")
+    source = str(path)
+    _write_collected(tmp_path, {source}, {source: hash_file(path)})
+    original_ids, original_hash = _chunk_ids_and_hash(source)
+
+    current = hash_markdown_files(tmp_path)
+    changed = changed_document_hashes(current, indexers.load_document_hashes())
+    chunks = collect_markdown(tmp_path, set(changed)) if changed else []
+
+    assert original_ids
+    assert changed == {}
+    assert chunks == []
+    assert _chunk_ids_and_hash(source) == (original_ids, original_hash)
+
+
+@pytest.mark.integration
+def test_changed_hash_replaces_chunk_ids_and_document_hash(tmp_path):
+    path = tmp_path / "edited.md"
+    path.write_bytes(b"# title\nbody\n")
+    source = str(path)
+    _write_collected(tmp_path, {source}, {source: hash_file(path)})
+    original_ids, original_hash = _chunk_ids_and_hash(source)
+
+    path.write_bytes(b"# title\nbody changed\n")
+    current = hash_markdown_files(tmp_path)
+    changed = changed_document_hashes(current, indexers.load_document_hashes())
+    chunks = collect_markdown(tmp_path, set(changed)) if changed else []
+    assert changed == {source: current[source]}
+    assert current[source] != original_hash
+    assert chunks
+    assert any("body changed" in chunk.text for chunk in chunks)
+
+    settings = get_settings()
+    dense = [[0.1] * settings.semantic_dim for _ in chunks]
+    indexers._write_embeddings(chunks, dense, [{} for _ in chunks], document_hashes=changed)
+    new_ids, new_hash = _chunk_ids_and_hash(source)
+
+    assert new_ids
+    assert set(new_ids).isdisjoint(original_ids)
+    assert new_hash == current[source]
+    assert new_hash != original_hash
 
 
 @pytest.mark.integration
