@@ -1,4 +1,18 @@
-"""Model-backed embedding plus PostgreSQL/pgvector."""
+"""Model-backed embedding plus PostgreSQL/pgvector: the write side of retrieval.
+
+- embed_and_index: embed chunks (Ollama dense, TEI sparse when EMBEDDING_SETUP=dual)
+  and write document / heading / document_chunks rows, replacing each document's
+  previous rows in one transaction. document.hash stores the file's SHA-256 hex
+  digest when the caller supplies one.
+  prune deletes documents missing from keep_paths; files skipped
+  because their hash matched stay in that list so their chunks are kept.
+- populate_alarms: upsert the alarm catalogue (alarm_module, alarm_code).
+- populate_keyword_table: rebuild keyword_lookup, the domain-term index used by
+  query rewriting.
+
+Each function opens its own connection (not the app's pool): this module runs in
+the offline ingestion job. Tables must already exist (Alembic migrations).
+"""
 import json
 from pathlib import Path
 from collections import defaultdict
@@ -6,6 +20,10 @@ from collections import defaultdict
 # ingestion/indexers.py
 from rag_engine.providers import get_lexical_backend
 
+import re
+import math
+from collections import defaultdict
+from wordfreq import word_frequency
 import httpx
 import psycopg
 from pgvector.psycopg import register_vector
@@ -16,10 +34,13 @@ from ingestion.chunker import RawChunk
 from rag_engine.config import get_settings
 
 class InvalidInputError(Exception):
+    """An alarms file entry is malformed; names the offending fields."""
+
     def __init__(self, invalid_fields: list):
         self.message = f"Input has invalid fields or in an invalid format. Invalid fields: {", ".join(invalid_fields)}."
         super().__init__(self.message)
 
+# must match the SEVERITY enum in migration 0001
 VALID_SEVERITY: tuple[str] = ('debug', 'info', 'warning', 'error', 'fatal')
 
 def _dense_embed(chunks: list[RawChunk], client: httpx.Client) -> list[list[float]]:
@@ -57,8 +78,33 @@ def _sparse_embed(chunks: list[RawChunk], client: httpx.Client) -> list[dict[str
     
     return [{int(entry["index"]): float(entry["value"]) for entry in sparse_chunk} for sparse_chunk in sparse_vecs]
 
+def _document_hash_text(value: object) -> str:
+    """Decode document.hash to the hex digest string, or "" when it is empty."""
+    if isinstance(value, memoryview):
+        value = value.tobytes()
+    if isinstance(value, bytearray):
+        value = bytes(value)
+    if isinstance(value, bytes):
+        try:
+            return value.decode("utf-8")
+        except UnicodeDecodeError:
+            return ""
+    if value is None:
+        return ""
+    return str(value)
+
+
+def load_document_hashes() -> dict[str, str]:
+    """file_path -> document.hash, decoded the same way ingestion compares it."""
+    settings = get_settings()
+    with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
+        with connection.cursor() as cursor:
+            rows = cursor.execute("SELECT file_path, hash FROM document").fetchall()
+    return {row["file_path"]: _document_hash_text(row["hash"]) for row in rows}
+
+
 def insert_document(cursor, version: str, hash: str, file_path: str) -> int:
-    """Inserts single document into documents table"""
+    """Upsert a document row by file_path and return its doc_id."""
     res = cursor.execute(
         """
         INSERT INTO document (current_version, hash, file_path)
@@ -138,73 +184,61 @@ def insert_chunk(cursor, data: dict, doc_id: int, heading_cache: dict[tuple, int
         (chunk.text, "{}", chunk.kind, chunk.source, f"{sparse}/30522" if sparse else None, dense, heading_id)
     )
 
-def validate_tables(cursor) -> None:
-    # FK dependencies means tables need to be created in a specific order
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS document (
-            doc_id SERIAL PRIMARY KEY,
-            current_version VARCHAR(16) NOT NULL,
-            hash BYTEA NOT NULL,
-            file_path TEXT NOT NULL UNIQUE
-        )
-        """
-    )
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS heading (
-            heading_id BIGSERIAL PRIMARY KEY,
-            heading_order TEXT NOT NULL,
-            hierarchy VARCHAR(45) NOT NULL,
-            document_id INTEGER NOT NULL,
-            parent_heading BIGINT,
-            CONSTRAINT prevent_duplicate_heading UNIQUE(document_id, parent_heading, heading_order),
-            CONSTRAINT fk_heading_document
-                FOREIGN KEY (document_id)
-                REFERENCES document (doc_id)
-                ON DELETE NO ACTION
-                ON UPDATE NO ACTION,
-            CONSTRAINT fk_heading_parent_heading
-                FOREIGN KEY (parent_heading)
-                REFERENCES heading (heading_id)
-                ON DELETE NO ACTION
-                ON UPDATE NO ACTION
-        )
-        """
-    )
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS document_chunks (
-            chunk_id BIGSERIAL PRIMARY KEY,
-            content TEXT NOT NULL,
-            metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-            dc_type CHUNK_TYPE NOT NULL DEFAULT 'text',
-            document_source TEXT NOT NULL,
-            lexical_embedding sparsevec(30522),
-            semantic_embedding vector(1024) NOT NULL,
-            closest_heading BIGINT,
-            CONSTRAINT fk_document_chunks_heading
-                FOREIGN KEY (closest_heading)
-                REFERENCES heading (heading_id)
-                ON DELETE NO ACTION
-		        ON UPDATE NO ACTION
-        )
-        """
-    )
-    cursor.execute(
-        "ALTER TABLE document_chunks ALTER COLUMN lexical_embedding DROP NOT NULL"
-    )
-    cursor.execute(
-        "ALTER TABLE heading ALTER COLUMN heading_order TYPE TEXT"
-    )
-    cursor.execute(
-        "ALTER TABLE document ALTER COLUMN file_path TYPE TEXT"
-    )
-    cursor.execute(
-        "ALTER TABLE document_chunks ALTER COLUMN document_source TYPE TEXT"
-    )
+def _clear_sources(cursor, sources: list[str], keep: bool) -> None:
+    """Delete indexed chunks/headings/documents for `sources` (keep=False) or for
+    everything *except* `sources` (keep=True).
 
-def _write_embeddings(chunks: list[RawChunk], dense_embeddings: list[list[float]], sparse_embeddings: list[dict[str,float]]) -> None:
+    Re-ingesting must replace a document, not append to it: the uniqueness
+    constraints on heading/document_chunks include nullable columns, and NULLs
+    never conflict, so a plain re-insert duplicated every chunk on each run.
+    """
+    match = "<> ALL(%s)" if keep else "= ANY(%s)"
+    if cursor.execute("SELECT to_regclass('response_sources') AS t").fetchone()["t"]:
+        cursor.execute(
+            f"""
+            DELETE FROM response_sources WHERE doc_chunks_id IN
+                (SELECT chunk_id FROM document_chunks WHERE document_source {match})
+            """,
+            (sources,),
+        )
+    cursor.execute(f"DELETE FROM document_chunks WHERE document_source {match}", (sources,))
+    cursor.execute(
+        f"DELETE FROM heading WHERE document_id IN (SELECT doc_id FROM document WHERE file_path {match})",
+        (sources,),
+    )
+    if keep:
+        cursor.execute(f"DELETE FROM document WHERE file_path {match}", (sources,))
+
+def prune_documents(keep_paths: list[str]) -> None:
+    """Delete indexed documents whose file_path is not in keep_paths.
+
+    keep_paths is every markdown file still on disk. Unchanged files belong in
+    that list so their document, heading, and chunk rows stay.
+    """
+    settings = get_settings()
+    with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
+        with connection.cursor() as cursor:
+            _clear_sources(cursor, keep_paths, keep=True)
+            connection.commit()
+
+
+def _write_embeddings(
+    chunks: list[RawChunk],
+    dense_embeddings: list[list[float]],
+    sparse_embeddings: list[dict[str, float]],
+    prune: bool = False,
+    document_hashes: dict[str, str] | None = None,
+    keep_paths: list[str] | None = None,
+) -> None:
+    """Write chunks, replacing each written document's previous rows.
+
+    prune=True deletes indexed documents whose file_path is outside keep_paths.
+    keep_paths defaults to the documents being written. A full-corpus run passes
+    every file still on disk, including files skipped because their hash matched,
+    so those rows and chunks are kept. Only a full-corpus run may prune.
+    document_hashes maps each written source path to the file's SHA-256 hex digest,
+    stored on document.hash. Callers that omit it leave the hash empty.
+    """
     doc_chunks: dict[str, list[dict[str,list|RawChunk]]] = defaultdict(list)
 
     # Group chunks, dense and sparse embeddings together using source document as key
@@ -215,19 +249,39 @@ def _write_embeddings(chunks: list[RawChunk], dense_embeddings: list[list[float]
     with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
         register_vector(connection)
         with connection.cursor() as cursor:
-            # check if tables created
-            validate_tables(cursor=cursor)
+            # tables come from the Alembic migrations (`make migrate`), not from here
             heading_cache = {}
+
+            # in one transaction: optionally drop documents no longer collected (e.g.
+            # newly excluded dirs), then replace each written document's chunks/headings
+            sources = list(doc_chunks)
+            if prune:
+                # files still on disk, not merely the files being rewritten
+                retained = sources if keep_paths is None else keep_paths
+                _clear_sources(cursor, retained, keep=True)
+            _clear_sources(cursor, sources, keep=False)
 
             # insert document into table
             for doc in doc_chunks:
-                doc_id = insert_document(cursor=cursor, version=1, hash=b"", file_path=doc)
+                digest = document_hashes[doc] if document_hashes is not None else b""
+                doc_id = insert_document(cursor=cursor, version=1, hash=digest, file_path=doc)
                 for chunk_group in doc_chunks[doc]:
                     insert_chunk(cursor=cursor, data=chunk_group, doc_id=doc_id, heading_cache=heading_cache)
 
             connection.commit()                                
 
-def embed_and_index(chunks: list[RawChunk]) -> None:  # pragma: no cover - integration
+def embed_and_index(
+    chunks: list[RawChunk],
+    prune: bool = False,
+    document_hashes: dict[str, str] | None = None,
+    keep_paths: list[str] | None = None,
+) -> None:  # pragma: no cover - integration
+    """Embed `chunks` and write them, replacing their documents' existing rows.
+
+    prune=True deletes documents missing from keep_paths. The pipeline passes
+    every file still on disk so unchanged documents are kept. document_hashes,
+    when given, is stored on each written document row as its SHA-256 hex digest.
+    """
     if not chunks:
         return
 
@@ -240,9 +294,22 @@ def embed_and_index(chunks: list[RawChunk]) -> None:  # pragma: no cover - integ
             else [{} for _ in chunks]
         )
     
-    _write_embeddings(chunks=chunks, dense_embeddings=dense_embeddings, sparse_embeddings=sparse_embeddings)
+    _write_embeddings(
+        chunks=chunks,
+        dense_embeddings=dense_embeddings,
+        sparse_embeddings=sparse_embeddings,
+        prune=prune,
+        document_hashes=document_hashes,
+        keep_paths=keep_paths,
+    )
 
 def populate_alarms(alarms_json: dict) -> None:
+    """Upsert the alarm catalogue from an alarms file (see ingestion/seed_alarms.py).
+
+    Codes are "<origin>.<module>.<sequence>"; the module part must be listed in
+    `_modules`. Raises InvalidInputError on the first malformed alarm, before its
+    row is written; the connection opens first, so this needs a reachable database.
+    """
     settings = get_settings()
     with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
         with connection.cursor() as cursor:
@@ -333,3 +400,84 @@ def populate_alarms(alarms_json: dict) -> None:
                 )
 
             connection.commit()
+
+def populate_keyword_table(specificity_threshold: float = 25.0) -> None:
+    """Rebuild keyword_lookup: domain terms -> the chunks that mention them + IDF.
+
+    Candidate terms are inline code, ALL-CAPS identifiers and ordinary words from
+    text/table/list chunks. A term is kept if it is structural (code/acronym) or at
+    least `specificity_threshold` times more frequent in the docs than in general
+    English (wordfreq); terms in over 25% of chunks are too common and skipped.
+    """
+    TOKEN_RE = re.compile(
+        r"`([^`\n]{2,40})`"                       # .md inline code ` `
+        r"|(\b[A-Z]{2,}[A-Z0-9_-]*\b)"            # ALL_CAPS acronyms/codes
+        r"|(\b[A-Za-z]{3,35}\b)"                  # Standard words
+    )
+
+    settings = get_settings()
+    with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
+        with connection.cursor() as cursor:
+            res = cursor.execute("""
+                SELECT chunk_id, content FROM document_chunks
+                WHERE dc_type = 'text' OR dc_type = 'table' OR dc_type = 'list';
+            """).fetchall()
+
+            term_to_chunks = defaultdict(set)
+            structural_terms = set()
+            total_tokens = 0
+            total_chunks = len(res)
+
+            for entry in res:
+                for match in TOKEN_RE.finditer(entry["content"]):
+                    raw_token = next(g for g in match.groups() if g is not None)
+                    term = raw_token.lower().strip()
+                    if len(term) < 2:
+                        continue
+
+                    term_to_chunks[term].add(entry["chunk_id"])
+                    total_tokens += 1
+
+                    # mark allcaps and inline code as domain specific
+                    if match.lastindex in (1, 2):
+                        structural_terms.add(term)
+
+            # compute IDF weights
+            payload = []
+            for term, chunk_set in term_to_chunks.items():
+                doc_freq = len(chunk_set)
+                # skip terms appearing in >25% of chunks
+                if doc_freq > max(5, int(total_chunks * 0.25)):
+                    continue
+
+                # calculate domain specificity 
+                corpus_prob = doc_freq / max(1, total_tokens)
+                english_prob = word_frequency(term, 'en', minimum=1e-9)
+                specificity = corpus_prob / english_prob
+
+                # keep if it's a structural/code identifier OR high domain specificity
+                if term in structural_terms or specificity >= specificity_threshold:
+                    idf = math.log(1.0 + (total_chunks / float(doc_freq)))
+                    sorted_chunks = sorted(chunk_set)
+                    payload.append((term, sorted_chunks, idf))
+
+            # insert all entries. psycopg 3 has no psycopg2-style `VALUES %s` bulk
+            # expansion (it saw 1 placeholder vs thousands of params); executemany
+            # batches the rows in a pipeline instead
+            cursor.executemany("""
+                INSERT INTO keyword_lookup (keyword, related_chunks, idf_weight)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (keyword) DO UPDATE
+                SET related_chunks = EXCLUDED.related_chunks,
+                    idf_weight = EXCLUDED.idf_weight;
+            """, payload)
+
+            # re-ingest replaces chunks (new chunk_ids), so terms that weren't
+            # re-emitted would keep pointing at chunks that no longer exist
+            cursor.execute(
+                "DELETE FROM keyword_lookup WHERE keyword <> ALL(%s)",
+                ([term for term, _, _ in payload],),
+            )
+
+            connection.commit()
+            

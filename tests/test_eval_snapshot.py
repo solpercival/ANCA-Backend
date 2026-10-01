@@ -1,3 +1,6 @@
+"""Offline snapshot helpers in eval/run_eval.py: result normalization and
+the mismatch check used by the rag-snapshot workflow.
+"""
 import json
 
 from eval.run_eval import compare_snapshot, normalize_result

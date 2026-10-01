@@ -10,9 +10,13 @@ services:
       dockerfile: docker/orchestrator.Dockerfile
     env_file: .env
     ports: ["8080:8080"]
-    depends_on: 
+    # Qwen3 reranker weights (~1.2 GB) survive container recreation
+    volumes: ["hf-cache:/root/.cache/huggingface"]
+    depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       model-init:
@@ -33,6 +37,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       model-init:
         condition: service_completed_successfully
 
@@ -49,9 +55,21 @@ services:
       timeout: 5s
       retries: 10
     ports: ["5432:5432"]
+    # schema (incl. CREATE EXTENSION vector/pg_trgm) comes from the `migrate` service,
+    # not an initdb script; POSTGRES_USER is a superuser, so the migration can create them
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./scripts/init_pgvector.sql:/docker-entrypoint-initdb.d/init.sql:ro
+
+  # One-shot: apply schema migrations (alembic upgrade head) before anything uses the DB.
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/orchestrator.Dockerfile
+    env_file: .env
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   redis:
     image: redis:7-alpine
@@ -74,6 +92,11 @@ services:
       retries: 10
       start_period: 60s
     ports: ["11434:11434"]
+    environment:
+      # shrink the generator's attention/KV-cache memory so it stays 100% on a 6 GB GPU
+      # next to the orchestrator's reranker (8-bit KV cache requires flash attention)
+      OLLAMA_FLASH_ATTENTION: "1"
+      OLLAMA_KV_CACHE_TYPE: q8_0
     volumes:
       - ollamadata:/root/.ollama
 
@@ -88,7 +111,7 @@ services:
       - ollamadata:/root/.ollama
     entrypoint: ["/bin/sh", "-c"]
     command:
-      - ollama pull qwen3-embedding:0.6b && ollama pull qwen3:4b
+      - ollama pull qwen3-embedding:0.6b && ollama pull qwen3:4b-instruct-2507-q4_K_M
 
   # --- optional: tei for sparse/SPLADE embeddings (start with: docker compose --profile sparse up) ---
   tei:
@@ -114,3 +137,4 @@ volumes:
   redisdata:
   ollamadata:
   model-cache:
+  hf-cache:

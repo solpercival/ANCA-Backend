@@ -3,6 +3,12 @@
 This module intentionally keeps the integration logic deterministic and easy to
 run in hosted CI: it validates threshold checks using structured outputs and
 optionally emits traces to Langfuse when credentials are configured.
+
+Status: scaffolding only. It scores eval/results/latest.json, which
+`python eval/run_eval.py` fills from a hard-coded placeholder result, and the
+scores are simple stand-ins (see score_snapshot), not DeepEval metrics. The
+rag-eval CI job therefore passes regardless of engine changes. The live quality
+numbers come from `make eval` (run_eval.py --gold).
 """
 
 from __future__ import annotations
@@ -38,6 +44,7 @@ def _maybe_langfuse():
 
 
 def load_result(path: str | Path | None = None) -> dict[str, Any]:
+    """Read a normalized result artifact (default eval/results/latest.json)."""
     if path is None:
         path = Path("eval/results/latest.json")
     return json.loads(Path(path).read_text(encoding="utf-8"))
@@ -66,6 +73,7 @@ def score_snapshot(result: dict[str, Any]) -> dict[str, float]:
 
 
 def assert_thresholds(scores: dict[str, float], thresholds: dict[str, float] | None = None) -> None:
+    """Exit non-zero (SystemExit) listing every score below its threshold."""
     thresholds = thresholds or DEFAULT_THRESHOLDS
     failures = {
         name: {"required": value, "actual": scores.get(name, 0.0)}
@@ -77,6 +85,7 @@ def assert_thresholds(scores: dict[str, float], thresholds: dict[str, float] | N
 
 
 def log_langfuse_trace(result: dict[str, Any], scores: dict[str, float]) -> None:
+    """Record the scores as a Langfuse trace; no-op without LANGFUSE_* credentials."""
     client = _maybe_langfuse()
     if client is None:
         return
@@ -91,6 +100,7 @@ def log_langfuse_trace(result: dict[str, Any], scores: dict[str, float]) -> None
 
 
 def run_quality_gate(path: str | Path | None = None) -> dict[str, float]:
+    """Load, score, enforce thresholds, then trace. Used by the rag-eval workflow."""
     result = load_result(path)
     scores = score_snapshot(result)
     assert_thresholds(scores)

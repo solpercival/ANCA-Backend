@@ -1,3 +1,8 @@
+# Checks that the offline eval harness still produces its baseline artifact:
+# eval/run_eval.py (no --gold) output must equal eval/results/expected.json.
+# That output is currently a hard-coded placeholder, so this guards the harness's
+# normalisation format, not the engine's answers (see rag-eval.yml).
+
 name: RAG Snapshot Check
 
 on:
