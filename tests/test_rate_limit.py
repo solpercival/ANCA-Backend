@@ -1,3 +1,6 @@
+"""Fixed-window rate limiter and its Redis backend, using an in-memory fake
+backend with a controllable clock.
+"""
 import math
 
 import pytest

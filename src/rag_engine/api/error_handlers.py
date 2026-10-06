@@ -1,3 +1,10 @@
+"""Exception handlers that render every error as the ErrorResponse envelope.
+
+Registered once at app start (register_error_handlers). Covers the app's own
+AppError subclasses, framework HTTP errors, request validation failures, and a
+catch-all that logs the full exception but returns only a generic 500 body, so
+internals never leak to clients.
+"""
 import logging
 
 from fastapi import FastAPI, Request, status
@@ -19,10 +26,13 @@ def _json(status_code: int, body: ErrorBody, headers: dict[str, str] | None = No
 
 
 def _request_id(request: Request) -> str | None:
+    # set by the request-id middleware in main.py; fall back to the raw header
     return getattr(request.state, "request_id", None) or request.headers.get("x-request-id")
 
 
 def register_error_handlers(app: FastAPI) -> None:
+    """Attach the error handlers to `app`."""
+
     @app.exception_handler(AppError)
     async def _app_error(request: Request, exc: AppError):
         # 5xx is our fault → log with stack; 4xx is the caller's → info
@@ -35,9 +45,13 @@ def register_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(StarletteHTTPException)
     async def _http(request: Request, exc: StarletteHTTPException):
+        # framework errors (unknown route, wrong method, raised HTTPException):
+        # map the status to the closest ErrorCode
         code = {401: ErrorCode.unauthorized, 403: ErrorCode.forbidden,
                 404: ErrorCode.not_found, 409: ErrorCode.conflict,
-                429: ErrorCode.rate_limited}.get(exc.status_code, ErrorCode.internal_error)
+                413: ErrorCode.payload_too_large, 429: ErrorCode.rate_limited}.get(
+                    exc.status_code, ErrorCode.internal_error
+                )
         return _json(exc.status_code, ErrorBody(
             code=code, message=str(exc.detail), request_id=_request_id(request)),
             headers=dict(exc.headers or {}))

@@ -1,9 +1,18 @@
+"""Ingestion: markdown chunking (unit) plus embedding and database writes.
+Tests marked `integration` need the stack (Postgres, Ollama, TEI) and are
+deselected by default; run them with `pytest -m integration` while it is up.
+"""
 from pathlib import Path
 
 import pytest
 import ingestion.indexers as indexers
 from ingestion.chunker import chunk_markdown, RawChunk
-from ingestion.pipeline import collect_markdown
+from ingestion.pipeline import (
+    changed_document_hashes,
+    collect_markdown,
+    hash_file,
+    hash_markdown_files,
+)
 from rag_engine.config import get_settings
 import psycopg
 from pgvector.psycopg import register_vector
@@ -11,6 +20,14 @@ from pgvector import SparseVector
 from psycopg.rows import dict_row
 import httpx
 import hashlib
+
+def test_document_hash_text_decodes_stored_bytes():
+    assert indexers._document_hash_text(b"abc") == "abc"
+    assert indexers._document_hash_text(b"") == ""
+    assert indexers._document_hash_text(memoryview(b"abc")) == "abc"
+    assert indexers._document_hash_text(None) == ""
+    assert indexers._document_hash_text(b"\xff") == ""
+
 
 def test_chunk_markdown_splits_on_headers_and_keeps_content():
     markdown = """# Intro
@@ -136,6 +153,7 @@ def test_collect_markdown_reads_nested_markdown_files(tmp_path):
     texts = {chunk.text for chunk in chunks}
     assert any("# A" in text for text in texts)
     assert any("# B" in text for text in texts)
+
 @pytest.mark.integration
 def test_sparse_embedding():
     chunks = [RawChunk(text="test script", source="", headers=[], kind="text"),
@@ -162,6 +180,8 @@ def test_dense_embedding():
     assert len(dense_vecs) == len(chunks)
     assert all(len(vec) == settings.semantic_dim for vec in dense_vecs)
     
+
+@pytest.mark.integration
 def test_single_alarm_insert():
     settings = get_settings()
     sample_alarm = {
@@ -208,6 +228,8 @@ def test_single_alarm_insert():
             assert any(entry["severity_category"] == sample_alarm["severity_category"].lower() for entry in code_test)
             assert any(entry["alarm_text"] == sample_alarm["alarm_text"] for entry in code_test)
 
+
+@pytest.mark.integration
 def test_duplicate_alarm_insert():
     settings = get_settings()
     sample_alarm = {
@@ -253,6 +275,8 @@ def test_duplicate_alarm_insert():
             assert any(entry["severity_category"] == sample_alarm["severity_category"].lower() for entry in code_test)
             assert any(entry["alarm_text"] == sample_alarm["alarm_text"] for entry in code_test)
 
+
+@pytest.mark.integration
 def test_multiple_alarm_insert():
     settings = get_settings()
     # sample alarms with random codes and fields
@@ -336,6 +360,7 @@ def test_multiple_alarm_insert():
                 assert any(entry["severity_category"] == alarm["severity_category"].lower() for entry in code_test)
                 assert any(entry["alarm_text"] == alarm["alarm_text"] for entry in code_test)
 
+@pytest.mark.integration  # populate_alarms connects to Postgres before validating
 def test_invalid_input():
     settings = get_settings()
     # empty code test
@@ -376,6 +401,8 @@ def test_invalid_input():
         indexers.populate_alarms(invalid_data)
 
 # replace the temporary file open with the actual submodule once implemented
+
+@pytest.mark.integration
 def test_alarms_insert():
     import json 
 
@@ -434,6 +461,8 @@ def test_alarms_insert():
                 assert(res["data_fields"] == alarm["data_fields"])
 
 # single document insert test
+
+@pytest.mark.integration
 def test_single_document_insert():
     fake_version = "1.12"
     fake_hash = hashlib.sha256(b"hello world!").hexdigest()
@@ -471,6 +500,8 @@ def test_single_document_insert():
             assert(res[0]["file_path"] == fake_fp)
 
 # duplicate document insert test
+
+@pytest.mark.integration
 def test_duplicate_document_insert():
     fake_version = "1.12"
     fake_hash = hashlib.sha256(b"hello world!").hexdigest()
@@ -498,6 +529,250 @@ def test_duplicate_document_insert():
             assert(res[0]["hash"].decode('utf-8') == fake_hash)
             assert(res[0]["file_path"] == fake_fp)
 
+
+@pytest.mark.integration
+def test_write_embeddings_stores_document_hash(tmp_path):
+    settings = get_settings()
+    path = tmp_path / "hashed.md"
+    path.write_bytes(b"# title\n")
+    source = str(path)
+    digest = hash_file(path)
+    chunks = [RawChunk(text="# title\n", source=source, headers={"h1": "title"}, kind="text")]
+    dense = [[0.1] * settings.semantic_dim]
+
+    indexers._write_embeddings(chunks, dense, [{}], document_hashes={source: digest})
+
+    with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
+        with connection.cursor() as cursor:
+            row = cursor.execute(
+                "SELECT hash FROM document WHERE file_path = %s",
+                (source,),
+            ).fetchone()
+
+    assert row["hash"].decode("utf-8") == digest
+
+
+@pytest.mark.integration
+def test_matching_hash_is_left_out_of_reingest(tmp_path):
+    settings = get_settings()
+    path = tmp_path / "stable.md"
+    path.write_bytes(b"# title\n")
+    source = str(path)
+    digest = hash_file(path)
+    chunks = [RawChunk(text="# title\n", source=source, headers={"h1": "title"}, kind="text")]
+    dense = [[0.1] * settings.semantic_dim]
+
+    indexers._write_embeddings(chunks, dense, [{}], document_hashes={source: digest})
+    stored = indexers.load_document_hashes()
+
+    assert stored[source] == digest
+    assert source not in changed_document_hashes({source: digest}, stored)
+    assert changed_document_hashes({source: "0" * 64}, stored) == {source: "0" * 64}
+
+
+def _chunk_ids_and_hash(source: str) -> tuple[list[int], str]:
+    settings = get_settings()
+    with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
+        with connection.cursor() as cursor:
+            ids = [
+                row["chunk_id"]
+                for row in cursor.execute(
+                    """SELECT chunk_id FROM document_chunks
+                       WHERE document_source = %s ORDER BY chunk_id""",
+                    (source,),
+                ).fetchall()
+            ]
+            stored = cursor.execute(
+                "SELECT hash FROM document WHERE file_path = %s",
+                (source,),
+            ).fetchone()["hash"].decode("utf-8")
+    return ids, stored
+
+
+def _write_collected(docs: Path, sources: set[str], hashes: dict[str, str]) -> list[RawChunk]:
+    """Chunk `sources` and store them, using the same hashes a reingest would."""
+    settings = get_settings()
+    chunks = collect_markdown(docs, sources)
+    dense = [[0.1] * settings.semantic_dim for _ in chunks]
+    indexers._write_embeddings(
+        chunks, dense, [{} for _ in chunks], document_hashes=hashes
+    )
+    return chunks
+
+
+@pytest.mark.integration
+def test_unchanged_file_keeps_the_same_chunk_ids(tmp_path):
+    # run() chunks only files whose digest differs. A matching hash skips
+    # collect_markdown, so the stored chunk ids stay. This does not call run():
+    # run() would prune every document outside this temp directory.
+    path = tmp_path / "stable.md"
+    path.write_bytes(b"# title\nbody\n")
+    source = str(path)
+    _write_collected(tmp_path, {source}, {source: hash_file(path)})
+    original_ids, original_hash = _chunk_ids_and_hash(source)
+
+    current = hash_markdown_files(tmp_path)
+    changed = changed_document_hashes(current, indexers.load_document_hashes())
+    chunks = collect_markdown(tmp_path, set(changed)) if changed else []
+
+    assert original_ids
+    assert changed == {}
+    assert chunks == []
+    assert _chunk_ids_and_hash(source) == (original_ids, original_hash)
+
+
+@pytest.mark.integration
+def test_changed_hash_replaces_chunk_ids_and_document_hash(tmp_path):
+    path = tmp_path / "edited.md"
+    path.write_bytes(b"# title\nbody\n")
+    source = str(path)
+    _write_collected(tmp_path, {source}, {source: hash_file(path)})
+    original_ids, original_hash = _chunk_ids_and_hash(source)
+
+    path.write_bytes(b"# title\nbody changed\n")
+    current = hash_markdown_files(tmp_path)
+    changed = changed_document_hashes(current, indexers.load_document_hashes())
+    chunks = collect_markdown(tmp_path, set(changed)) if changed else []
+    assert changed == {source: current[source]}
+    assert current[source] != original_hash
+    assert chunks
+    assert any("body changed" in chunk.text for chunk in chunks)
+
+    settings = get_settings()
+    dense = [[0.1] * settings.semantic_dim for _ in chunks]
+    indexers._write_embeddings(chunks, dense, [{} for _ in chunks], document_hashes=changed)
+    new_ids, new_hash = _chunk_ids_and_hash(source)
+
+    assert new_ids
+    assert set(new_ids).isdisjoint(original_ids)
+    assert new_hash == current[source]
+    assert new_hash != original_hash
+
+
+@pytest.mark.integration
+def test_prune_keeps_unchanged_files_omitted_from_the_write():
+    # keep_paths must include every document that should survive. Listing only
+    # the fixture paths would prune the rest of the shared database.
+    settings = get_settings()
+    dense = [[0.1] * settings.semantic_dim]
+    unchanged = RawChunk(
+        text="leave this chunk", source="hash-keep-unchanged.md", headers={"h1": "Stay"}, kind="text"
+    )
+    removed = RawChunk(
+        text="drop this chunk", source="hash-keep-removed.md", headers={"h1": "Go"}, kind="text"
+    )
+    rewritten = RawChunk(
+        text="replace this chunk", source="hash-keep-changed.md", headers={"h1": "New"}, kind="text"
+    )
+
+    indexers._write_embeddings(
+        [unchanged], dense, [{}], document_hashes={"hash-keep-unchanged.md": "same-digest"}
+    )
+    indexers._write_embeddings(
+        [removed], dense, [{}], document_hashes={"hash-keep-removed.md": "old-digest"}
+    )
+    before = set(indexers.load_document_hashes())
+    keep_paths = [path for path in before if path != "hash-keep-removed.md"]
+    keep_paths.append("hash-keep-changed.md")
+
+    indexers._write_embeddings(
+        [rewritten],
+        dense,
+        [{}],
+        prune=True,
+        document_hashes={"hash-keep-changed.md": "new-digest"},
+        keep_paths=keep_paths,
+    )
+
+    with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
+        with connection.cursor() as cursor:
+            def chunk_count(source: str) -> int:
+                return cursor.execute(
+                    "SELECT count(*) AS n FROM document_chunks WHERE document_source = %s",
+                    (source,),
+                ).fetchone()["n"]
+
+            def stored_hash(source: str) -> str | None:
+                row = cursor.execute(
+                    "SELECT hash FROM document WHERE file_path = %s",
+                    (source,),
+                ).fetchone()
+                if row is None:
+                    return None
+                return row["hash"].decode("utf-8")
+
+            unchanged_chunks = chunk_count("hash-keep-unchanged.md")
+            removed_chunks = chunk_count("hash-keep-removed.md")
+            rewritten_chunks = chunk_count("hash-keep-changed.md")
+            unchanged_hash = stored_hash("hash-keep-unchanged.md")
+            removed_hash = stored_hash("hash-keep-removed.md")
+            rewritten_hash = stored_hash("hash-keep-changed.md")
+            after = {
+                row["file_path"]
+                for row in cursor.execute("SELECT file_path FROM document").fetchall()
+            }
+
+    assert unchanged_chunks == 1
+    assert removed_chunks == 0
+    assert rewritten_chunks == 1
+    assert unchanged_hash == "same-digest"
+    assert removed_hash is None
+    assert rewritten_hash == "new-digest"
+    assert after >= (before - {"hash-keep-removed.md"})
+
+
+@pytest.mark.integration
+def test_reingest_replaces_instead_of_duplicating():
+    # top-level headings have parent_heading NULL and NULLs never conflict in a UNIQUE
+    # constraint, so a plain re-insert used to append a full copy on every run
+    settings = get_settings()
+    source = "idempotence-check.md"
+    chunks = [
+        RawChunk(text="top-level text", source=source, headers={"h1": "Top"}, kind="text"),
+        RawChunk(text="nested text", source=source, headers={"h1": "Top", "h2": "Sub"}, kind="text"),
+    ]
+    dense = [[0.1] * settings.semantic_dim for _ in chunks]
+    sparse = [{1: 0.5} for _ in chunks]
+
+    for _ in range(3):
+        indexers._write_embeddings(chunks, dense, sparse)
+
+    with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
+        with connection.cursor() as cursor:
+            n_chunks = cursor.execute(
+                "SELECT count(*) AS n FROM document_chunks WHERE document_source = %s", (source,)
+            ).fetchone()["n"]
+            n_headings = cursor.execute(
+                """SELECT count(*) AS n FROM heading h JOIN document d ON d.doc_id = h.document_id
+                   WHERE d.file_path = %s""",
+                (source,),
+            ).fetchone()["n"]
+
+    assert n_chunks == 2
+    assert n_headings == 2
+
+
+@pytest.mark.integration
+def test_write_without_prune_leaves_other_documents_alone():
+    settings = get_settings()
+    dense = [[0.1] * settings.semantic_dim]
+    keep = RawChunk(text="kept", source="prune-check-keep.md", headers={}, kind="text")
+    other = RawChunk(text="other", source="prune-check-other.md", headers={}, kind="text")
+
+    indexers._write_embeddings([keep], dense, [{}])
+    indexers._write_embeddings([other], dense, [{}])
+
+    with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
+        with connection.cursor() as cursor:
+            n = cursor.execute(
+                "SELECT count(*) AS n FROM document_chunks WHERE document_source = %s",
+                ("prune-check-keep.md",),
+            ).fetchone()["n"]
+
+    assert n == 1
+
+
+@pytest.mark.integration
 def test_single_combined_insert():
     # test if an insert of a document with chunks, headings and embeddings is valid
     settings = get_settings()
@@ -543,6 +818,8 @@ def test_single_combined_insert():
             assert any(entry["heading_order"] == "Overview" and entry["heading_hierarchy"] == "h1" for entry in res)
             assert any(entry["heading_order"] == "Lower heading" and entry["heading_hierarchy"] == "h2" for entry in res)
 
+
+@pytest.mark.integration
 def test_duplicate_combined_insert():
     # test if duplicate inserts are only made once
     settings = get_settings()
@@ -584,6 +861,8 @@ def test_duplicate_combined_insert():
 
             assert (len(res) == 2)
 
+
+@pytest.mark.integration
 def test_multiple_insert():
     # test if multiple regular inserts are made correctly
     settings = get_settings()

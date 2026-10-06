@@ -1,3 +1,11 @@
+# Offline quality-gate scaffold, runnable on hosted CPU runners (no models, no DB).
+#
+# Current status: eval/run_eval.py without --gold writes a hard-coded placeholder
+# result, which is compared with eval/results/expected.json and then scored by
+# eval/deep_eval.py's stand-in heuristics. So this job passes regardless of engine
+# changes; it checks that the harness runs, not answer quality. Real scores come from
+# `make eval` against a running stack (and eval.yml, once a GPU runner exists).
+
 name: RAG Eval
 
 on:

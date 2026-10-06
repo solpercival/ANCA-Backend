@@ -1,3 +1,5 @@
+"""Provider selection settings have defaults and can be overridden.
+"""
 from rag_engine.config import Settings
 
 

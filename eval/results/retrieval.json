@@ -1,0 +1,205 @@
+{
+  "summary": {
+    "hit": 1.0,
+    "precision": 0.667,
+    "recall": 0.864,
+    "reciprocal_rank": 0.939,
+    "step_recall": 0.336,
+    "actionable": 0.977,
+    "coverage_match": 0.273,
+    "fix_present": 0.636,
+    "fix_solved": 4,
+    "codes": 11,
+    "errors": 0
+  },
+  "results": [
+    {
+      "hit": true,
+      "precision": 0.6666666666666666,
+      "recall": 0.5,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.37202380952380953,
+      "actionable": 1.0,
+      "coverage_match": 0.0,
+      "fix_present": 0.0,
+      "code": "am.nc.0001",
+      "steps": [
+        "Check PPP2 uses barrier to prevent rewind before A axis is detached",
+        "Verify both PPPs use correct logical machine assignments for A axis"
+      ],
+      "doc_coverage": "partial"
+    },
+    {
+      "hit": true,
+      "precision": 0.3333333333333333,
+      "recall": 0.5,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.4398148148148148,
+      "actionable": 0.75,
+      "coverage_match": 0.0,
+      "fix_present": 1.0,
+      "code": "am.nc.0002",
+      "steps": [
+        "Detach the x axis from logical machine 2",
+        "Verify the axis is no longer attached to logical machine 2",
+        "Check the program line 1 in mdi1.pp for correct attach command",
+        "Reinitialise the part program processor after axis reassignment"
+      ],
+      "doc_coverage": "partial"
+    },
+    {
+      "hit": true,
+      "precision": 0.3333333333333333,
+      "recall": 0.5,
+      "reciprocal_rank": 0.3333333333333333,
+      "step_recall": 0.31180555555555556,
+      "actionable": 1.0,
+      "coverage_match": 0.0,
+      "fix_present": 0.5,
+      "code": "am.nc.0003",
+      "steps": [
+        "Activate the part program named m101.pp",
+        "Verify the part program exists in the search hierarchy",
+        "Check the hierarchy path contains m101.pp"
+      ],
+      "doc_coverage": "partial"
+    },
+    {
+      "hit": true,
+      "precision": 0.6666666666666666,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.5714285714285715,
+      "actionable": 1.0,
+      "coverage_match": 1.0,
+      "fix_present": 1.0,
+      "code": "am.nc.0004",
+      "steps": [
+        "Add at least three control points between splineon and splineoff.",
+        "Verify all points are between the splineon and splineoff commands.",
+        "Check that fm and st are only programmed on the splineon block."
+      ],
+      "doc_coverage": "full"
+    },
+    {
+      "hit": true,
+      "precision": 1.0,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.4166666666666667,
+      "actionable": 1.0,
+      "coverage_match": 0.0,
+      "fix_present": 1.0,
+      "code": "am.nc.0005",
+      "steps": [
+        "Remove duplicate class 1 preparatory words from the block",
+        "Check program for multiple G-code words in same block",
+        "Verify no two class 1 words are used in one block"
+      ],
+      "doc_coverage": "partial"
+    },
+    {
+      "hit": true,
+      "precision": 0.6666666666666666,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.34920634920634913,
+      "actionable": 1.0,
+      "coverage_match": 0.0,
+      "fix_present": 0.5,
+      "code": "am.cfg.0001",
+      "steps": [
+        "Set the Joint logical device for the joint to the logical address of the device.",
+        "Verify the logical device is assigned to only one joint.",
+        "Check the device mapping configuration for duplicate entries."
+      ],
+      "doc_coverage": "partial"
+    },
+    {
+      "hit": true,
+      "precision": 0.6666666666666666,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.2777777777777778,
+      "actionable": 1.0,
+      "coverage_match": 1.0,
+      "fix_present": 0.5,
+      "code": "am.lic.0001",
+      "steps": [
+        "Disable opcua.server with opcua.enable set to false",
+        "Verify opcua.enable is set to false in configuration",
+        "Check opcua.enable property in configuration file"
+      ],
+      "doc_coverage": "full"
+    },
+    {
+      "hit": true,
+      "precision": 0.3333333333333333,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.23650793650793653,
+      "actionable": 1.0,
+      "coverage_match": 0.0,
+      "fix_present": 1.0,
+      "code": "am.fb.0001",
+      "steps": [
+        "Reinitialise the EtherCAT bus",
+        "Verify drive 'Drive_3' station 0x03 actual state",
+        "Check fieldbus is in INIT or PREOP state"
+      ],
+      "doc_coverage": "partial"
+    },
+    {
+      "hit": true,
+      "precision": 1.0,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.46805555555555556,
+      "actionable": 1.0,
+      "coverage_match": 0.0,
+      "fix_present": 0.5,
+      "code": "am.fb.0002",
+      "steps": [
+        "Acknowledge the emergency message",
+        "Verify error code 0x2350 is not zero",
+        "Check drive 'Drive_3' is in error state",
+        "Reinitialise the Ethercat bus"
+      ],
+      "doc_coverage": "partial"
+    },
+    {
+      "hit": true,
+      "precision": 1.0,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.13571428571428573,
+      "actionable": 1.0,
+      "coverage_match": 0.0,
+      "fix_present": 0.5,
+      "code": "am.fb.0003",
+      "steps": [
+        "Reinitialise the EtherCAT bus",
+        "Verify the error type in the frame response error data",
+        "Check the cyclic task ID for task 1"
+      ],
+      "doc_coverage": "partial"
+    },
+    {
+      "hit": true,
+      "precision": 0.6666666666666666,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.11936507936507937,
+      "actionable": 1.0,
+      "coverage_match": 1.0,
+      "fix_present": 0.5,
+      "code": "am.fb.0004",
+      "steps": [
+        "Upgrade firmware for Drive_3 to 1.4.0",
+        "Verify firmware version on Drive_3 matches 1.4.0",
+        "Check device configuration specifies expected firmware version"
+      ],
+      "doc_coverage": "full"
+    }
+  ]
+}

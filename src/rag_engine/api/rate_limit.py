@@ -1,4 +1,9 @@
-"""Reusable fixed-window rate limiting primitives."""
+"""Reusable fixed-window rate limiting primitives.
+
+Each limited route counts requests in two buckets per window: one per client IP
+and one per account tier. The window's counter lives in Redis (one atomic Lua
+call per request), so limits hold across orchestrator replicas.
+"""
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -36,6 +41,10 @@ class FixedWindowLimiter:
         self._backend = backend
 
     async def check(self, key: str, limit: int, window_seconds: int) -> RateLimitDecision:
+        """Count this request in `key`'s bucket; deny once the window holds more than `limit`.
+
+        A denial carries the seconds left in the window, for the Retry-After header.
+        """
         if limit < 1:
             raise ValueError("limit must be at least 1")
         if window_seconds < 1:
@@ -80,7 +89,13 @@ return {current, ttl}
 
 
 def rate_limit_dependency(route_name: str, ip_limit_setting: str, tier_limit_setting: str):
-    """Build an authenticated FastAPI dependency for one route's buckets."""
+    """Build an authenticated FastAPI dependency for one route's buckets.
+
+    ip_limit_setting / tier_limit_setting name the Settings fields holding each
+    bucket's limit. Behaviour: no Redis configured -> requests are not limited;
+    over a limit -> 429 with Retry-After; Redis errors -> 503 rate_limit_unavailable
+    (fails closed rather than letting unlimited traffic through).
+    """
     async def enforce_rate_limit(
         request: Request,
         principal: Principal = Depends(current_principal),
