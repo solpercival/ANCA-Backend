@@ -170,6 +170,19 @@ class Settings(BaseSettings):
             )
         return self
 
+    @model_validator(mode="after")
+    def _reject_placeholder_postgres_password_outside_local(self) -> Self:
+        if self.app_env != "local" and self.postgres_password.strip().lower() in {
+            "",
+            "rag",
+            "change_in_prod",
+        }:
+            raise ValueError(
+                "POSTGRES_PASSWORD must be set to a non-placeholder value "
+                "when APP_ENV is not local"
+            )
+        return self
+
     @property
     def postgres_dsn(self) -> str:
         """libpq URL for psycopg; migrations/env.py adapts it for SQLAlchemy."""
