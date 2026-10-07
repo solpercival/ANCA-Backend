@@ -33,6 +33,8 @@ from rag_engine.api.schemas import (
     DocCoverage,
     ResolveRequest,
     ResolveResponse,
+    EffortSettings,
+    EffortLevel
 )
 from rag_engine.api.errors import ModelUnavailable, RetrievalUnavailable, UnknownAlarmCode
 from rag_engine.auth.tiers import Tier, can_view_likely_causes
@@ -457,6 +459,10 @@ class Orchestrator:
         RetrievalUnavailable when the catalogue or retrieval backend fails. The
         caller (api/routes.py) applies tier visibility rules to the result.
         """
+        # retrieve request effort settings
+        effort_settings = EffortSettings()
+        effort_settings = effort_settings.get_effort_settings(req.effort)
+        
         where = {}
         if req.env.versions:
             where["versions"] = req.env.versions
@@ -479,7 +485,7 @@ class Orchestrator:
             trace = self._langfuse.trace(name="resolve", input={"code": req.code, "query": query})
 
         t0 = time.perf_counter()
-        query = await self._preprocessor.process_prompt(query, "")
+        query = await self._preprocessor.process_prompt(query, "", effort_settings)
         t_rewrite = time.perf_counter() - t0
         rag_stage_seconds.labels(stage="rewrite").observe(t_rewrite)
 
@@ -505,7 +511,7 @@ class Orchestrator:
         trimmed = candidates[:20]
 
         t0 = time.perf_counter()
-        top = await self._reranker.rerank(query, trimmed, top_n=self._top_n)
+        top = await self._reranker.rerank(query, trimmed, effort=effort_settings)
         t_rerank = time.perf_counter() - t0
         rag_stage_seconds.labels(stage="rerank").observe(t_rerank)
 
@@ -519,7 +525,9 @@ class Orchestrator:
 
         t0 = time.perf_counter()
         try:
-            answer = await self._generator.generate(self._build_prompt(req, alarm, top, tier))
+            answer = await self._generator.generate(prompt=self._build_prompt(req, alarm, top, tier), 
+                                                   tokens=effort_settings.num_predict, 
+                                                   thinking=effort_settings.thinking)
         except Exception as exc:
             log.exception("generation_error code=%s", req.code)
             rag_resolve_total.labels(outcome="error").inc()
@@ -595,7 +603,11 @@ class Orchestrator:
         what gets retrieved on and stored as the turn's query. An empty message
         returns an empty reply.
         """
-        rewritten_prompt = await self._preprocessor.process_prompt(req.message, req.conversation_id)
+        # retrieve request effort settings
+        effort_settings: EffortSettings = EffortSettings()
+        effort_settings = effort_settings.get_effort_settings(req.effort)
+
+        rewritten_prompt = await self._preprocessor.process_prompt(req.message, req.conversation_id, effort_settings)
         if not rewritten_prompt:
             return ChatResponse(conversation_id=req.conversation_id, reply="", citations=[])
         req.message = rewritten_prompt
@@ -626,7 +638,7 @@ class Orchestrator:
         trimmed = candidates[:20]
 
         t0 = time.perf_counter()
-        top = await self._reranker.rerank(req.message, trimmed, top_n=self._top_n)
+        top = await self._reranker.rerank(req.message, trimmed, effort=effort_settings)
         t_rerank = time.perf_counter() - t0
         rag_stage_seconds.labels(stage="rerank").observe(t_rerank)
 
@@ -640,7 +652,9 @@ class Orchestrator:
 
         t0 = time.perf_counter()
         try:
-            reply = await self._generator.generate(self._build_chat_prompt(req.message, top))
+            reply = await self._generator.generate(prompt=self._build_chat_prompt(req.message, top), 
+                                                   tokens=effort_settings.num_predict, 
+                                                   thinking=effort_settings.thinking)
         except Exception as exc:
             log.exception("generation_error conversation_id=%s", req.conversation_id)
             rag_resolve_total.labels(outcome="error").inc()

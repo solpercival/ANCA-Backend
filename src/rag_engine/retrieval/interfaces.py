@@ -6,6 +6,7 @@ runtime inside the model containers.
 """
 from dataclasses import dataclass, field
 from typing import Protocol
+from rag_engine.api.schemas import EffortSettings
 import json
 
 @dataclass
@@ -59,11 +60,11 @@ class AlarmStore(Protocol):
 
 class Reranker(Protocol):
     """Reorders candidates by relevance to the query; returns at most top_n."""
-    async def rerank(self, query: str, chunks: list[Chunk], top_n: int) -> list[Chunk]: ...
+    async def rerank(self, query: str, chunks: list[Chunk], effort: EffortSettings) -> list[Chunk]: ...
 
 class Generator(Protocol):
     """Prompt -> completion text from the LLM."""
-    async def generate(self, prompt: str) -> str: ...
+    async def generate(self, prompt: str, tokens: int | None = None, thinking: bool = False) -> str: ...
 
 class KeywordStore(Protocol):
     """Domain keywords (from the ingested docs) that match a query."""

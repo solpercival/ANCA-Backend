@@ -11,6 +11,7 @@ import re
 import json
 from rag_engine.config import get_settings
 from rag_engine.retrieval.interfaces import KeywordStore, Generator, ChatStore, AlarmStore
+from rag_engine.api.schemas import EffortSettings
 
 # a pronoun means the message probably refers back to earlier turns
 PRONOUN_RE = re.compile(r"\b(my|i|it|its|that|this|those|these|they|them|their|he|she|same)\b", re.IGNORECASE)
@@ -128,9 +129,12 @@ class QueryPreprocessor:
     def _format_query(self, query: Query) -> str:
         return f"<user-query>{query.resolved_query}</user-query>"
 
-    async def process_prompt(self, raw_query: str, conversation_id: str) -> str:
+    async def process_prompt(self, raw_query: str, conversation_id: str, effort: EffortSettings) -> str:
         """The query to retrieve with: normalised, and rewritten with the
         conversation's context when it needs it. "" for an empty message."""
+        if not effort.rewrite:
+            return raw_query
+
         # normalize query, remove filler words/content
         norm_query = self._normalize_query(raw_query)
         if not norm_query:
@@ -165,7 +169,7 @@ class QueryPreprocessor:
         # The final query is structured as """<instruction> \n <rules> \n <domain-glossary> \n <context> \n <user-query>"""
         formatted_query = f"{QUERY_REWRITE_PROMPT}\n{keyword_str}\n{context_str}\n{query_str}"
 
-        rewritten_query = await self._rewrite_model.generate(formatted_query)
+        rewritten_query = await self._rewrite_model.generate(prompt=formatted_query, tokens=effort.num_rewrite)
 
         # fall back to the normalized query if the model returns nothing usable
         return (rewritten_query or "").strip() or norm_query
