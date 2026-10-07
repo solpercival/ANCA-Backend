@@ -33,7 +33,9 @@ class EffortSettings(BaseModel):
     context_k: int = 0
     reranker: str = "identity"
     num_predict: int = 0
+    num_rewrite: int = 0
     rewrite: bool = False
+    thinking: bool = False
 
     @classmethod
     def get_effort_settings(level: EffortLevel | None) -> EffortSettings:
