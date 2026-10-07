@@ -2,8 +2,10 @@
 from typing import Literal
 
 from pydantic import BaseModel, Field
+from enum import StrEnum
 
 from rag_engine.auth.tiers import Tier
+from rag_engine.config import get_settings
 
 DocCoverage = Literal["full", "partial", "none"]
 
@@ -18,6 +20,38 @@ class Env(BaseModel):
     machine_variant: str | None = None
 
 
+class EffortLevel(StrEnum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+class EffortSettings(BaseModel):
+    """The settings used for retrieval, reranking, rewriting and generation based on selected effort"""
+    retrieval_k: int = 0
+    reranker_n: int = 0
+    context_k: int = 0
+    reranker: str = "identity"
+    num_predict: int = 0
+    rewrite: bool = False
+
+    @classmethod
+    def get_effort_settings(level: EffortLevel | None) -> EffortSettings:
+        # collect data based on config
+        match level:
+            case EffortLevel.LOW:
+                config = get_settings().LOW_CONFIG
+            case EffortLevel.MEDIUM:
+                config = get_settings().MID_CONFIG
+            case EffortLevel.HIGH:
+                config = get_settings().HIGH_CONFIG
+            case _:
+                # defaults to medium config
+                config = get_settings().MID_CONFIG
+
+        return EffortSettings(**config)
+
+
 class ResolveRequest(BaseModel):
     """Body of POST /api/v2/resolve."""
     code: str = Field(
@@ -28,6 +62,7 @@ class ResolveRequest(BaseModel):
         examples=["am.fb.0002"],
     )
     env: Env = Field(default_factory=Env)
+    effort: EffortLevel = EffortLevel.MEDIUM
     query: str | None = Field(
         None,
         max_length=1000,
@@ -82,6 +117,7 @@ class ResolveResponse(BaseModel):
 class ChatRequest(BaseModel):
     """Body of POST /api/v2/chat. Reuse conversation_id to continue a conversation."""
     conversation_id: str = Field(..., min_length=1, max_length=128)
+    effort: EffortLevel = EffortLevel.MEDIUM
     message: str = Field(..., min_length=1, max_length=4096)
 
 
