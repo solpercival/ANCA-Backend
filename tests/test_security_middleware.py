@@ -105,9 +105,30 @@ def test_wildcard_hosts_are_rejected_outside_local():
         Settings(app_env="production", allowed_hosts=["*"], jwt_secret=LONG_SECRET)
 
 
+@pytest.mark.parametrize("postgres_password", ["", "rag", "change_in_prod"])
+def test_placeholder_postgres_passwords_are_rejected_outside_local(postgres_password):
+    with pytest.raises(ValidationError, match="POSTGRES_PASSWORD"):
+        Settings(
+            app_env="production",
+            allowed_hosts=["api.anca.test"],
+            jwt_secret=LONG_SECRET,
+            postgres_password=postgres_password,
+            _env_file=None,
+        )
+
+
+def test_default_postgres_password_is_allowed_locally():
+    settings = Settings(app_env="local", _env_file=None)
+
+    assert settings.postgres_password == "rag"
+
+
 def test_named_hosts_are_accepted_outside_local():
     settings = Settings(
-        app_env="production", allowed_hosts=["api.anca.test", "localhost"], jwt_secret=LONG_SECRET
+        app_env="production",
+        allowed_hosts=["api.anca.test", "localhost"],
+        jwt_secret=LONG_SECRET,
+        postgres_password="production-db-secret",
     )
 
     assert settings.allowed_hosts == ["api.anca.test", "localhost"]

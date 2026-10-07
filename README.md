@@ -61,6 +61,10 @@ make up               # orchestrator + PostgreSQL(pgvector) + redis + Ollama
 # open http://localhost:8080/docs  (OpenAPI / Swagger)
 ```
 
+`.env` is for local development and is gitignored. Keep real credentials out of
+commits, logs, and container images. Do not use this file as a production
+secrets mechanism.
+
 Download the local Ollama models after the stack is running:
 
 ```bash
@@ -143,11 +147,35 @@ make up-full
 ## CI/CD
 
 - **`ci.yml`** runs on every push/PR on **hosted runners**: ruff, pylint, mypy,
-  pytest, and an image build. It never loads a model — model-backed code sits
+  pytest, and an image build. It never loads a model. Model-backed code sits
   behind `Protocol` interfaces and is faked in tests, which is what keeps CI
   free of GPUs.
-- **`eval.yml`** is **disabled** until a self-hosted GPU runner exists. It loads
-  the real models and scores the engine against `docs/reference-answers.json`.
+
+### Secrets
+
+Settings load from environment variables (`.env` locally; gitignored,
+never committed, see `.env.example` for local examples).
+
+**Secrets:** `JWT_SECRET`, `POSTGRES_PASSWORD`, `OPENAI_API_KEY`,
+`ANTHROPIC_API_KEY`, `HF_TOKEN`, `LANGFUSE_SECRET_KEY`.
+`LANGFUSE_PUBLIC_KEY` identifies the Langfuse project and isn't
+sensitive by design. Everything else (e.g. `LANGFUSE_HOST`) is
+plain config, not a credential.
+
+**CI** already injects secrets via GitHub Actions Secrets
+(`rag-eval.yml` reads `LANGFUSE_SECRET_KEY`, etc.) -> the pattern to
+follow for any workflow that needs credentials.
+
+**Production** isn't implemented yet: no deployment or secret
+retrieval exists in this repo. Values should eventually come from a
+managed secrets store (Vault or another platform-native option)
+backend choice still TBD.
+
+`JWT_SECRET` already fails fast outside `local` if it's the
+placeholder or under 32 characters. `POSTGRES_PASSWORD` has no
+equivalent minimum-length check, but now rejects blank values and the
+known placeholders (`"rag"` and `"change_in_prod"`) outside `local`.
+Production must set a non-placeholder password.
 
 ## Cloning (submodule!)
 
