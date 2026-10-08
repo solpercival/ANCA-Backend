@@ -34,7 +34,8 @@ from rag_engine.api.schemas import (
     ResolveRequest,
     ResolveResponse,
     EffortSettings,
-    EffortLevel
+    EffortLevel,
+    get_effort_settings
 )
 from rag_engine.api.errors import ModelUnavailable, RetrievalUnavailable, UnknownAlarmCode
 from rag_engine.auth.tiers import Tier, can_view_likely_causes
@@ -116,6 +117,8 @@ def get_reranker_backend() -> Reranker:
         return Qwen3Reranker(max_length=512)
     raise ValueError(f"Unknown RERANK_PROVIDER={provider!r}; expected 'none' or 'qwen3'")
 
+def get_identity_reranker_backend() -> IdentityReranker:
+    return IdentityReranker()
 
 # Markdown structure stripped by _context_sentences, so causes are matched against
 # (and returned as) plain prose sentences, never tables, code or headings.
@@ -195,9 +198,6 @@ def _log_candidates(candidates: list[Chunk]) -> None:
 
 class Orchestrator:
     """One resolve or chat turn: retrieve, rerank, generate, then ground the answer.
-
-    retrieval_top_k is candidates per search; rerank_top_n is how many reranked
-    chunks go into the prompt (the first 3 are returned as citations).
     """
 
     def __init__(
@@ -207,17 +207,14 @@ class Orchestrator:
         reranker: Reranker,
         generator: Generator,
         alarm_store: AlarmStore,
-        rerank_top_n: int = 8,
-        retrieval_top_k: int = 50,
         langfuse_client: Langfuse | None = None,
     ):
         self._preprocessor = preprocessor
         self._retriever = retriever
         self._reranker = reranker
+        self._id_reranker = get_identity_reranker_backend()
         self._generator = generator
         self._alarms = alarm_store
-        self._top_n = rerank_top_n
-        self._top_k = retrieval_top_k
         self._langfuse = langfuse_client
 
     @staticmethod
@@ -460,8 +457,7 @@ class Orchestrator:
         caller (api/routes.py) applies tier visibility rules to the result.
         """
         # retrieve request effort settings
-        effort_settings = EffortSettings()
-        effort_settings = effort_settings.get_effort_settings(req.effort)
+        effort_settings: EffortSettings = get_effort_settings(req.effort)
         
         where = {}
         if req.env.versions:
@@ -484,14 +480,15 @@ class Orchestrator:
         if self._langfuse:
             trace = self._langfuse.trace(name="resolve", input={"code": req.code, "query": query})
 
-        t0 = time.perf_counter()
-        query = await self._preprocessor.process_prompt(query, "", effort_settings)
-        t_rewrite = time.perf_counter() - t0
-        rag_stage_seconds.labels(stage="rewrite").observe(t_rewrite)
+        if effort_settings.rewrite:
+            t0 = time.perf_counter()
+            query = await self._preprocessor.process_prompt(query, "", effort_settings)
+            t_rewrite = time.perf_counter() - t0
+            rag_stage_seconds.labels(stage="rewrite").observe(t_rewrite)
 
         t0 = time.perf_counter()
         try:
-            candidates = await self._retriever.retrieve(query, top_k=self._top_k, where=where or None)
+            candidates = await self._retriever.retrieve(query, top_k=effort_settings.retrieval_k, where=where or None)
         except Exception as exc:
             log.exception("retrieval_error code=%s", req.code)
             rag_resolve_total.labels(outcome="error").inc()
@@ -503,22 +500,25 @@ class Orchestrator:
         if self._langfuse and trace:
             trace.span(
                 name="retrieve",
-                input={"query": query, "top_k": self._top_k, "where": where or None},
+                input={"query": query, "top_k": effort_settings.retrieval_k, "where": where or None},
                 output={"candidates_count": len(candidates)},
                 duration_ms=int(t_retrieve * 1000),
             )
 
-        trimmed = candidates[:20]
+        trimmed = candidates[:effort_settings.context_k]
 
         t0 = time.perf_counter()
-        top = await self._reranker.rerank(query, trimmed, effort=effort_settings)
+        if effort_settings.reranker == "identity":
+            top = await self._id_reranker.rerank(query, trimmed, effort=effort_settings)
+        else:
+            top = await self._reranker.rerank(query, trimmed, effort=effort_settings)
         t_rerank = time.perf_counter() - t0
         rag_stage_seconds.labels(stage="rerank").observe(t_rerank)
 
         if self._langfuse and trace:
             trace.span(
                 name="rerank",
-                input={"candidates_count": len(candidates), "top_n": self._top_n},
+                input={"candidates_count": len(candidates), "top_n": effort_settings.reranker_n},
                 output={"top_count": len(top)},
                 duration_ms=int(t_rerank * 1000),
             )
@@ -604,13 +604,13 @@ class Orchestrator:
         returns an empty reply.
         """
         # retrieve request effort settings
-        effort_settings: EffortSettings = EffortSettings()
-        effort_settings = effort_settings.get_effort_settings(req.effort)
+        effort_settings: EffortSettings = get_effort_settings(req.effort)
 
-        rewritten_prompt = await self._preprocessor.process_prompt(req.message, req.conversation_id, effort_settings)
-        if not rewritten_prompt:
-            return ChatResponse(conversation_id=req.conversation_id, reply="", citations=[])
-        req.message = rewritten_prompt
+        if effort_settings.rewrite:
+            rewritten_prompt = await self._preprocessor.process_prompt(req.message, req.conversation_id, effort_settings)
+            if not rewritten_prompt:
+                return ChatResponse(conversation_id=req.conversation_id, reply="", citations=[])
+            req.message = rewritten_prompt
 
         trace = None
         if self._langfuse:
@@ -618,7 +618,7 @@ class Orchestrator:
 
         t0 = time.perf_counter()
         try:
-            candidates = await self._retriever.retrieve(req.message, top_k=self._top_k)
+            candidates = await self._retriever.retrieve(req.message, top_k=effort_settings.retrieval_k)
         except Exception as exc:
             log.exception("retrieval_error conversation_id=%s", req.conversation_id)
             rag_resolve_total.labels(outcome="error").inc()
@@ -630,22 +630,25 @@ class Orchestrator:
         if self._langfuse and trace:
             trace.span(
                 name="retrieve",
-                input={"query": req.message, "top_k": self._top_k},
+                input={"query": req.message, "top_k": effort_settings.retrieval_k},
                 output={"candidates_count": len(candidates)},
                 duration_ms=int(t_retrieve * 1000),
             )
 
-        trimmed = candidates[:20]
+        trimmed = candidates[:effort_settings.context_k]
 
         t0 = time.perf_counter()
-        top = await self._reranker.rerank(req.message, trimmed, effort=effort_settings)
+        if effort_settings.reranker == "identity":
+            top = await self._id_reranker.rerank(req.message, trimmed, effort=effort_settings)
+        else:
+            top = await self._reranker.rerank(req.message, trimmed, effort=effort_settings)
         t_rerank = time.perf_counter() - t0
         rag_stage_seconds.labels(stage="rerank").observe(t_rerank)
 
         if self._langfuse and trace:
             trace.span(
                 name="rerank",
-                input={"candidates_count": len(candidates), "top_n": self._top_n},
+                input={"candidates_count": len(candidates), "top_n": effort_settings.reranker_n},
                 output={"top_count": len(top)},
                 duration_ms=int(t_rerank * 1000),
             )
@@ -728,8 +731,7 @@ def get_orchestrator() -> Orchestrator:  # pragma: no cover - wired at runtime
     query_rewriter = QueryPreprocessor(chat_store,
                                        vector_store, 
                                        rewrite_model, 
-                                       get_settings().KEYWORD_K, 
-                                       get_settings().CONTEXT_K)
+                                       get_settings().KEYWORD_K)
     
     return Orchestrator(
         preprocessor=query_rewriter,

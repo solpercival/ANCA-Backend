@@ -37,21 +37,20 @@ class EffortSettings(BaseModel):
     rewrite: bool = False
     thinking: bool = False
 
-    @classmethod
-    def get_effort_settings(level: EffortLevel | None) -> EffortSettings:
-        # collect data based on config
-        match level:
-            case EffortLevel.LOW:
-                config = get_settings().LOW_CONFIG
-            case EffortLevel.MEDIUM:
-                config = get_settings().MID_CONFIG
-            case EffortLevel.HIGH:
-                config = get_settings().HIGH_CONFIG
-            case _:
-                # defaults to medium config
-                config = get_settings().MID_CONFIG
+def get_effort_settings(level: EffortLevel | None) -> EffortSettings:
+    # collect data based on config
+    match level:
+        case EffortLevel.LOW:
+            config = get_settings().LOW_CONFIG
+        case EffortLevel.MEDIUM:
+            config = get_settings().MID_CONFIG
+        case EffortLevel.HIGH:
+            config = get_settings().HIGH_CONFIG
+        case _:
+            # defaults to medium config
+            config = get_settings().MID_CONFIG
 
-        return EffortSettings(**config)
+    return EffortSettings(**config)
 
 
 class ResolveRequest(BaseModel):

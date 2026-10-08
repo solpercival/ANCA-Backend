@@ -54,9 +54,8 @@ class QueryPreprocessor:
     """Normalises queries, rewrites context-dependent chat messages, and records
     each finished turn in the chat store (store_context)."""
 
-    def __init__(self, chat_db: ChatStore, keyword_db: KeywordStore, rewrite_model: Generator, keywd_k: int=1, context_k: int=1):
+    def __init__(self, chat_db: ChatStore, keyword_db: KeywordStore, rewrite_model: Generator, keywd_k: int=1):
         self._keywd_k = keywd_k # top k keywords selected
-        self._context_k = context_k # recent k context used
         self._chat_db = chat_db
         self._keyword_db = keyword_db
         self._rewrite_model = rewrite_model
@@ -84,7 +83,7 @@ class QueryPreprocessor:
 
         return False # prefer not to process
 
-    async def _collect_keywords(self, query: Query, context: list[tuple[str, bool | None]]) -> str:
+    async def _collect_keywords(self, query: Query, context: list[tuple[str, bool | None]], effort_settings: EffortSettings) -> str:
         # collects keywords from exact and fuzzy search to enforce preservation of domain specific terms/acronyms/labels
         # Known issue: keyword_search returns None when nothing matches, and the
         # join below then raises TypeError; guard with `or []` when fixing.
@@ -93,12 +92,12 @@ class QueryPreprocessor:
         context_query = " ".join(terms)
 
         matched_kws = await self._keyword_db.keyword_search(query.resolved_query, top_k=self._keywd_k)
-        context_kws = await self._keyword_db.keyword_search(context_query, top_k=self._context_k)
+        context_kws = await self._keyword_db.keyword_search(context_query, top_k=self._keywd_k)
 
         glossary_str = f'{"|".join(matched_kws)}|{"|".join(context_kws)}'
         return f"<domain-glossary>{glossary_str}</domain-glossary>"
 
-    def _process_context(self, context: list[tuple[str, bool | None]], prev_k: int = 3) -> str:
+    def _process_context(self, context: list[tuple[str, bool | None]], prev_k: int) -> str:
         # context is expected in the format (context string, status).
         # status can be True indicating success, False indicating failure or None indicating no recorded reaction
 
@@ -162,7 +161,7 @@ class QueryPreprocessor:
         keyword_str = await self._collect_keywords(query, prev_context)
 
         # create the context string
-        context_str = self._process_context(prev_context, self._context_k)
+        context_str = self._process_context(prev_context, effort.context_k)
 
         query_str = self._format_query(query)
 
