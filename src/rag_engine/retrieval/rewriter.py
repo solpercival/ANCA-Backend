@@ -158,7 +158,7 @@ class QueryPreprocessor:
             return norm_query
 
         # search DB for relevant keywords used in domain glossary
-        keyword_str = await self._collect_keywords(query, prev_context)
+        keyword_str = await self._collect_keywords(query, prev_context, effort)
 
         # create the context string
         context_str = self._process_context(prev_context, effort.context_k)
