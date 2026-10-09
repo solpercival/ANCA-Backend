@@ -262,7 +262,7 @@ class OpenAIGenerator:
     def __init__(self, client: httpx.AsyncClient):
         self._client = client
 
-    async def generate(self, prompt: str, tokens: int | None = None, thinking: bool = False | None) -> str:
+    async def generate(self, prompt: str, tokens: int | None = None, thinking: bool = False) -> str:
         settings = get_settings()
         if not settings.openai_api_key:
             raise ValueError("OPENAI_API_KEY is required when llm_provider=openai")

@@ -172,7 +172,7 @@ class Settings(BaseSettings):
     HIGH_CONFIG: dict = {
         "retrieval_k": 80,
         "reranker_n": 20,
-        "context_k": 15,
+        "context_k": 30,
         "reranker": "qwen3",
         "num_predict": 250,
         "num_rewrite": 512,
