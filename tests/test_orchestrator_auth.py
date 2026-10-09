@@ -72,15 +72,15 @@ def test_reranker_backend_factory_rejects_unknown_provider(monkeypatch, provider
 
 def test_orchestrator_resolve_uses_query_and_returns_top_results():
     class FakePreprocessor:
-        async def process_prompt(self, query, conversation_id):
+        async def process_prompt(self, query, conversation_id, effort):
             return query
 
         def store_context(self, conversation_id, query, response, alarm):
             return
 
     class FakeReranker:
-        async def rerank(self, query, chunks, top_n):
-            return chunks[:top_n]
+        async def rerank(self, query, chunks, effort):
+            return chunks[:effort.reranker_n]
 
     class FakeRetriever:
         async def retrieve(self, query, top_k, where=None):
@@ -93,7 +93,7 @@ def test_orchestrator_resolve_uses_query_and_returns_top_results():
         prompt = None
         calls = 0
 
-        async def generate(self, prompt):
+        async def generate(self, prompt, tokens=None, thinking=False):
             self.calls += 1
             self.prompt = prompt
             return "answer"
@@ -119,15 +119,15 @@ def test_orchestrator_resolve_uses_query_and_returns_top_results():
 
 def test_orchestrator_chat_returns_retrieved_citations():
     class FakePreprocessor:
-        async def process_prompt(self, query, conversation_id):
+        async def process_prompt(self, query, conversation_id, effort):
             return query
 
         def store_context(self, conversation_id, query, response, alarm):
             return
 
     class FakeReranker:
-        async def rerank(self, query, chunks, top_n):
-            return chunks[:top_n]
+        async def rerank(self, query, chunks, effort):
+            return chunks[:effort.reranker_n]
 
     class FakeRetriever:
         async def retrieve(self, query, top_k, where=None):
@@ -139,7 +139,7 @@ def test_orchestrator_chat_returns_retrieved_citations():
         prompt = None
         calls = 0
 
-        async def generate(self, prompt):
+        async def generate(self, prompt, tokens=None, thinking=False):
             self.calls += 1
             self.prompt = prompt
             return "final reply"

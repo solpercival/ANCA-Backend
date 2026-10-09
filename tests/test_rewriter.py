@@ -12,8 +12,7 @@ def preprocessor():
         chat_db=None,
         keyword_db=None,
         rewrite_model=None,
-        keywd_k=5,
-        context_k=3
+        keywd_k=5
     )
 
 # Query class initialization tests
@@ -56,7 +55,7 @@ def test_create_query_basic(preprocessor):
 
 # _process_context() tests
 def test_process_context_empty(preprocessor):
-    result = preprocessor._process_context([])
+    result = preprocessor._process_context([], prev_k=3)
     assert result == ""
 
 def test_process_context_basic(preprocessor):
@@ -113,7 +112,7 @@ async def test_chat_context():
             return list(self.history)
 
     fake_db = FakeChatStore()
-    preprocessor = QueryPreprocessor(fake_db, fake_db, None, 3, 3)
+    preprocessor = QueryPreprocessor(fake_db, fake_db, None, 3)
     settings = get_settings()
 
     preprocessor.store_context("test-conv-id1", "test-query 1?", "response-1", f"am{settings.alarm_delim}nc{settings.alarm_delim}0001")

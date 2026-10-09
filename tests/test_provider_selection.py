@@ -101,7 +101,7 @@ def test_ollama_generator_logs_prompt_and_output_timing(caplog):
     async def run():
         transport = httpx.MockTransport(lambda request: httpx.Response(200, text=body))
         async with httpx.AsyncClient(transport=transport) as client:
-            return await OllamaGenerator(client).generate("prompt")
+            return await OllamaGenerator(client).generate("prompt", 200, False)
 
     with caplog.at_level("INFO", logger="rag_engine.providers"):
         reply = asyncio.run(run())

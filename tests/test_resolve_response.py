@@ -15,8 +15,8 @@ REQ = ResolveRequest(code="am.fb.0002")
 
 
 class FakeReranker:
-    async def rerank(self, query, chunks, top_n):
-        return chunks[:top_n]
+    async def rerank(self, query, chunks, effort):
+        return chunks[:effort.reranker_n]
 
 
 class FakeRetriever:
@@ -31,7 +31,7 @@ class FakeGenerator:
     def __init__(self, answer):
         self._answer = answer
 
-    async def generate(self, prompt):
+    async def generate(self, prompt, tokens=None, thinking=False):
         return self._answer
 
 

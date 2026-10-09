@@ -50,12 +50,12 @@ class FakeLexical:
 
 
 class FakeReranker:
-    async def rerank(self, query, chunks, top_n):
-        return chunks[:top_n]
+    async def rerank(self, query, chunks, effort):
+        return chunks[:effort.reranker_n]
 
 
 class FakeGenerator:
-    async def generate(self, prompt):
+    async def generate(self, prompt, tokens=None, thinking=False):
         # uncited CAUSE: the fake can't know chunk order, so it's matched against all
         return (
             "COVERAGE: partial\n"
@@ -64,7 +64,7 @@ class FakeGenerator:
         )
 
 class FakePreprocessor():
-    async def process_prompt(self, raw_query, conversation_id):
+    async def process_prompt(self, raw_query, conversation_id, effort):
         return raw_query
     
     def store_context(self, conversation_id, query, response, alarm):
