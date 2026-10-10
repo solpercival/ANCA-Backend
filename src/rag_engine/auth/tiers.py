@@ -46,6 +46,11 @@ def can_use_chat(tier: Tier) -> bool:
     return (tier is Tier.technician) or (tier is Tier.partner)
 
 
+def can_be_offered_escalation(tier: Tier) -> bool:
+    """Return whether the tier should be offered escalation to a technician."""
+    return tier is Tier.operator
+
+
 def can_view_likely_causes(tier: Tier) -> bool:
     """Return whether the tier may see the likely causes behind an alarm."""
     return (tier is Tier.technician) or (tier is Tier.partner)

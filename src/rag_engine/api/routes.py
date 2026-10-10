@@ -19,7 +19,12 @@ from rag_engine.api.schemas import (
     ResolveResponse,
 )
 from rag_engine.auth.dependencies import current_principal, require
-from rag_engine.auth.tiers import Principal, can_view_likely_causes, can_use_chat
+from rag_engine.auth.tiers import (
+    Principal,
+    can_be_offered_escalation,
+    can_use_chat,
+    can_view_likely_causes,
+)
 from rag_engine.config import get_settings
 from rag_engine.orchestrator import Orchestrator, get_orchestrator
 
@@ -125,6 +130,11 @@ async def resolve(
     if not can_view_likely_causes(principal.tier):
         resp.likely_causes = []
     resp.ai_chat_available = can_use_chat(principal.tier)
+    resp.escalation_suggested = (
+        settings.escalation_suggestion_enabled
+        and can_be_offered_escalation(principal.tier)
+        and resp.doc_coverage != "full"
+    )
     return resp
 
 

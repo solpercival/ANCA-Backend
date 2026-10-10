@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     login_max_attempts_per_ip: int = 20
     login_window_seconds: int = 900
     cors_allow_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
+    escalation_suggestion_enabled: bool = True
 
     # postgres
     postgres_host: str = "postgres"

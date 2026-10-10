@@ -68,6 +68,10 @@ class ResolveResponse(BaseModel):
     citations: list[Citation] = Field(default_factory=list)
     tier: Tier
     ai_chat_available: bool = False  # whether the caller may use /api/v2/chat
+    escalation_suggested: bool = Field(
+        False,
+        description="Whether the caller should be offered escalation to a technician",
+    )
     confidence: float = Field(
         0.0,
         ge=0.0,
