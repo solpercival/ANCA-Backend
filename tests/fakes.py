@@ -25,7 +25,7 @@ class FakeAlarmStore:
 class FakePreprocessor:
     """Passes the query through unchanged and stores no conversation context."""
 
-    async def process_prompt(self, raw_query, conversation_id):
+    async def process_prompt(self, raw_query, conversation_id, effort):
         return raw_query
 
     def store_context(self, conversation_id, query, response, alarm):

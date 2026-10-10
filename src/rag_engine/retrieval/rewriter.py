@@ -11,6 +11,7 @@ import re
 import json
 from rag_engine.config import get_settings
 from rag_engine.retrieval.interfaces import KeywordStore, Generator, ChatStore, AlarmStore
+from rag_engine.api.schemas import EffortSettings
 
 # a pronoun means the message probably refers back to earlier turns
 PRONOUN_RE = re.compile(r"\b(my|i|it|its|that|this|those|these|they|them|their|he|she|same)\b", re.IGNORECASE)
@@ -53,9 +54,8 @@ class QueryPreprocessor:
     """Normalises queries, rewrites context-dependent chat messages, and records
     each finished turn in the chat store (store_context)."""
 
-    def __init__(self, chat_db: ChatStore, keyword_db: KeywordStore, rewrite_model: Generator, keywd_k: int=1, context_k: int=1):
+    def __init__(self, chat_db: ChatStore, keyword_db: KeywordStore, rewrite_model: Generator, keywd_k: int=1):
         self._keywd_k = keywd_k # top k keywords selected
-        self._context_k = context_k # recent k context used
         self._chat_db = chat_db
         self._keyword_db = keyword_db
         self._rewrite_model = rewrite_model
@@ -83,7 +83,7 @@ class QueryPreprocessor:
 
         return False # prefer not to process
 
-    async def _collect_keywords(self, query: Query, context: list[tuple[str, bool | None]]) -> str:
+    async def _collect_keywords(self, query: Query, context: list[tuple[str, bool | None]], effort_settings: EffortSettings) -> str:
         # collects keywords from exact and fuzzy search to enforce preservation of domain specific terms/acronyms/labels
         # Known issue: keyword_search returns None when nothing matches, and the
         # join below then raises TypeError; guard with `or []` when fixing.
@@ -92,12 +92,12 @@ class QueryPreprocessor:
         context_query = " ".join(terms)
 
         matched_kws = await self._keyword_db.keyword_search(query.resolved_query, top_k=self._keywd_k)
-        context_kws = await self._keyword_db.keyword_search(context_query, top_k=self._context_k)
+        context_kws = await self._keyword_db.keyword_search(context_query, top_k=self._keywd_k)
 
         glossary_str = f'{"|".join(matched_kws)}|{"|".join(context_kws)}'
         return f"<domain-glossary>{glossary_str}</domain-glossary>"
 
-    def _process_context(self, context: list[tuple[str, bool | None]], prev_k: int = 3) -> str:
+    def _process_context(self, context: list[tuple[str, bool | None]], prev_k: int) -> str:
         # context is expected in the format (context string, status).
         # status can be True indicating success, False indicating failure or None indicating no recorded reaction
 
@@ -128,9 +128,12 @@ class QueryPreprocessor:
     def _format_query(self, query: Query) -> str:
         return f"<user-query>{query.resolved_query}</user-query>"
 
-    async def process_prompt(self, raw_query: str, conversation_id: str) -> str:
+    async def process_prompt(self, raw_query: str, conversation_id: str, effort: EffortSettings) -> str:
         """The query to retrieve with: normalised, and rewritten with the
         conversation's context when it needs it. "" for an empty message."""
+        if not effort.rewrite:
+            return raw_query
+
         # normalize query, remove filler words/content
         norm_query = self._normalize_query(raw_query)
         if not norm_query:
@@ -155,17 +158,17 @@ class QueryPreprocessor:
             return norm_query
 
         # search DB for relevant keywords used in domain glossary
-        keyword_str = await self._collect_keywords(query, prev_context)
+        keyword_str = await self._collect_keywords(query, prev_context, effort)
 
         # create the context string
-        context_str = self._process_context(prev_context, self._context_k)
+        context_str = self._process_context(prev_context, effort.context_k)
 
         query_str = self._format_query(query)
 
         # The final query is structured as """<instruction> \n <rules> \n <domain-glossary> \n <context> \n <user-query>"""
         formatted_query = f"{QUERY_REWRITE_PROMPT}\n{keyword_str}\n{context_str}\n{query_str}"
 
-        rewritten_query = await self._rewrite_model.generate(formatted_query)
+        rewritten_query = await self._rewrite_model.generate(prompt=formatted_query, tokens=effort.num_rewrite)
 
         # fall back to the normalized query if the model returns nothing usable
         return (rewritten_query or "").strip() or norm_query

@@ -8,6 +8,7 @@ import types
 
 import pytest
 
+from rag_engine.api.schemas import EffortSettings
 from rag_engine.retrieval.interfaces import Chunk
 from rag_engine.retrieval.reranker import IdentityReranker, Qwen3Reranker
 
@@ -21,13 +22,13 @@ def _chunks(n: int) -> list[Chunk]:
 
 async def test_identity_truncates_and_preserves_order() -> None:
     """Ten chunks in, first five out and the order is unchanged."""
-    result = await IdentityReranker().rerank("any query", _chunks(10), top_n=5)
+    result = await IdentityReranker().rerank("any query", _chunks(10), effort=EffortSettings(reranker_n=5))
     assert [c.chunk_id for c in result] == ["0", "1", "2", "3", "4"]
 
 
 async def test_identity_empty_input_returns_empty() -> None:
     """An empty candidate list comes back empty."""
-    assert await IdentityReranker().rerank("any query", [], top_n=5) == []
+    assert await IdentityReranker().rerank("any query", [], effort=EffortSettings(reranker_n=5)) == []
 
 
 async def test_qwen3_orders_by_score_and_truncates() -> None:
@@ -38,7 +39,7 @@ async def test_qwen3_orders_by_score_and_truncates() -> None:
         float(i) for i in range(len(texts) - 1, -1, -1)
     ]
 
-    result = await reranker.rerank("any query", _chunks(10), top_n=3)
+    result = await reranker.rerank("any query", _chunks(10), effort=EffortSettings(reranker_n=3))
 
     assert [c.chunk_id for c in result] == ["0", "1", "2"]
     assert result[0].score == 9.0
@@ -55,7 +56,7 @@ async def test_qwen3_drops_chunks_below_min_score() -> None:
     """Low-relevance chunks are cut even when they fit within top_n."""
     reranker = _scored_reranker([0.9, 0.05, 0.6, 0.1], min_score=0.2)
 
-    result = await reranker.rerank("any query", _chunks(4), top_n=4)
+    result = await reranker.rerank("any query", _chunks(4), effort=EffortSettings(reranker_n=4))
 
     assert [c.chunk_id for c in result] == ["0", "2"]
 
@@ -64,7 +65,7 @@ async def test_qwen3_keeps_best_chunk_when_all_below_min_score() -> None:
     """The generator always gets at least one chunk to judge coverage from."""
     reranker = _scored_reranker([0.05, 0.1, 0.01], min_score=0.2)
 
-    result = await reranker.rerank("any query", _chunks(3), top_n=3)
+    result = await reranker.rerank("any query", _chunks(3), effort=EffortSettings(reranker_n=3))
 
     assert [c.chunk_id for c in result] == ["1"]
 
@@ -72,14 +73,14 @@ async def test_qwen3_keeps_best_chunk_when_all_below_min_score() -> None:
 async def test_qwen3_min_score_zero_disables_cutoff() -> None:
     reranker = _scored_reranker([0.05, 0.1, 0.01], min_score=0.0)
 
-    result = await reranker.rerank("any query", _chunks(3), top_n=3)
+    result = await reranker.rerank("any query", _chunks(3), effort=EffortSettings(reranker_n=3))
 
     assert len(result) == 3
 
 
 async def test_qwen3_empty_input_returns_empty() -> None:
     """An empty candidate list comes back empty without loading the model."""
-    assert await Qwen3Reranker().rerank("any query", [], top_n=5) == []
+    assert await Qwen3Reranker().rerank("any query", [], effort=EffortSettings(reranker_n=5)) == []
 
 
 # --- device placement (fake torch/transformers: no model is loaded) -------------

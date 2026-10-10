@@ -183,23 +183,28 @@ class OllamaGenerator:
     def __init__(self, client: httpx.AsyncClient):
         self._client = client
 
-    async def generate(self, prompt: str) -> str:
+    async def generate(self, prompt: str, tokens: int | None = None, thinking: bool = False) -> str:
         settings = get_settings()
         # stream so the connection stays alive between tokens (avoids ReadTimeout on
         # slow CPU generations) and cap num_predict, the biggest CPU-side latency lever
         chunks: list[str] = []
+        generate_payload = {
+            "model": settings.llm_model,
+            "prompt": prompt,
+            "stream": True,
+            # skip qwen3's hidden reasoning trace, which otherwise burns num_predict
+            # tokens before any answer text is produced
+            "think": thinking,
+            "options": {},
+        }
+
+        if tokens:
+            generate_payload["options"]["num_predict"] = tokens
+        
         async with self._client.stream(
             "POST",
             f"{settings.ollama_base_url.rstrip('/')}/api/generate",
-            json={
-                "model": settings.llm_model,
-                "prompt": prompt,
-                "stream": True,
-                # skip qwen3's hidden reasoning trace, which otherwise burns num_predict
-                # tokens before any answer text is produced
-                "think": False,
-                "options": {"num_predict": settings.llm_num_predict},
-            },
+            json=generate_payload,
         ) as response:
             response.raise_for_status()
             async for line in response.aiter_lines():
@@ -221,20 +226,24 @@ class OllamaRewriteGenerator:
     def __init__(self, client: httpx.AsyncClient):
             self._client = client
     
-    async def generate(self, prompt: str) -> str:
+    async def generate(self, prompt: str, tokens: int | None = None, thinking: bool = False) -> str:
         settings = get_settings()
 
         # similar to OllamaGenerator, slight modifications to account for longer prompt sizes.
         chunks: list[str] = []
+        generate_payload = {
+            "model": settings.rewrite_model,
+            "prompt": prompt,
+            "stream": True,
+        }
+
+        if tokens:
+            generate_payload["options"]["num_predict"] = tokens
+
         async with self._client.stream(
             "POST",
             f"{settings.ollama_base_url.rstrip('/')}/api/generate",
-            json={
-                "model": settings.rewrite_model,
-                "prompt": prompt,
-                "stream": True,
-                "options": {"num_predict": settings.rewrite_num_predict},
-            },
+            json=generate_payload,
         ) as response:
             response.raise_for_status()
             async for line in response.aiter_lines():
@@ -253,19 +262,27 @@ class OpenAIGenerator:
     def __init__(self, client: httpx.AsyncClient):
         self._client = client
 
-    async def generate(self, prompt: str) -> str:
+    async def generate(self, prompt: str, tokens: int | None = None, thinking: bool = False) -> str:
         settings = get_settings()
         if not settings.openai_api_key:
             raise ValueError("OPENAI_API_KEY is required when llm_provider=openai")
         base_url = (settings.openai_base_url or "https://api.openai.com/v1").rstrip("/")
 
+        generate_payload = {
+            "model": settings.openai_llm_model, 
+            "messages": [{"role": "user", "content": prompt}],
+        }
+
+        if tokens:
+            generate_payload["max_completion_tokens"] = tokens
+
+        if thinking:
+            generate_payload["reasoning_effort"] = "high"
+
         response = await self._client.post(
             f"{base_url}/chat/completions",
             headers={"Authorization": f"Bearer {settings.openai_api_key}"},
-            json={
-                "model": settings.openai_llm_model, 
-                "messages": [{"role": "user", "content": prompt}],
-                },
+            json=generate_payload,
         )
         response.raise_for_status()
         payload = response.json()
@@ -279,10 +296,24 @@ class AnthropicGenerator:
     def __init__(self, client: httpx.AsyncClient):
         self._client = client
 
-    async def generate(self, prompt: str) -> str:
+    async def generate(self, prompt: str, tokens: int | None = None, thinking: bool = False) -> str:
         settings = get_settings()
         if not settings.anthropic_api_key:
             raise ValueError("ANTHROPIC_API_KEY is required when llm_provider=anthropic")
+
+        generate_payload = {
+            "model": settings.anthropic_llm_model,
+            "messages": [{"role": "user", "content": prompt}]
+        }
+
+        if tokens:
+            generate_payload["max_tokens"] = tokens
+
+        if thinking:
+            generate_payload["thinking"] = { "type": "enabled", "budget_tokens": 1024}
+        else:
+            generate_payload["thinking"] = { "type": "disabled" }
+
 
         response = await self._client.post(
             f"{settings.anthropic_base_url.rstrip('/')}/v1/messages",
@@ -291,11 +322,7 @@ class AnthropicGenerator:
                 "anthropic-version": "2023-06-01",
                 "Content-Type": "application/json",
             },
-            json={
-                "model": settings.anthropic_llm_model,
-                "max_tokens": 1024,
-                "messages": [{"role": "user", "content": prompt}]
-            }
+            json=generate_payload
         )
         
         response.raise_for_status()
@@ -357,4 +384,4 @@ def get_rewrite_backend(client: httpx.AsyncClient) -> Any:
 async def generate_text(prompt: str, client: httpx.AsyncClient) -> str:
     """One-off generation with the configured provider (not used by the app itself)."""
     backend = get_generation_backend(client)
-    return await backend.generate(prompt)
+    return await backend.generate(prompt, None, False)

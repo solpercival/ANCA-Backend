@@ -13,6 +13,7 @@ from typing import Any
 
 from rag_engine.config import get_settings
 from rag_engine.retrieval.interfaces import Chunk
+from rag_engine.api.schemas import EffortSettings
 
 # Qwen3-Reranker's published prompt format: the model answers "yes"/"no" to
 # "does this document meet the query?", and the score is P(yes). Changing PREFIX or
@@ -30,13 +31,12 @@ log = logging.getLogger("rag_engine.reranker")
 
 class IdentityReranker:
     """No-op reranker: preserves incoming order, truncates to top_n."""
-
     async def rerank(
-        self, query: str, chunks: list[Chunk], top_n: int
+            self, query: str, chunks: list[Chunk], effort: EffortSettings
     ) -> list[Chunk]:
         """Return the first top_n chunks unchanged."""
         del query  # unused: ordering is left to the caller
-        return list(chunks[:top_n])
+        return list(chunks[:effort.reranker_n])
 
 
 class Qwen3Reranker:
@@ -166,7 +166,7 @@ class Qwen3Reranker:
         return pair
 
     async def rerank(
-        self, query: str, chunks: list[Chunk], top_n: int
+            self, query: str, chunks: list[Chunk], effort: EffortSettings
     ) -> list[Chunk]:
         """Score each chunk against the query and return the top_n by relevance."""
         if not chunks:
@@ -177,7 +177,7 @@ class Qwen3Reranker:
         scores = await asyncio.to_thread(self._score, query, [c.text for c in chunks])
         for chunk, score in zip(chunks, scores, strict=True):
             chunk.score = score
-        ranked = sorted(chunks, key=lambda c: c.score, reverse=True)[:top_n]
+        ranked = sorted(chunks, key=lambda c: c.score, reverse=True)[:effort.reranker_n]
         # Scores are P("yes, this document answers the query"). Off-topic chunks that
         # still make the top_n reach the prompt and get used (e.g. a firmware-upgrade
         # page cited for an EtherCAT state alarm), so drop them -- but always keep the

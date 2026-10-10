@@ -147,6 +147,39 @@ class Settings(BaseSettings):
     # for the conversation context (retrieval/rewriter.py)
     KEYWORD_K: int = 10
     CONTEXT_K: int = 10
+
+    # effort tier configurations
+    LOW_CONFIG: dict = {
+        "retrieval_k": 5,
+        "reranker_n": 5,
+        "context_k": 0,
+        "reranker": "identity",
+        "num_predict": 120,
+        "num_rewrite": 0,
+        "rewrite": False,
+        "thinking": False
+    }
+    MID_CONFIG: dict = { # mid config is based on default settings
+        "retrieval_k": 50,
+        "reranker_n": 8,
+        "context_k": 10,
+        "reranker": "qwen3",
+        "num_predict": 180,
+        "num_rewrite": 256,
+        "rewrite": True,
+        "thinking": False
+    }
+    HIGH_CONFIG: dict = {
+        "retrieval_k": 80,
+        "reranker_n": 20,
+        "context_k": 30,
+        "reranker": "qwen3",
+        "num_predict": 250,
+        "num_rewrite": 512,
+        "rewrite": True,
+        "thinking": True
+    }
+
     
     @model_validator(mode="after")
     def _require_explicit_allowed_hosts_outside_local(self) -> Self:
