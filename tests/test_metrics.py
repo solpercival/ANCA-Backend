@@ -1,5 +1,4 @@
 """Test Prometheus metrics exposition."""
-import pytest
 
 
 def test_metrics_endpoint_available(client):
@@ -28,4 +27,3 @@ def test_rag_metrics_incremented_after_resolve(client, bearer):
     assert "rag_stage_seconds_bucket" in r.text
     assert "rag_resolve_total" in r.text
     assert 'outcome="ok"' in r.text
-

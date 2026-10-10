@@ -2,7 +2,9 @@
 settings overrides, backend selection, Ollama request options and timing logs,
 plus reciprocal rank fusion and the hybrid retriever.
 """
+
 import asyncio
+
 import httpx
 import pytest
 
@@ -14,12 +16,12 @@ from rag_engine.providers import (
     OpenAIEmbedder,
     OpenAIGenerator,
     TEIEmbedder,
-    get_sparse_embedding_backend,
     get_dense_embedding_backend,
     get_generation_backend,
+    get_sparse_embedding_backend,
 )
 from rag_engine.retrieval.hybrid import HybridRetriever, reciprocal_rank_fusion
-from rag_engine.retrieval.interfaces import Chunk, DenseEmbedder, SparseEmbedder
+from rag_engine.retrieval.interfaces import Chunk
 
 
 @pytest.fixture(autouse=True)
@@ -50,10 +52,12 @@ def test_settings_env_overrides_are_applied(monkeypatch):
     ("provider", "expected_type"),
     [("ollama", OllamaEmbedder), ("openai", OpenAIEmbedder)],
 )
-def test_dense_embedding_backend_factory_returns_expected_provider(monkeypatch, provider, expected_type):
+def test_dense_embedding_backend_factory_returns_expected_provider(
+    monkeypatch, provider, expected_type
+):
     monkeypatch.setenv("DENSE_EMBEDDING_PROVIDER", provider)
 
-    with httpx.Client(timeout=120.0) as client: 
+    with httpx.Client(timeout=120.0) as client:
         backend = get_dense_embedding_backend(client)
 
     assert isinstance(backend, expected_type)
@@ -90,10 +94,15 @@ def test_ollama_generator_logs_prompt_and_output_timing(caplog):
         {"response": "COVERAGE: partial\n", "done": False},
         {"response": "Check the cable.", "done": False},
         {
-            "response": "", "done": True, "done_reason": "length",
-            "prompt_eval_count": 3000, "prompt_eval_duration": 2_000_000_000,
-            "eval_count": 180, "eval_duration": 6_000_000_000,
-            "load_duration": 50_000_000, "total_duration": 8_100_000_000,
+            "response": "",
+            "done": True,
+            "done_reason": "length",
+            "prompt_eval_count": 3000,
+            "prompt_eval_duration": 2_000_000_000,
+            "eval_count": 180,
+            "eval_duration": 6_000_000_000,
+            "load_duration": 50_000_000,
+            "total_duration": 8_100_000_000,
         },
     ]
     body = "\n".join(json.dumps(x) for x in lines)
@@ -143,19 +152,23 @@ def test_anthropic_embedding_provider_fails_at_factory(monkeypatch):
         with pytest.raises(ValueError, match="Anthropic does not provide embeddings"):
             get_dense_embedding_backend(client)
 
+
 @pytest.mark.parametrize(
     ("provider", "expected_type"),
     [
         ("huggingface_tei", TEIEmbedder),
     ],
 )
-def test_dense_sparse_backend_factory_returns_expected_provider(monkeypatch, provider, expected_type):
+def test_dense_sparse_backend_factory_returns_expected_provider(
+    monkeypatch, provider, expected_type
+):
     monkeypatch.setenv("SPARSE_EMBEDDING_PROVIDER", provider)
-    
+
     with httpx.Client(timeout=120.0) as client:
         backend = get_sparse_embedding_backend(client)
 
     assert isinstance(backend, expected_type)
+
 
 @pytest.mark.parametrize(
     ("provider", "expected_type"),
@@ -203,6 +216,7 @@ def test_reciprocal_rank_fusion_prefers_agreement_and_dedupes():
 
 def test_hybrid_retriever_uses_dense_and_lexical_lists(monkeypatch):
     monkeypatch.setenv("EMBEDDING_SETUP", "dual")
+
     class FakeDenseEmbedder:
         async def dense_embed(self, texts):
             return [[0.1, 0.2, 0.3] for _ in texts]
@@ -225,7 +239,9 @@ def test_hybrid_retriever_uses_dense_and_lexical_lists(monkeypatch):
                 Chunk(chunk_id="l1", text="lexical_result", source="faq.md"),
             ]
 
-    retriever = HybridRetriever(FakeDenseEmbedder(), FakeSparseEmbedder(), FakeVectorStore(), FakeLexical(), rrf_k=60)
+    retriever = HybridRetriever(
+        FakeDenseEmbedder(), FakeSparseEmbedder(), FakeVectorStore(), FakeLexical(), rrf_k=60
+    )
     result = asyncio.run(retriever.retrieve("troubleshooting query", top_k=5))
 
     chunk_ids = {chunk.chunk_id for chunk in result}
@@ -263,6 +279,7 @@ def test_retriever_uses_dense_only_without_sparse_or_lexical(monkeypatch):
 
     assert [chunk.chunk_id for chunk in result] == ["dense"]
 
+
 @pytest.mark.integration
 async def test_dense_embedding_backend_output():
     settings = get_settings()
@@ -277,19 +294,20 @@ async def test_dense_embedding_backend_output():
     assert all(len(i) == settings.semantic_dim for i in embeddings)
     assert all(any(x != 0 for x in emb) for emb in embeddings)
 
+
 @pytest.mark.integration
 async def test_sparse_embedding_backend_output():
     settings = get_settings()
     with httpx.Client(timeout=120.0) as client:
         backend = get_sparse_embedding_backend(client)
 
-        assert (backend != None)
+        assert backend is not None
         assert hasattr(backend, "sparse_embed") and callable(backend.sparse_embed)
 
         queries = ["test query 1", "anca motion"]
         embeddings = await backend.sparse_embed(queries)
 
-    assert (len(embeddings) == 2)
-    assert (embeddings[0] != embeddings[1])
+    assert len(embeddings) == 2
+    assert embeddings[0] != embeddings[1]
     assert all(len(i) <= settings.lexical_dim for i in embeddings)
     assert all(len(i) > 0 for i in embeddings)

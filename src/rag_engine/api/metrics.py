@@ -1,5 +1,6 @@
 """Custom Prometheus metrics for RAG orchestration."""
-from prometheus_client import Histogram, Counter
+
+from prometheus_client import Counter, Histogram
 
 # Histogram for RAG stage latencies with buckets tuned around 5s SLO
 rag_stage_seconds = Histogram(

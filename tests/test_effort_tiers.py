@@ -1,4 +1,5 @@
 import json
+
 import httpx
 import pytest
 from pydantic import ValidationError
@@ -96,7 +97,9 @@ def test_api_resolve_endpoint_effort_boundary_validation(client, bearer):
             json={"code": "am.fb.0002", "effort": effort},
             headers=bearer,
         )
-        assert resp.status_code == 200, f"Expected 200 for effort='{effort}', got {resp.status_code}"
+        assert resp.status_code == 200, (
+            f"Expected 200 for effort='{effort}', got {resp.status_code}"
+        )
 
     # Invalid effort tier rejected with 422
     resp_invalid = client.post(
@@ -116,7 +119,9 @@ def test_api_chat_endpoint_effort_boundary_validation(client, bearer):
             json={"conversation_id": "c-1", "message": "how to fix", "effort": effort},
             headers=bearer,
         )
-        assert resp.status_code == 200, f"Expected 200 for effort='{effort}', got {resp.status_code}"
+        assert resp.status_code == 200, (
+            f"Expected 200 for effort='{effort}', got {resp.status_code}"
+        )
 
     # Invalid effort tier rejected with 422
     resp_invalid = client.post(
@@ -156,7 +161,10 @@ async def test_qwen3_reranker_truncates_by_effort_reranker_n():
 async def test_query_preprocessor_skips_rewrite_when_disabled():
     class RecordingGenerator:
         calls = 0
-        async def generate(self, prompt: str, tokens: int | None = None, thinking: bool = False) -> str:
+
+        async def generate(
+            self, prompt: str, tokens: int | None = None, thinking: bool = False
+        ) -> str:
             self.calls += 1
             return "rewritten"
 
@@ -187,7 +195,10 @@ async def test_query_preprocessor_calls_rewrite_with_num_rewrite_tokens():
     class RecordingGenerator:
         calls = 0
         last_tokens = None
-        async def generate(self, prompt: str, tokens: int | None = None, thinking: bool = False) -> str:
+
+        async def generate(
+            self, prompt: str, tokens: int | None = None, thinking: bool = False
+        ) -> str:
             self.calls += 1
             self.last_tokens = tokens
             return "standalone query for am.fb.0002"

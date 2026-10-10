@@ -24,7 +24,9 @@ def ensure_auth_schema() -> None:
     migrations/versions/0001_initial_schema.py. Safe to call on every startup.
     """
     with get_db_conn() as conn:
-        conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE")
+        conn.execute(
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE"
+        )
         conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_username_idx ON users (username)")
         for rid, tier in enumerate(Tier, start=1):
             conn.execute(

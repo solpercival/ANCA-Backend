@@ -1,4 +1,5 @@
 """Which markdown files ingestion indexes."""
+
 from pathlib import Path
 
 from ingestion.pipeline import EXCLUDED_DIRS, iter_markdown_files

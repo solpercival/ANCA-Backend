@@ -1,8 +1,9 @@
 """Request/response contracts for the resolve + chat API."""
+
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, Field
-from enum import StrEnum
 
 from rag_engine.auth.tiers import Tier
 from rag_engine.config import get_settings
@@ -10,12 +11,13 @@ from rag_engine.config import get_settings
 DocCoverage = Literal["full", "partial", "none"]
 
 # TODO: confirm exact alarm-code format with the docs team; starter-kit data
-# regex should match the known examples 
+# regex should match the known examples
 ALARM_CODE_PATTERN = r"^[a-z]{2,4}\.[a-z]{2,6}\.\d{4}$"
 
 
 class Env(BaseModel):
     """The caller's machine context; narrows retrieval to matching documentation."""
+
     versions: dict[str, str] = Field(default_factory=dict)  # component -> version
     machine_variant: str | None = None
 
@@ -27,7 +29,8 @@ class EffortLevel(StrEnum):
 
 
 class EffortSettings(BaseModel):
-    """The settings used for retrieval, reranking, rewriting and generation based on selected effort"""
+    """Retrieval, reranking, rewriting and generation settings for the selected effort."""
+
     retrieval_k: int = 0
     reranker_n: int = 0
     context_k: int = 0
@@ -36,6 +39,7 @@ class EffortSettings(BaseModel):
     num_rewrite: int = 0
     rewrite: bool = False
     thinking: bool = False
+
 
 def get_effort_settings(level: EffortLevel | None) -> EffortSettings:
     # collect data based on config
@@ -55,6 +59,7 @@ def get_effort_settings(level: EffortLevel | None) -> EffortSettings:
 
 class ResolveRequest(BaseModel):
     """Body of POST /api/v2/resolve."""
+
     code: str = Field(
         ...,
         min_length=1,
@@ -73,12 +78,14 @@ class ResolveRequest(BaseModel):
 
 class Citation(BaseModel):
     """A documentation chunk the answer was built from."""
+
     source: str  # document path
     chunk_id: str
 
 
 class ResolveResponse(BaseModel):
     """Guidance for one alarm. Tier rules are already applied (see api/routes.py)."""
+
     code: str
     # alarm header, rendered from the alarm catalogue (identifies the alarm only;
     # never a source of guidance -- that comes from the docs via steps/causes)
@@ -117,6 +124,7 @@ class ResolveResponse(BaseModel):
 
 class ChatRequest(BaseModel):
     """Body of POST /api/v2/chat. Reuse conversation_id to continue a conversation."""
+
     conversation_id: str = Field(..., min_length=1, max_length=128)
     effort: EffortLevel = EffortLevel.MEDIUM
     message: str = Field(..., min_length=1, max_length=4096)
@@ -124,6 +132,7 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     """The assistant's reply and the documentation it drew on."""
+
     conversation_id: str
     reply: str
     citations: list[Citation] = Field(default_factory=list)

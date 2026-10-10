@@ -8,10 +8,9 @@ fields like the password hash never reach a response.
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict
 
 from rag_engine.auth.tiers import Tier
-from rag_engine.auth.service import normalize_username
 
 
 class TokenResponse(BaseModel):

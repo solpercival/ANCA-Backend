@@ -16,36 +16,36 @@ Every component sits behind an interface from retrieval/interfaces.py, so tests
 inject fakes; get_orchestrator wires the real backends. Stage timings go to the
 resolve_timing log line, Prometheus (api/metrics.py) and Langfuse when configured.
 """
-from functools import lru_cache
-from difflib import SequenceMatcher
+
 import logging
 import re
 import time
+from difflib import SequenceMatcher
+from functools import lru_cache
 from typing import Any
 
 from langfuse import Langfuse
 
-from rag_engine.api.metrics import rag_stage_seconds, rag_resolve_total
+from rag_engine.api.errors import ModelUnavailable, RetrievalUnavailable, UnknownAlarmCode
+from rag_engine.api.metrics import rag_resolve_total, rag_stage_seconds
 from rag_engine.api.schemas import (
     ChatRequest,
     ChatResponse,
     Citation,
     DocCoverage,
+    EffortSettings,
     ResolveRequest,
     ResolveResponse,
-    EffortSettings,
-    EffortLevel,
-    get_effort_settings
+    get_effort_settings,
 )
-from rag_engine.api.errors import ModelUnavailable, RetrievalUnavailable, UnknownAlarmCode
 from rag_engine.auth.tiers import Tier, can_view_likely_causes
 from rag_engine.config import get_settings
 from rag_engine.retrieval.hybrid import HybridRetriever
 from rag_engine.retrieval.interfaces import Alarm, AlarmStore, Chunk, Generator, Reranker
 from rag_engine.retrieval.reranker import IdentityReranker, Qwen3Reranker
+from rag_engine.retrieval.rewriter import QueryPreprocessor
 from rag_engine.stores.alarms import PostgresAlarmStore
 from rag_engine.stores.search import PostgresDBConnection
-from rag_engine.retrieval.rewriter import QueryPreprocessor
 
 log = logging.getLogger("rag_engine.orchestrator")
 
@@ -68,7 +68,8 @@ _MIN_PARTIAL_QUOTE = 30  # a shorter fragment is too weak to anchor a sentence
 _ECHO_RATIO = 0.8
 # Verbs an action step starts with. Deliberately broad: a real step missing from
 # this list is dropped only when the answer also has other action steps.
-_ACTION_VERBS = frozenset("""
+_ACTION_VERBS = frozenset(
+    """
     acknowledge activate add adjust align allow apply assign attach avoid back
     calibrate call change check clean clear close compare configure confirm connect
     consult contact coordinate copy correct create cycle deactivate decrease define
@@ -82,7 +83,8 @@ _ACTION_VERBS = frozenset("""
     reset restart restore retry review run save select set specify split start stop
     switch synchronise synchronize test tighten transfer try turn type uninstall
     unmap update upgrade upload use validate verify wait write
-""".split())
+""".split()
+)
 
 # first line of a resolve answer, e.g. "COVERAGE: partial"; tolerate markdown bold
 _COVERAGE_LINE = re.compile(r"^\W*coverage\W*[:=-]\W*(full|partial|none)\b\W*$", re.I)
@@ -117,8 +119,10 @@ def get_reranker_backend() -> Reranker:
         return Qwen3Reranker(max_length=512)
     raise ValueError(f"Unknown RERANK_PROVIDER={provider!r}; expected 'none' or 'qwen3'")
 
+
 def get_identity_reranker_backend() -> IdentityReranker:
     return IdentityReranker()
+
 
 # Markdown structure stripped by _context_sentences, so causes are matched against
 # (and returned as) plain prose sentences, never tables, code or headings.
@@ -197,8 +201,7 @@ def _log_candidates(candidates: list[Chunk]) -> None:
 
 
 class Orchestrator:
-    """One resolve or chat turn: retrieve, rerank, generate, then ground the answer.
-    """
+    """One resolve or chat turn: retrieve, rerank, generate, then ground the answer."""
 
     def __init__(
         self,
@@ -271,7 +274,7 @@ class Orchestrator:
             "Never copy code, program examples, coordinates, tables or long passages from "
             "the context. No citation markers or brackets, no introduction, no summary.\n"
             "For COVERAGE: none, the only following line must be exactly: "
-            f"\"{_NOT_COVERED}\"\n"
+            f'"{_NOT_COVERED}"\n'
             f"{causes}"
             "The alarm header below is what the machine reported, not documentation: "
             "use it to understand the alarm, but never repeat it as guidance.\n"
@@ -350,7 +353,7 @@ class Orchestrator:
         first = next((i for i, ln in enumerate(lines) if ln.strip()), None)
         match = _COVERAGE_LINE.match(lines[first]) if first is not None else None
         if match:
-            return match.group(1).lower(), "\n".join(lines[first + 1:])
+            return match.group(1).lower(), "\n".join(lines[first + 1 :])
         log.warning("coverage_header_missing code=%s", code)
         return "partial", answer
 
@@ -373,7 +376,10 @@ class Orchestrator:
         if len(real) < len(steps) or claimed == "none":
             log.info(
                 "coverage_contradiction code=%s claimed=%s steps=%d disclaimers=%d",
-                code, claimed, len(real), len(steps) - len(real),
+                code,
+                claimed,
+                len(real),
+                len(steps) - len(real),
             )
             return "partial", real
         return claimed, real
@@ -445,7 +451,7 @@ class Orchestrator:
             "the context, in at most 3 short sentences. No citation markers or brackets, "
             "no preamble.\n"
             "If the answer is not in the context, reply exactly: "
-            "\"The documentation does not cover this.\"\n\n"
+            '"The documentation does not cover this."\n\n'
             f"Context:\n{self._format_context(chunks)}\n\nUser: {message}"
         )
 
@@ -458,7 +464,7 @@ class Orchestrator:
         """
         # retrieve request effort settings
         effort_settings: EffortSettings = get_effort_settings(req.effort)
-        
+
         where = {}
         if req.env.versions:
             where["versions"] = req.env.versions
@@ -488,7 +494,9 @@ class Orchestrator:
 
         t0 = time.perf_counter()
         try:
-            candidates = await self._retriever.retrieve(query, top_k=effort_settings.retrieval_k, where=where or None)
+            candidates = await self._retriever.retrieve(
+                query, top_k=effort_settings.retrieval_k, where=where or None
+            )
         except Exception as exc:
             log.exception("retrieval_error code=%s", req.code)
             rag_resolve_total.labels(outcome="error").inc()
@@ -500,12 +508,16 @@ class Orchestrator:
         if self._langfuse and trace:
             trace.span(
                 name="retrieve",
-                input={"query": query, "top_k": effort_settings.retrieval_k, "where": where or None},
+                input={
+                    "query": query,
+                    "top_k": effort_settings.retrieval_k,
+                    "where": where or None,
+                },
                 output={"candidates_count": len(candidates)},
                 duration_ms=int(t_retrieve * 1000),
             )
 
-        trimmed = candidates[:effort_settings.context_k]
+        trimmed = candidates[: effort_settings.context_k]
 
         t0 = time.perf_counter()
         if effort_settings.reranker == "identity":
@@ -525,9 +537,11 @@ class Orchestrator:
 
         t0 = time.perf_counter()
         try:
-            answer = await self._generator.generate(prompt=self._build_prompt(req, alarm, top, tier), 
-                                                   tokens=effort_settings.num_predict, 
-                                                   thinking=effort_settings.thinking)
+            answer = await self._generator.generate(
+                prompt=self._build_prompt(req, alarm, top, tier),
+                tokens=effort_settings.num_predict,
+                thinking=effort_settings.thinking,
+            )
         except Exception as exc:
             log.exception("generation_error code=%s", req.code)
             rag_resolve_total.labels(outcome="error").inc()
@@ -550,7 +564,11 @@ class Orchestrator:
 
         log.info(
             "resolve_timing code=%s retrieve=%.4fs rerank=%.4fs generate=%.4fs total=%.4fs",
-            req.code, t_retrieve, t_rerank, t_generate, t_retrieve + t_rerank + t_generate,
+            req.code,
+            t_retrieve,
+            t_rerank,
+            t_generate,
+            t_retrieve + t_rerank + t_generate,
         )
 
         if self._langfuse and trace:
@@ -577,7 +595,10 @@ class Orchestrator:
         )
         log.info(
             "resolve_coverage code=%s doc_coverage=%s causes=%d/%d",
-            req.code, doc_coverage, len(likely_causes), len(cause_claims),
+            req.code,
+            doc_coverage,
+            len(likely_causes),
+            len(cause_claims),
         )
 
         rag_resolve_total.labels(outcome="ok").inc()
@@ -607,18 +628,24 @@ class Orchestrator:
         effort_settings: EffortSettings = get_effort_settings(req.effort)
 
         if effort_settings.rewrite:
-            rewritten_prompt = await self._preprocessor.process_prompt(req.message, req.conversation_id, effort_settings)
+            rewritten_prompt = await self._preprocessor.process_prompt(
+                req.message, req.conversation_id, effort_settings
+            )
             if not rewritten_prompt:
                 return ChatResponse(conversation_id=req.conversation_id, reply="", citations=[])
             req.message = rewritten_prompt
 
         trace = None
         if self._langfuse:
-            trace = self._langfuse.trace(name="chat", input={"conversation_id": req.conversation_id, "message": req.message})
+            trace = self._langfuse.trace(
+                name="chat", input={"conversation_id": req.conversation_id, "message": req.message}
+            )
 
         t0 = time.perf_counter()
         try:
-            candidates = await self._retriever.retrieve(req.message, top_k=effort_settings.retrieval_k)
+            candidates = await self._retriever.retrieve(
+                req.message, top_k=effort_settings.retrieval_k
+            )
         except Exception as exc:
             log.exception("retrieval_error conversation_id=%s", req.conversation_id)
             rag_resolve_total.labels(outcome="error").inc()
@@ -635,7 +662,7 @@ class Orchestrator:
                 duration_ms=int(t_retrieve * 1000),
             )
 
-        trimmed = candidates[:effort_settings.context_k]
+        trimmed = candidates[: effort_settings.context_k]
 
         t0 = time.perf_counter()
         if effort_settings.reranker == "identity":
@@ -655,9 +682,11 @@ class Orchestrator:
 
         t0 = time.perf_counter()
         try:
-            reply = await self._generator.generate(prompt=self._build_chat_prompt(req.message, top), 
-                                                   tokens=effort_settings.num_predict, 
-                                                   thinking=effort_settings.thinking)
+            reply = await self._generator.generate(
+                prompt=self._build_chat_prompt(req.message, top),
+                tokens=effort_settings.num_predict,
+                thinking=effort_settings.thinking,
+            )
         except Exception as exc:
             log.exception("generation_error conversation_id=%s", req.conversation_id)
             rag_resolve_total.labels(outcome="error").inc()
@@ -707,12 +736,12 @@ def get_orchestrator() -> Orchestrator:  # pragma: no cover - wired at runtime
     client = app.state.httpx_client
 
     from rag_engine.providers import (
+        get_chat_store_backend,
         get_dense_embedding_backend,
         get_generation_backend,
         get_lexical_backend,
-        get_sparse_embedding_backend,
         get_rewrite_backend,
-        get_chat_store_backend,
+        get_sparse_embedding_backend,
     )
 
     dense_embedder = get_dense_embedding_backend(client=client)
@@ -728,11 +757,10 @@ def get_orchestrator() -> Orchestrator:  # pragma: no cover - wired at runtime
 
     rewrite_model = get_rewrite_backend(client)
     chat_store = get_chat_store_backend()
-    query_rewriter = QueryPreprocessor(chat_store,
-                                       vector_store, 
-                                       rewrite_model, 
-                                       get_settings().KEYWORD_K)
-    
+    query_rewriter = QueryPreprocessor(
+        chat_store, vector_store, rewrite_model, get_settings().KEYWORD_K
+    )
+
     return Orchestrator(
         preprocessor=query_rewriter,
         retriever=retriever,

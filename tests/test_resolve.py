@@ -1,6 +1,8 @@
-﻿"""Resolve and chat endpoints through the app: response shape, alarm-code
+"""Resolve and chat endpoints through the app: response shape, alarm-code
 validation, and message / request-body size limits.
 """
+
+
 def test_resolve_returns_steps_and_citations(client, bearer):
     r = client.post("/api/v2/resolve", json={"code": "am.fb.0002"}, headers=bearer)
     assert r.status_code == 200

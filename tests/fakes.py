@@ -1,4 +1,5 @@
 """Shared test doubles."""
+
 from rag_engine.retrieval.interfaces import Alarm
 
 FB_0002 = Alarm(

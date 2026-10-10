@@ -2,6 +2,7 @@
 embedders, stores, reranker and generator), plus a bearer-token header.
 Nothing here needs Postgres, Redis or a model server.
 """
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -37,11 +38,13 @@ class FakeSparseEmbedder:
 
 class FakeVectorStore:
     async def semantic_search(self, vector, top_k, where=None):
-        return [Chunk(
-            chunk_id="v1",
-            text="Reset the drive. A loose EtherCAT cable causes the drive to fault.",
-            source="manual.md",
-        )]
+        return [
+            Chunk(
+                chunk_id="v1",
+                text="Reset the drive. A loose EtherCAT cable causes the drive to fault.",
+                source="manual.md",
+            )
+        ]
 
 
 class FakeLexical:
@@ -51,7 +54,7 @@ class FakeLexical:
 
 class FakeReranker:
     async def rerank(self, query, chunks, effort):
-        return chunks[:effort.reranker_n]
+        return chunks[: effort.reranker_n]
 
 
 class FakeGenerator:
@@ -63,18 +66,22 @@ class FakeGenerator:
             "CAUSE: A loose EtherCAT cable causes the drive to fault."
         )
 
-class FakePreprocessor():
+
+class FakePreprocessor:
     async def process_prompt(self, raw_query, conversation_id, effort):
         return raw_query
-    
+
     def store_context(self, conversation_id, query, response, alarm):
         return
+
 
 def _fake_orchestrator() -> Orchestrator:
     retriever = HybridRetriever(
         FakeDenseEmbedder(), FakeSparseEmbedder(), FakeVectorStore(), FakeLexical()
     )
-    return Orchestrator(FakePreprocessor(), retriever, FakeReranker(), FakeGenerator(), FakeAlarmStore())
+    return Orchestrator(
+        FakePreprocessor(), retriever, FakeReranker(), FakeGenerator(), FakeAlarmStore()
+    )
 
 
 @pytest.fixture

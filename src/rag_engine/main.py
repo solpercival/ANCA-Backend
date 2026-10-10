@@ -9,6 +9,7 @@ Request path, outermost first: host check -> security headers -> gzip -> CORS ->
 request-id/body-size middleware -> routes. The schema itself comes from the Alembic
 migrations (the `migrate` compose service), not from this process.
 """
+
 import logging
 import time
 import uuid
@@ -28,8 +29,8 @@ from rag_engine.auth.session_store import RedisSessionStore
 from rag_engine.auth.user_repository import PostgresUserRepository, ensure_auth_schema
 from rag_engine.config import get_settings
 from rag_engine.orchestrator import get_orchestrator
-from rag_engine.stores.cache import close_cache_pool, init_cache_pool, get_cache_client
-from rag_engine.stores.db import close_db_pool, init_db_pool, get_db_pool
+from rag_engine.stores.cache import close_cache_pool, get_cache_client, init_cache_pool
+from rag_engine.stores.db import close_db_pool, get_db_pool, init_db_pool
 
 settings = get_settings()
 logging.basicConfig(level=settings.log_level)
@@ -82,6 +83,7 @@ async def lifespan(app: FastAPI):
     await close_cache_pool()
     close_db_pool()
 
+
 app = FastAPI(lifespan=lifespan)
 
 
@@ -133,7 +135,11 @@ async def add_request_id(request: Request, call_next):
 
     log.info(
         "access request_id=%s method=%s path=%s status=%s latency_ms=%.2f",
-        request_id, request.method, request.url.path, response.status_code, latency_ms,
+        request_id,
+        request.method,
+        request.url.path,
+        response.status_code,
+        latency_ms,
     )
     return response
 
@@ -151,9 +157,11 @@ add_security_middleware(app, settings)
 app.include_router(router)
 app.include_router(auth_router)
 
+
 def get_httpx_client(request: Request) -> httpx.AsyncClient:
     """FastAPI dependency: the shared outbound HTTP client created at startup."""
     return request.app.state.httpx_client
+
 
 @app.get("/", tags=["ops"])
 async def root() -> dict[str, str]:

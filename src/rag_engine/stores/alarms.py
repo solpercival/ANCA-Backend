@@ -3,6 +3,7 @@
 The catalogue is seeded from the starter-kit alarms.sample.json by
 `python -m ingestion.seed_alarms` (also run as part of `make ingest`).
 """
+
 import asyncio
 
 from rag_engine.config import get_settings

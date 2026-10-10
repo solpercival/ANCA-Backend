@@ -1,6 +1,7 @@
 """Offline snapshot helpers in eval/run_eval.py: result normalization and
 the mismatch check used by the rag-snapshot workflow.
 """
+
 import json
 
 from eval.run_eval import compare_snapshot, normalize_result
@@ -33,8 +34,32 @@ def test_compare_snapshot_detects_a_true_mismatch(tmp_path):
     generated = tmp_path / "generated.json"
     expected = tmp_path / "expected.json"
 
-    generated.write_text(json.dumps({"query": "A", "code": "x", "citation_ids": ["c1"], "step_count": 1, "confidence": 0.8, "status": "ok"}), encoding="utf-8")
-    expected.write_text(json.dumps({"query": "A", "code": "x", "citation_ids": ["c2"], "step_count": 1, "confidence": 0.8, "status": "ok"}), encoding="utf-8")
+    generated.write_text(
+        json.dumps(
+            {
+                "query": "A",
+                "code": "x",
+                "citation_ids": ["c1"],
+                "step_count": 1,
+                "confidence": 0.8,
+                "status": "ok",
+            }
+        ),
+        encoding="utf-8",
+    )
+    expected.write_text(
+        json.dumps(
+            {
+                "query": "A",
+                "code": "x",
+                "citation_ids": ["c2"],
+                "step_count": 1,
+                "confidence": 0.8,
+                "status": "ok",
+            }
+        ),
+        encoding="utf-8",
+    )
 
     try:
         compare_snapshot(generated, expected)

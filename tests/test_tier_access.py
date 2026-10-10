@@ -1,4 +1,5 @@
 """Tier rules enforced by the resolve and chat routes."""
+
 import pytest
 from fastapi.testclient import TestClient
 

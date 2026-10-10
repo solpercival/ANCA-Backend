@@ -5,6 +5,7 @@ EMBEDDING_SETUP=dual: also run sparse (lexical) search and merge the two ranked
 lists with reciprocal rank fusion, which needs no score normalisation between the
 two very different scoring scales.
 """
+
 import logging
 import time
 
@@ -12,17 +13,15 @@ from rag_engine.config import get_settings
 from rag_engine.retrieval.interfaces import (
     Chunk,
     DenseEmbedder,
-    SparseEmbedder,
     LexicalIndex,
+    SparseEmbedder,
     VectorStore,
 )
 
 log = logging.getLogger("rag_engine.retrieval.hybrid")
 
 
-def reciprocal_rank_fusion(
-    rankings: list[list[Chunk]], k: int = 60
-) -> list[Chunk]:
+def reciprocal_rank_fusion(rankings: list[list[Chunk]], k: int = 60) -> list[Chunk]:
     """Fuse multiple ranked lists. Pure function -> fully unit-testable.
 
     Each chunk scores sum(1 / (k + rank + 1)) over the lists it appears in, so

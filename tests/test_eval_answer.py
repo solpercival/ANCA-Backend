@@ -3,7 +3,6 @@
 from pathlib import Path
 
 import pytest
-
 from eval.run_eval import (
     GOLD_PATH,
     content_stems,
@@ -97,8 +96,15 @@ def test_fix_absent_when_steps_only_check_things():
 
 
 def test_summarize_reports_fix_present_only_for_listed_codes():
-    base = {"hit": True, "precision": 1.0, "recall": 1.0, "reciprocal_rank": 1.0,
-            "step_recall": 1.0, "actionable": 1.0, "coverage_match": 1.0}
+    base = {
+        "hit": True,
+        "precision": 1.0,
+        "recall": 1.0,
+        "reciprocal_rank": 1.0,
+        "step_recall": 1.0,
+        "actionable": 1.0,
+        "coverage_match": 1.0,
+    }
     results = [{**base, "fix_present": 1.0}, {**base, "fix_present": 0.5}, base]
 
     summary = summarize(results)

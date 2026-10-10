@@ -1,4 +1,5 @@
 """WWW-Authenticate challenges on 401 responses (RFC 7235 section 3.1, RFC 6750 section 3)."""
+
 import time
 
 import jwt
@@ -84,8 +85,12 @@ def test_forbidden_carries_no_challenge(client):
     ("path", "kwargs", "error", "expected_code"),
     [
         ("/api/v2/auth/refresh", {}, SessionExpired(), "session_expired"),
-        ("/api/v2/auth/token", {"data": {"username": "a", "password": "b"}},
-         InvalidCredentials(), "invalid_credentials"),
+        (
+            "/api/v2/auth/token",
+            {"data": {"username": "a", "password": "b"}},
+            InvalidCredentials(),
+            "invalid_credentials",
+        ),
     ],
 )
 def test_auth_endpoint_401s_carry_a_challenge(client, path, kwargs, error, expected_code):

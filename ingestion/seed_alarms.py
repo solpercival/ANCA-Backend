@@ -4,6 +4,7 @@ Idempotent: rows are upserted, so re-running refreshes titles/text in place.
 
     python -m ingestion.seed_alarms [path/to/alarms.json]
 """
+
 import json
 import sys
 from pathlib import Path

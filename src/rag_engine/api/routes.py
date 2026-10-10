@@ -5,6 +5,7 @@ limited per IP and per tier, and gets the shared Orchestrator from
 get_orchestrator. Tier-based visibility rules are applied here, after the
 orchestrator returns, so access never depends on what generation produced.
 """
+
 import asyncio
 
 import httpx
@@ -20,7 +21,7 @@ from rag_engine.api.schemas import (
     ResolveResponse,
 )
 from rag_engine.auth.dependencies import current_principal, require
-from rag_engine.auth.tiers import Principal, can_view_likely_causes, can_use_chat
+from rag_engine.auth.tiers import Principal, can_use_chat, can_view_likely_causes
 from rag_engine.config import get_settings
 from rag_engine.orchestrator import Orchestrator, get_orchestrator
 
@@ -32,6 +33,7 @@ resolve_rate_limit = rate_limit_dependency(
 chat_rate_limit = rate_limit_dependency(
     "chat", "chat_rate_limit_per_ip", "chat_rate_limit_per_tier"
 )
+
 
 def get_orchestrator_from_request(request: Request):
     """Orchestrator cached on app.state, built on first use.
@@ -46,7 +48,8 @@ def get_orchestrator_from_request(request: Request):
             request.app.state.orchestrator = orch
         except Exception as exc:  # placeholder runtime: DB/provider wiring still pending
             raise RetrievalUnavailable(
-                "Orchestrator is not available yet; DB and retrieval backends are still being wired in."
+                "Orchestrator is not available yet; "
+                "DB and retrieval backends are still being wired in."
             ) from exc
     return orch
 

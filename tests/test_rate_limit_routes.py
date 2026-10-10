@@ -1,6 +1,7 @@
 """Rate limiting as wired into the resolve/chat routes: 429 with Retry-After,
 separate buckets per route, and no limiting when no backend is configured.
 """
+
 from rag_engine.config import get_settings
 
 

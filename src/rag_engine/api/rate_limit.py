@@ -4,6 +4,7 @@ Each limited route counts requests in two buckets per window: one per client IP
 and one per account tier. The window's counter lives in Redis (one atomic Lua
 call per request), so limits hold across orchestrator replicas.
 """
+
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -11,10 +12,10 @@ import redis.exceptions
 from fastapi import Depends, HTTPException, Request
 from redis.asyncio import Redis
 
-from rag_engine.auth.dependencies import current_principal
 from rag_engine.api.errors import RateLimitUnavailable
-from rag_engine.config import get_settings
+from rag_engine.auth.dependencies import current_principal
 from rag_engine.auth.tiers import Principal
+from rag_engine.config import get_settings
 
 
 @dataclass(frozen=True)
@@ -96,6 +97,7 @@ def rate_limit_dependency(route_name: str, ip_limit_setting: str, tier_limit_set
     over a limit -> 429 with Retry-After; Redis errors -> 503 rate_limit_unavailable
     (fails closed rather than letting unlimited traffic through).
     """
+
     async def enforce_rate_limit(
         request: Request,
         principal: Principal = Depends(current_principal),

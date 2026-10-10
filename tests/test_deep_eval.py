@@ -1,10 +1,10 @@
 """Offline quality-gate scaffold (eval/deep_eval.py): stand-in scoring of a
 normalized result and the threshold check that fails CI.
 """
+
 import json
 
 import pytest
-
 from eval.deep_eval import assert_thresholds, score_snapshot
 
 

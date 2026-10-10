@@ -4,6 +4,7 @@ Onboarding note:
 - this file is the source of truth for runtime provider selection
 - keep provider names and URLs here; do not hard-code model endpoints elsewhere
 """
+
 from functools import lru_cache
 from typing import Literal, Self
 
@@ -24,17 +25,17 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     allowed_hosts: list[str] = ["*"]  # must be named explicitly outside local
-    gzip_minimum_size: int = 500      # bytes
-    hsts_max_age: int = 63072000      # two years, the value HSTS preload lists expect
+    gzip_minimum_size: int = 500  # bytes
+    hsts_max_age: int = 63072000  # two years, the value HSTS preload lists expect
 
     # auth
     jwt_secret: str = LOCAL_JWT_SECRET
     jwt_algorithm: str = "HS256"
     jwt_issuer: str = "anca-rag-engine"
     jwt_audience: str = "anca-frontend"
-    access_token_ttl_minutes: int = 15   # bearer JWT lifetime
-    refresh_token_idle_days: int = 7     # session ends if unused this long
-    session_max_days: int = 30           # absolute session cap, however active
+    access_token_ttl_minutes: int = 15  # bearer JWT lifetime
+    refresh_token_idle_days: int = 7  # session ends if unused this long
+    session_max_days: int = 30  # absolute session cap, however active
     auth_allow_registration: bool = False
     auth_cookie_secure: bool = True
     auth_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
@@ -117,9 +118,9 @@ class Settings(BaseSettings):
     hf_token: str = ""
 
     # retrieval
-    retrieval_top_k: int = 50            # candidates fetched per search before reranking
-    rerank_top_n: int = 8                # chunks kept after reranking and put in the prompt
-    rerank_provider: str = "none"        # none = keep fused order; anything else = Qwen3 reranker
+    retrieval_top_k: int = 50  # candidates fetched per search before reranking
+    rerank_top_n: int = 8  # chunks kept after reranking and put in the prompt
+    rerank_provider: str = "none"  # none = keep fused order; anything else = Qwen3 reranker
     rerank_model: str = "Qwen/Qwen3-Reranker-0.6B"
     # pairs per reranker forward pass; bounds GPU activation memory (scores unchanged)
     rerank_batch_size: int = 5
@@ -132,8 +133,8 @@ class Settings(BaseSettings):
 
     # embeddings (the dims must match the vector/sparsevec columns in migration 0001)
     embedding_setup: str = "unified"  # unified (dense-only) or dual (dense + sparse)
-    lexical_dim: int = 30522          # sparse vocab size (SPLADE / BERT wordpiece)
-    semantic_dim: int = 1024          # qwen3-embedding:0.6b output size
+    lexical_dim: int = 30522  # sparse vocab size (SPLADE / BERT wordpiece)
+    semantic_dim: int = 1024  # qwen3-embedding:0.6b output size
 
     # langfuse
     langfuse_host: str = "http://langfuse:3000"
@@ -157,9 +158,9 @@ class Settings(BaseSettings):
         "num_predict": 120,
         "num_rewrite": 0,
         "rewrite": False,
-        "thinking": False
+        "thinking": False,
     }
-    MID_CONFIG: dict = { # mid config is based on default settings
+    MID_CONFIG: dict = {  # mid config is based on default settings
         "retrieval_k": 50,
         "reranker_n": 8,
         "context_k": 10,
@@ -167,7 +168,7 @@ class Settings(BaseSettings):
         "num_predict": 180,
         "num_rewrite": 256,
         "rewrite": True,
-        "thinking": False
+        "thinking": False,
     }
     HIGH_CONFIG: dict = {
         "retrieval_k": 80,
@@ -177,10 +178,9 @@ class Settings(BaseSettings):
         "num_predict": 250,
         "num_rewrite": 512,
         "rewrite": True,
-        "thinking": True
+        "thinking": True,
     }
 
-    
     @model_validator(mode="after")
     def _require_explicit_allowed_hosts_outside_local(self) -> Self:
         """A deployment that accepts any Host can be used to forge links back to itself."""
@@ -193,7 +193,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _reject_placeholder_secret_outside_local(self) -> Self:
-        """The default secret is public (it's in this file), so tokens signed with it can be forged."""
+        """The default secret is public (it's in this file), so tokens signed with it
+        can be forged."""
         if self.app_env != "local" and (
             self.jwt_secret == LOCAL_JWT_SECRET or len(self.jwt_secret) < 32
         ):
@@ -211,8 +212,7 @@ class Settings(BaseSettings):
             "change_in_prod",
         }:
             raise ValueError(
-                "POSTGRES_PASSWORD must be set to a non-placeholder value "
-                "when APP_ENV is not local"
+                "POSTGRES_PASSWORD must be set to a non-placeholder value when APP_ENV is not local"
             )
         return self
 

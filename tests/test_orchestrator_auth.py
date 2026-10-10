@@ -1,6 +1,7 @@
 """Token decoding, the reranker factory, and resolve/chat through the
 orchestrator with fake backends.
 """
+
 import jwt
 import pytest
 
@@ -34,7 +35,9 @@ def test_decode_token_rejects_invalid_tier():
     settings = get_settings()
     token, _ = create_access_token(user_id=42, tier=Tier.technician)
     claims = jwt.decode(
-        token, settings.jwt_secret, algorithms=[settings.jwt_algorithm],
+        token,
+        settings.jwt_secret,
+        algorithms=[settings.jwt_algorithm],
         audience=settings.jwt_audience,
     )
     claims["tier"] = "not-a-tier"
@@ -80,13 +83,21 @@ def test_orchestrator_resolve_uses_query_and_returns_top_results():
 
     class FakeReranker:
         async def rerank(self, query, chunks, effort):
-            return chunks[:effort.reranker_n]
+            return chunks[: effort.reranker_n]
 
     class FakeRetriever:
         async def retrieve(self, query, top_k, where=None):
             return [
-                type("Chunk", (), {"text": "Step 1", "source": "manual.md", "chunk_id": "c1", "score": 0.91})(),
-                type("Chunk", (), {"text": "Step 2", "source": "manual.md", "chunk_id": "c2", "score": 0.81})(),
+                type(
+                    "Chunk",
+                    (),
+                    {"text": "Step 1", "source": "manual.md", "chunk_id": "c1", "score": 0.91},
+                )(),
+                type(
+                    "Chunk",
+                    (),
+                    {"text": "Step 2", "source": "manual.md", "chunk_id": "c2", "score": 0.81},
+                )(),
             ]
 
     class FakeGenerator:
@@ -103,7 +114,9 @@ def test_orchestrator_resolve_uses_query_and_returns_top_results():
         query="motor stalls after startup",
         env={"machine_variant": "X"},
     )
-    orch = Orchestrator(FakePreprocessor(), FakeRetriever(), FakeReranker(), FakeGenerator(), FakeAlarmStore())
+    orch = Orchestrator(
+        FakePreprocessor(), FakeRetriever(), FakeReranker(), FakeGenerator(), FakeAlarmStore()
+    )
 
     response = pytest.importorskip("asyncio").run(orch.resolve(req, Tier.technician))
 
@@ -127,12 +140,16 @@ def test_orchestrator_chat_returns_retrieved_citations():
 
     class FakeReranker:
         async def rerank(self, query, chunks, effort):
-            return chunks[:effort.reranker_n]
+            return chunks[: effort.reranker_n]
 
     class FakeRetriever:
         async def retrieve(self, query, top_k, where=None):
             return [
-                type("Chunk", (), {"text": "text", "source": "faq.md", "chunk_id": "c1", "score": 0.5})(),
+                type(
+                    "Chunk",
+                    (),
+                    {"text": "text", "source": "faq.md", "chunk_id": "c1", "score": 0.5},
+                )(),
             ]
 
     class FakeGenerator:
@@ -145,7 +162,9 @@ def test_orchestrator_chat_returns_retrieved_citations():
             return "final reply"
 
     req = ChatRequest(conversation_id="c-1", message="what happened?")
-    orch = Orchestrator(FakePreprocessor(), FakeRetriever(), FakeReranker(), FakeGenerator(), FakeAlarmStore())
+    orch = Orchestrator(
+        FakePreprocessor(), FakeRetriever(), FakeReranker(), FakeGenerator(), FakeAlarmStore()
+    )
 
     response = pytest.importorskip("asyncio").run(orch.chat(req, Tier.partner))
 

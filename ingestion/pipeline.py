@@ -8,6 +8,7 @@ Order of a full run: seed the alarm catalogue, chunk + embed every markdown file
 then rebuild the keyword lookup table used by query rewriting. The tables must
 already exist: `make ingest` applies the Alembic migrations first.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

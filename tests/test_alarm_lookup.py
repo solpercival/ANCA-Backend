@@ -1,4 +1,5 @@
 """Alarm catalogue lookup: retrieval runs on the alarm's text; unknown codes 404."""
+
 import asyncio
 from contextlib import contextmanager
 
@@ -26,7 +27,7 @@ class RecordingRetriever:
 
 class FakeReranker:
     async def rerank(self, query, chunks, effort):
-        return chunks[:effort.reranker_n]
+        return chunks[: effort.reranker_n]
 
 
 class FakeGenerator:
@@ -48,7 +49,10 @@ class BrokenAlarmStore:
 def _orch(store=None, answer="Check the cable [1]."):
     return Orchestrator(
         FakePreprocessor(),
-        RecordingRetriever(), FakeReranker(), FakeGenerator(answer), store or FakeAlarmStore()
+        RecordingRetriever(),
+        FakeReranker(),
+        FakeGenerator(answer),
+        store or FakeAlarmStore(),
     )
 
 
@@ -57,6 +61,7 @@ def _resolve(answer, code="am.fb.0002"):
 
 
 # --- orchestrator ------------------------------------------------------------
+
 
 def test_retrieves_on_alarm_text_not_code():
     orch = _orch()
@@ -68,7 +73,9 @@ def test_retrieves_on_alarm_text_not_code():
 
 def test_free_text_query_takes_precedence():
     orch = _orch()
-    asyncio.run(orch.resolve(ResolveRequest(code="am.fb.0002", query="drive trips"), Tier.technician))
+    asyncio.run(
+        orch.resolve(ResolveRequest(code="am.fb.0002", query="drive trips"), Tier.technician)
+    )
 
     assert orch._retriever.queries == ["drive trips"]
 
@@ -90,16 +97,22 @@ def test_unknown_code_raises_before_retrieval():
 
 def test_catalogue_failure_is_retrieval_unavailable():
     with pytest.raises(RetrievalUnavailable):
-        asyncio.run(_orch(BrokenAlarmStore()).resolve(ResolveRequest(code="am.fb.0002"), Tier.technician))
+        asyncio.run(
+            _orch(BrokenAlarmStore()).resolve(ResolveRequest(code="am.fb.0002"), Tier.technician)
+        )
 
 
 # --- catalogue is header, never guidance ---------------------------------------
+
 
 def test_response_renders_alarm_header_from_catalogue():
     resp = _resolve("COVERAGE: partial\nCheck the cable [1].")
 
     assert (resp.title, resp.domain, resp.severity, resp.severity_category) == (
-        "EtherCAT slave lost", "Fieldbus", 900, "Error",
+        "EtherCAT slave lost",
+        "Fieldbus",
+        900,
+        "Error",
     )
 
 
@@ -157,12 +170,15 @@ def test_answer_of_only_catalogue_echoes_is_coverage_none():
 
 def test_catalogue_text_cannot_become_a_likely_cause():
     # the alarm message is in the prompt but not in the retrieved context
-    resp = _resolve("COVERAGE: partial\nCheck the cable [1].\nCAUSE: EtherCAT slave 3 stopped responding.")
+    resp = _resolve(
+        "COVERAGE: partial\nCheck the cable [1].\nCAUSE: EtherCAT slave 3 stopped responding."
+    )
 
     assert resp.likely_causes == []
 
 
 # --- seed ----------------------------------------------------------------------
+
 
 def test_seed_source_is_the_sample_catalogue():
     # populate_alarms (the DB upsert) is covered by test_ingestion against Postgres
@@ -174,10 +190,13 @@ def test_seed_source_is_the_sample_catalogue():
     assert len(codes) == 11
     assert "am.fb.0002" in codes
     assert "fb" in data["_modules"]
-    assert all({"title", "alarm_text", "severity", "severity_category"} <= a.keys() for a in data["alarms"])
+    assert all(
+        {"title", "alarm_text", "severity", "severity_category"} <= a.keys() for a in data["alarms"]
+    )
 
 
 # --- API ---------------------------------------------------------------------
+
 
 def test_api_unknown_code_returns_404_envelope(client, bearer):
     r = client.post("/api/v2/resolve", json={"code": "am.fb.9999"}, headers=bearer)
@@ -197,6 +216,7 @@ def test_api_catalogue_down_returns_503(client, bearer):
 
 
 # --- PostgresAlarmStore --------------------------------------------------------
+
 
 class FakeConn:
     def __init__(self, row):
@@ -223,10 +243,17 @@ def _patch_conn(monkeypatch, row):
 
 
 def test_store_maps_row_to_alarm(monkeypatch):
-    conn = _patch_conn(monkeypatch, {
-        "title": FB_0002.title, "domain": "Fieldbus", "severity_score": 900,
-        "severity_category": "error", "alarm_text": FB_0002.alarm_text, "data_fields": {"slave": 3},
-    })
+    conn = _patch_conn(
+        monkeypatch,
+        {
+            "title": FB_0002.title,
+            "domain": "Fieldbus",
+            "severity_score": 900,
+            "severity_category": "error",
+            "alarm_text": FB_0002.alarm_text,
+            "data_fields": {"slave": 3},
+        },
+    )
 
     alarm = asyncio.run(PostgresAlarmStore().get_alarm("am.fb.0002"))
 

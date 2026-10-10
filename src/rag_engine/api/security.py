@@ -21,9 +21,9 @@ from rag_engine.config import Settings
 
 # Applied to every response
 SECURITY_HEADERS = {
-    "x-content-type-options": "nosniff",        # no MIME sniffing of a JSON body into HTML
-    "x-frame-options": "DENY",                  # legacy clickjacking guard; CSP covers modern browsers
-    "referrer-policy": "no-referrer",           # alarm codes must not leak in Referer headers
+    "x-content-type-options": "nosniff",  # no MIME sniffing of a JSON body into HTML
+    "x-frame-options": "DENY",  # legacy clickjacking guard; CSP covers modern browsers
+    "referrer-policy": "no-referrer",  # alarm codes must not leak in Referer headers
     "cross-origin-opener-policy": "same-origin",
     "permissions-policy": "geolocation=(), camera=(), microphone=()",
 }

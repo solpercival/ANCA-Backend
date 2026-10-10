@@ -1,4 +1,5 @@
 """Trusted-host validation, security response headers, and gzip compression."""
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient

@@ -3,10 +3,12 @@
 Splits on headers while keeping code blocks, tables, and lists atomic. This is
 the documentation team's territory: it runs during ingestion, never per request.
 """
+
 import hashlib
-import re
 import json
+import re
 from dataclasses import dataclass, field
+
 from langchain_text_splitters import MarkdownHeaderTextSplitter
 
 SPLIT_HEADERS = [("#", "h1"), ("##", "h2"), ("###", "h3"), ("####", "h4")]
@@ -15,7 +17,7 @@ SPLIT_HEADERS = [("#", "h1"), ("##", "h2"), ("###", "h3"), ("####", "h4")]
 ATOMIC_BLOCKS = {
     "table": re.compile(r"(?:^\|.*\|\s*$\n?)+", re.MULTILINE),
     "code": re.compile(r"```.*?```", re.DOTALL),
-    "list": re.compile(r"(?:^\s*(?:[-*+]|\d+\.)\s+.+$\n?)+", re.MULTILINE)
+    "list": re.compile(r"(?:^\s*(?:[-*+]|\d+\.)\s+.+$\n?)+", re.MULTILINE),
 }
 # positions in the (kind, text, headers_json) segment tuples used while splitting
 IDX_TAG = 0
@@ -24,10 +26,12 @@ IDX_HEADERS = 2
 
 HEADER_SPLITTER = MarkdownHeaderTextSplitter(headers_to_split_on=SPLIT_HEADERS, strip_headers=False)
 
+
 @dataclass
 class RawChunk:
     """A chunk before embedding. headers maps level ("h1".."h4") to heading text;
     kind is text | table | code | list (the CHUNK_TYPE enum)."""
+
     text: str
     source: str
     headers: dict[str, str] = field(default_factory=dict)
@@ -38,7 +42,7 @@ class RawChunk:
         """(level, heading) pairs from outermost to innermost."""
         return sorted(
             ((lvl, txt) for lvl, txt in self.headers.items() if lvl.startswith("h")),
-            key=lambda pair: int(pair[0][1:])
+            key=lambda pair: int(pair[0][1:]),
         )
 
     @property
@@ -59,7 +63,7 @@ def chunk_markdown(text: str, source: str) -> list[RawChunk]:
     source - a str representing the path of the source document
     """
     chunks: list[RawChunk] = []
-    buf: list[tuple[str,str,str]] = [] # Stored as type, content, headers
+    buf: list[tuple[str, str, str]] = []  # Stored as type, content, headers
 
     headers_split_text = HEADER_SPLITTER.split_text(text=text)
 
@@ -73,17 +77,20 @@ def chunk_markdown(text: str, source: str) -> list[RawChunk]:
 
     # convert segments into RawChunks
     for segment in buf:
-        new_chunk = RawChunk(text=segment[IDX_TEXT],
-                             source=source,
-                             headers=json.loads(segment[IDX_HEADERS]),
-                             kind=segment[IDX_TAG])
+        new_chunk = RawChunk(
+            text=segment[IDX_TEXT],
+            source=source,
+            headers=json.loads(segment[IDX_HEADERS]),
+            kind=segment[IDX_TAG],
+        )
         chunks.append(new_chunk)
 
     return chunks
 
-def extract_atomic_blocks(text_sections: list[tuple[str,str,str]],
-                          pattern: re.Pattern[str],
-                          title: str) -> list[tuple[str,str,str]]:
+
+def extract_atomic_blocks(
+    text_sections: list[tuple[str, str, str]], pattern: re.Pattern[str], title: str
+) -> list[tuple[str, str, str]]:
     """
     Extracts blocks that matches given pattern from text. Extracted blocks are
     tagged with the provided title argument. Segments already extracted (any tag
@@ -91,11 +98,12 @@ def extract_atomic_blocks(text_sections: list[tuple[str,str,str]],
     Returns a list of tuples in same format as the text_sections parameter.
 
     Parameters:
-    text_sections - A list of tuples containing the blocks of text or markdown objects. Stored as (tag, text, headers)
+    text_sections - A list of tuples containing the blocks of text or markdown objects.
+        Stored as (tag, text, headers)
     pattern - A regex pattern object used to detect and split the existing blocks if found
     title - The tag used for the newly separated object
     """
-    buffer: list[tuple[str,str,str]] = []
+    buffer: list[tuple[str, str, str]] = []
 
     for text in text_sections:
         last_end = 0
@@ -104,7 +112,9 @@ def extract_atomic_blocks(text_sections: list[tuple[str,str,str]],
             for match in pattern.finditer(text[IDX_TEXT]):
                 # breaks text into separate segments
                 if match.start() > last_end:
-                    buffer.append(("text", text[IDX_TEXT][last_end:match.start()], text[IDX_HEADERS]))
+                    buffer.append(
+                        ("text", text[IDX_TEXT][last_end : match.start()], text[IDX_HEADERS])
+                    )
                 buffer.append((title, match.group(), text[IDX_HEADERS]))
                 last_end = match.end()
 
@@ -114,6 +124,6 @@ def extract_atomic_blocks(text_sections: list[tuple[str,str,str]],
         else:
             # ignore non-text sections (i.e. code blocks, tables, etc.)
             buffer.append(text)
-        
+
     # text broken into segments
     return buffer

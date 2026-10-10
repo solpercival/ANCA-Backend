@@ -1,4 +1,5 @@
 """Shape of the resolve response: discrete steps, doc coverage, likely causes."""
+
 import asyncio
 
 import pytest
@@ -16,7 +17,7 @@ REQ = ResolveRequest(code="am.fb.0002")
 
 class FakeReranker:
     async def rerank(self, query, chunks, effort):
-        return chunks[:effort.reranker_n]
+        return chunks[: effort.reranker_n]
 
 
 class FakeRetriever:
@@ -60,6 +61,7 @@ def _resolve(answer="Reset the drive [1].", chunks=None, reranker=None, tier=Tie
 
 # --- steps -----------------------------------------------------------------
 
+
 def test_steps_split_one_per_line():
     resp = _resolve("Check the cable [1].\n\nReset the drive [2].\nRestart the job [3].\n")
 
@@ -77,7 +79,9 @@ def test_single_line_answer_is_one_step():
 
 
 def _prompt():
-    orch = Orchestrator(FakePreprocessor(), FakeRetriever([]), FakeReranker(), FakeGenerator(""), FakeAlarmStore())
+    orch = Orchestrator(
+        FakePreprocessor(), FakeRetriever([]), FakeReranker(), FakeGenerator(""), FakeAlarmStore()
+    )
     return orch._build_prompt(REQ, FB_0002, _chunks(0.9), Tier.technician)
 
 
@@ -147,7 +151,8 @@ def test_descriptive_answer_becomes_explanation_lines():
 
 
 @pytest.mark.parametrize(
-    "marker", ["[1]", "[n]", "[N]", "[1, 2]", "[2-3]", "[1,2,3]"],
+    "marker",
+    ["[1]", "[n]", "[N]", "[1, 2]", "[2-3]", "[1,2,3]"],
 )
 def test_inline_citation_markers_are_stripped_from_steps(marker):
     resp = _resolve(f"COVERAGE: partial\nCheck the cable {marker}.\nReset the drive{marker}")
@@ -170,6 +175,7 @@ def test_prompt_has_no_citation_markers_or_numbered_context():
 
 
 # --- doc coverage (and the confidence derived from it) -----------------------
+
 
 @pytest.mark.parametrize(
     ("header", "coverage", "confidence"),
@@ -239,7 +245,9 @@ def test_disclaimer_variants_are_recognised(disclaimer):
 
 
 def test_disclaimer_first_then_steps_is_still_partial():
-    resp = _resolve("\n".join(["COVERAGE: none", "The documentation does not cover this alarm.", *REAL]))
+    resp = _resolve(
+        "\n".join(["COVERAGE: none", "The documentation does not cover this alarm.", *REAL])
+    )
 
     assert resp.steps == REAL
     assert resp.doc_coverage == "partial"
@@ -247,7 +255,12 @@ def test_disclaimer_first_then_steps_is_still_partial():
 
 def test_causes_survive_when_a_stray_disclaimer_is_dropped():
     answer = "\n".join(
-        ["COVERAGE: partial", *REAL, "The documentation does not cover this alarm.", f"CAUSE: {CAUSED}"]
+        [
+            "COVERAGE: partial",
+            *REAL,
+            "The documentation does not cover this alarm.",
+            f"CAUSE: {CAUSED}",
+        ]
     )
 
     resp = _resolve(answer)
@@ -291,7 +304,9 @@ def test_non_action_filler_beside_action_steps_is_dropped():
 
 def test_explanation_only_answer_is_kept_whole():
     # no action line at all: the docs explain but give no fix, which is legitimate
-    answer = "COVERAGE: partial\nThe drive lost EtherCAT contact [1].\nThe master resets the bus [2]."
+    answer = (
+        "COVERAGE: partial\nThe drive lost EtherCAT contact [1].\nThe master resets the bus [2]."
+    )
 
     assert _resolve(answer).steps == [
         "The drive lost EtherCAT contact.",
@@ -301,7 +316,9 @@ def test_explanation_only_answer_is_kept_whole():
 
 def test_disclaimer_is_not_treated_as_filler():
     # _settle_coverage, not the filler filter, decides what happens to the disclaimer
-    resp = _resolve("\n".join(["COVERAGE: full", *REAL, "The documentation does not cover this alarm."]))
+    resp = _resolve(
+        "\n".join(["COVERAGE: full", *REAL, "The documentation does not cover this alarm."])
+    )
 
     assert resp.steps == REAL
     assert resp.doc_coverage == "partial"
@@ -382,10 +399,14 @@ def test_cause_from_any_retrieved_chunk_is_accepted():
 
 def test_causes_capped_at_three_and_deduplicated():
     chunks = [
-        Chunk(chunk_id=f"c{i}", text=f"Fault {i} is caused by broken wire number {i}.", source="m.md")
+        Chunk(
+            chunk_id=f"c{i}", text=f"Fault {i} is caused by broken wire number {i}.", source="m.md"
+        )
         for i in range(1, 6)
     ]
-    lines = [f"CAUSE: Fault {i} is caused by broken wire number {i}. [{i}]" for i in (1, 1, 2, 3, 4, 5)]
+    lines = [
+        f"CAUSE: Fault {i} is caused by broken wire number {i}. [{i}]" for i in (1, 1, 2, 3, 4, 5)
+    ]
 
     resp = _resolve(_with_causes(*lines), chunks=chunks)
 
@@ -406,22 +427,24 @@ def test_likely_causes_empty_for_operator_and_lines_still_stripped():
 # --- no raw chunk text in likely_causes ------------------------------------------
 
 # the fragments the bench surfaced, around one real cause sentence
-MESSY_CHUNK = "\n".join([
-    "## OPC UA",
-    "The OPC UA server refuses connections when the licence is missing.",
-    "",
-    "```jsonc",
-    '{ "opcua": { "enabled": true },',
-    '  "port": 4840 }',
-    "```",
-    "",
-    "| Name | Key | Description |",
-    "| --- | --- | --- |",
-    "| Server port | `opcua.port` | The TCP port the server listens on. |",
-    "",
-    "1.",
-    "- **Loose** `EtherCAT` cabling causes the [drive](drives.md) to fault.",
-])
+MESSY_CHUNK = "\n".join(
+    [
+        "## OPC UA",
+        "The OPC UA server refuses connections when the licence is missing.",
+        "",
+        "```jsonc",
+        '{ "opcua": { "enabled": true },',
+        '  "port": 4840 }',
+        "```",
+        "",
+        "| Name | Key | Description |",
+        "| --- | --- | --- |",
+        "| Server port | `opcua.port` | The TCP port the server listens on. |",
+        "",
+        "1.",
+        "- **Loose** `EtherCAT` cabling causes the [drive](drives.md) to fault.",
+    ]
+)
 LICENCE = "The OPC UA server refuses connections when the licence is missing."
 CABLING = "Loose EtherCAT cabling causes the drive to fault."
 
@@ -469,13 +492,17 @@ def test_real_causes_still_found_in_messy_chunk():
 
 
 def test_likely_causes_empty_when_docs_do_not_cover_alarm():
-    resp = _resolve(f"COVERAGE: none\nThe documentation does not cover this alarm.\nCAUSE: {CAUSED} [1]")
+    resp = _resolve(
+        f"COVERAGE: none\nThe documentation does not cover this alarm.\nCAUSE: {CAUSED} [1]"
+    )
 
     assert resp.likely_causes == []
 
 
 def test_prompt_asks_privileged_tiers_for_verbatim_causes_only():
-    orch = Orchestrator(FakePreprocessor(), FakeRetriever([]), FakeReranker(), FakeGenerator(""), FakeAlarmStore())
+    orch = Orchestrator(
+        FakePreprocessor(), FakeRetriever([]), FakeReranker(), FakeGenerator(""), FakeAlarmStore()
+    )
 
     tech = orch._build_prompt(REQ, FB_0002, _chunks(0.9), Tier.technician)
     oper = orch._build_prompt(REQ, FB_0002, _chunks(0.9), Tier.operator)
@@ -519,6 +546,7 @@ def test_too_short_an_opening_is_not_enough_to_locate_a_sentence():
 
 
 # --- through the API ---------------------------------------------------------
+
 
 def _auth(tier):
     token, _ = create_access_token(user_id=1, tier=tier)

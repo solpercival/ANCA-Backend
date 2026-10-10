@@ -12,7 +12,6 @@ The handlers only translate between HTTP and AuthService; the logic lives there.
 from fastapi import APIRouter, Cookie, Depends, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 
-from rag_engine.api.errors import Forbidden
 from rag_engine.auth.dependencies import (
     check_origin,
     current_principal,
@@ -20,12 +19,12 @@ from rag_engine.auth.dependencies import (
     get_auth_service,
 )
 from rag_engine.auth.interfaces import User
-from rag_engine.auth.tiers import Principal
 from rag_engine.auth.schemas import (
     TokenResponse,
     UserOut,
 )
 from rag_engine.auth.service import AuthService, TokenPair
+from rag_engine.auth.tiers import Principal
 from rag_engine.config import get_settings
 
 router = APIRouter(prefix="/api/v2/auth", tags=["auth"])

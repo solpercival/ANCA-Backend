@@ -6,14 +6,17 @@ asyncio.to_thread (see stores/search.py). Rows come back as dicts, and pgvector
 types are registered on every connection. The schema is managed by the Alembic
 migrations in migrations/, not by this module.
 """
-import psycopg
-from pgvector.psycopg import register_vector
-from psycopg_pool import ConnectionPool
-from psycopg.rows import dict_row
+
 from contextlib import contextmanager
+
+from pgvector.psycopg import register_vector
+from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
+
 from rag_engine.config import get_settings
 
 _db_pool: ConnectionPool | None = None
+
 
 def init_db_pool() -> None:
     """Create the pool from settings. Called once at app startup (main.lifespan)."""
@@ -28,13 +31,16 @@ def init_db_pool() -> None:
         configure=register_vector,
     )
 
+
 def get_db_pool() -> ConnectionPool | None:
     """The pool, or None before init_db_pool (or if it failed)."""
     return _db_pool
 
+
 def close_db_pool() -> None:
     if _db_pool:
         _db_pool.close()
+
 
 @contextmanager
 def get_db_conn():

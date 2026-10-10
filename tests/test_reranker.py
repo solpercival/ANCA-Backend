@@ -14,21 +14,22 @@ from rag_engine.retrieval.reranker import IdentityReranker, Qwen3Reranker
 
 
 def _chunks(n: int) -> list[Chunk]:
-    return [
-        Chunk(chunk_id=str(i), text=f"chunk {i}", source="test.md")
-        for i in range(n)
-    ]
+    return [Chunk(chunk_id=str(i), text=f"chunk {i}", source="test.md") for i in range(n)]
 
 
 async def test_identity_truncates_and_preserves_order() -> None:
     """Ten chunks in, first five out and the order is unchanged."""
-    result = await IdentityReranker().rerank("any query", _chunks(10), effort=EffortSettings(reranker_n=5))
+    result = await IdentityReranker().rerank(
+        "any query", _chunks(10), effort=EffortSettings(reranker_n=5)
+    )
     assert [c.chunk_id for c in result] == ["0", "1", "2", "3", "4"]
 
 
 async def test_identity_empty_input_returns_empty() -> None:
     """An empty candidate list comes back empty."""
-    assert await IdentityReranker().rerank("any query", [], effort=EffortSettings(reranker_n=5)) == []
+    assert (
+        await IdentityReranker().rerank("any query", [], effort=EffortSettings(reranker_n=5)) == []
+    )
 
 
 async def test_qwen3_orders_by_score_and_truncates() -> None:
@@ -84,6 +85,7 @@ async def test_qwen3_empty_input_returns_empty() -> None:
 
 
 # --- device placement (fake torch/transformers: no model is loaded) -------------
+
 
 class _Moved:
     """Records .to(device) calls; stands in for a model or a tokenized batch."""
@@ -196,7 +198,9 @@ def test_score_moves_inputs_to_the_model_device(monkeypatch):
     assert inputs_to == ["cuda"]
 
 
-@pytest.mark.parametrize(("n", "batch", "expected_batches"), [(20, 5, [5, 5, 5, 5]), (7, 5, [5, 2]), (3, 8, [3])])
+@pytest.mark.parametrize(
+    ("n", "batch", "expected_batches"), [(20, 5, [5, 5, 5, 5]), (7, 5, [5, 2]), (3, 8, [3])]
+)
 def test_score_runs_in_batches_and_keeps_order(n, batch, expected_batches):
     torch = pytest.importorskip("torch")
     seen: list[int] = []
