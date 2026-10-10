@@ -206,6 +206,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _reject_placeholder_postgres_password_outside_local(self) -> Self:
+        """The default and example passwords are public (they're in this repo), so a
+        database left on one is open to anyone who can reach it."""
         if self.app_env != "local" and self.postgres_password.strip().lower() in {
             "",
             "rag",

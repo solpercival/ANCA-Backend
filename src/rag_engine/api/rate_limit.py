@@ -31,6 +31,8 @@ class RateLimitBackendError(RuntimeError):
 
 
 class RateLimitBackend(Protocol):
+    """Shared counter storage for rate-limit buckets (Redis in production, a fake in tests)."""
+
     async def increment(self, key: str, window_seconds: int) -> tuple[int, int]:
         """Atomically increment a bucket and return its count and TTL."""
 
@@ -75,6 +77,9 @@ return {current, ttl}
         self._redis = redis
 
     async def increment(self, key: str, window_seconds: int) -> tuple[int, int]:
+        """Add one to `key` and return (count, seconds until the window resets). The
+        first request in a window starts its expiry. Raises RateLimitBackendError if
+        Redis fails."""
         try:
             result = await self._redis.eval(
                 self._INCREMENT_SCRIPT,

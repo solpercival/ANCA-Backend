@@ -45,13 +45,15 @@ class Alarm:
 class DenseEmbedder(Protocol):
     """Text -> dense vectors (one per input, semantic_dim long)."""
 
-    async def dense_embed(self, texts: list[str]) -> list[list[float]]: ...
+    async def dense_embed(self, texts: list[str]) -> list[list[float]]:
+        """Embed each text; the result has one vector per input, in input order."""
 
 
 class SparseEmbedder(Protocol):
     """Text -> sparse term-weight vectors {vocab index: weight} (e.g. SPLADE)."""
 
-    async def sparse_embed(self, texts: list[str]) -> list[dict[int, float]]: ...
+    async def sparse_embed(self, texts: list[str]) -> list[dict[int, float]]:
+        """Embed each text; the result has one sparse vector per input, in input order."""
 
 
 class VectorStore(Protocol):
@@ -60,7 +62,8 @@ class VectorStore(Protocol):
 
     async def semantic_search(
         self, vector: list[float], top_k: int, where: dict[str, str] | None = None
-    ) -> list[Chunk]: ...
+    ) -> list[Chunk]:
+        """Up to top_k chunks nearest to the query `vector`, closest first."""
 
 
 class LexicalIndex(Protocol):
@@ -68,43 +71,50 @@ class LexicalIndex(Protocol):
 
     async def lexical_search(
         self, vector: dict[int, float], top_k: int, where: dict[str, str] | None = None
-    ) -> list[Chunk]: ...
+    ) -> list[Chunk]:
+        """Up to top_k chunks best matching the sparse query `vector`, best first."""
 
 
 class AlarmStore(Protocol):
     """Alarm catalogue lookup; None for an unknown code."""
 
-    async def get_alarm(self, code: str) -> Alarm | None: ...
+    async def get_alarm(self, code: str) -> Alarm | None:
+        """The record for a full alarm code such as "am.fb.0002", or None."""
 
 
 class Reranker(Protocol):
     """Reorders candidates by relevance to the query; returns at most top_n."""
 
-    async def rerank(
-        self, query: str, chunks: list[Chunk], effort: EffortSettings
-    ) -> list[Chunk]: ...
+    async def rerank(self, query: str, chunks: list[Chunk], effort: EffortSettings) -> list[Chunk]:
+        """The best effort.reranker_n of `chunks` for `query`, most relevant first."""
 
 
 class Generator(Protocol):
     """Prompt -> completion text from the LLM."""
 
-    async def generate(
-        self, prompt: str, tokens: int | None = None, thinking: bool = False
-    ) -> str: ...
+    async def generate(self, prompt: str, tokens: int | None = None, thinking: bool = False) -> str:
+        """Complete `prompt`. `tokens` caps the output length (None: provider default);
+        `thinking` lets the model reason first where the provider supports it."""
 
 
 class KeywordStore(Protocol):
     """Domain keywords (from the ingested docs) that match a query."""
 
-    async def keyword_search(self, query: str, top_k: int) -> list[str]: ...
+    async def keyword_search(self, query: str, top_k: int) -> list[str]:
+        """Up to top_k keywords matching the words of `query`, best match first."""
 
 
 class ChatStore(Protocol):
     """Conversation history: read past turns, record new ones."""
 
-    async def context_search(self, conversation_id: str) -> list[tuple[str, bool | None]]: ...
+    async def context_search(self, conversation_id: str) -> list[tuple[str, bool | None]]:
+        """The conversation's messages, oldest first, as (text, feedback) pairs.
+        feedback is True/False if the user marked a reply as working or not, else None."""
 
-    # sync: called from sync code; run it in a thread if you call it from async code
     def store_query_result(
         self, conversation_id: str, query: str, response: str, alarm_str: str | None
-    ) -> None: ...
+    ) -> None:
+        """Record one finished turn; alarm_str is the alarm code it was about, if any.
+
+        Sync (blocking): run it in a thread if you call it from async code.
+        """

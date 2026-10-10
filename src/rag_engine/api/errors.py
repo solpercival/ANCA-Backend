@@ -48,6 +48,8 @@ class ErrorDetail(BaseModel):
 
 
 class ErrorBody(BaseModel):
+    """The `error` object of the envelope: what went wrong and how to trace it."""
+
     code: ErrorCode
     message: str
     request_id: str | None = None  # echoes X-Request-ID so logs can be matched to a report
@@ -89,30 +91,45 @@ class AppError(Exception):
 
 
 class Unauthorized(AppError):
+    """401: the request has no valid access token (missing, malformed, expired, or
+    for an account that is no longer active)."""
+
     status_code, code, message = 401, ErrorCode.unauthorized, "Authentication required"
     headers = {"WWW-Authenticate": "Bearer"}
 
 
 class InvalidCredentials(AppError):
+    """401: login failed. One message for a wrong username and a wrong password, so
+    the response doesn't reveal which usernames exist."""
+
     status_code, code = 401, ErrorCode.invalid_credentials
     message = "Incorrect username or password"
     headers = {"WWW-Authenticate": "Bearer"}
 
 
 class SessionExpired(AppError):
+    """401: the refresh session is gone or no longer valid; the user must log in again."""
+
     status_code, code, message = 401, ErrorCode.session_expired, "Session expired; log in again"
     headers = {"WWW-Authenticate": "Bearer"}
 
 
 class Forbidden(AppError):
+    """403: authenticated, but the caller's tier may not use this resource."""
+
     status_code, code, message = 403, ErrorCode.forbidden, "Insufficient tier for this resource"
 
 
 class UnknownAlarmCode(AppError):
+    """404: a well-formed alarm code that is not in the alarm catalogue."""
+
     status_code, code, message = 404, ErrorCode.unknown_alarm_code, "Alarm code not found"
 
 
 class RetrievalUnavailable(AppError):
+    """503: the alarm lookup or documentation search (database, embedder, reranker)
+    could not run, or the orchestrator could not be built."""
+
     status_code, code, message = (
         503,
         ErrorCode.retrieval_unavailable,
@@ -121,10 +138,14 @@ class RetrievalUnavailable(AppError):
 
 
 class Conflict(AppError):
+    """409: the resource being created already exists (e.g. a taken username)."""
+
     status_code, code, message = 409, ErrorCode.conflict, "Resource already exists"
 
 
 class RateLimited(AppError):
+    """429: too many attempts in the current window; carries a Retry-After header."""
+
     status_code, code, message = 429, ErrorCode.rate_limited, "Too many attempts; try again later"
 
     def __init__(self, retry_after: int):
@@ -133,19 +154,28 @@ class RateLimited(AppError):
 
 
 class ModelUnavailable(AppError):
+    """503: the LLM that writes the answer could not be reached or returned an error."""
+
     status_code, code, message = 503, ErrorCode.model_unavailable, "Model backend unavailable"
 
 
 class AuthUnavailable(AppError):
+    """503: the user database or session store behind authentication is unreachable."""
+
     status_code, code = 503, ErrorCode.auth_unavailable
     message = "Authentication backend unavailable"
 
 
 class UpstreamTimeout(AppError):
+    """504: a dependency (model server, database) did not answer in time."""
+
     status_code, code, message = 504, ErrorCode.upstream_timeout, "Upstream request timed out"
 
 
 class RateLimitUnavailable(AppError):
+    """503: the rate-limit counters (Redis) are unreachable, so the request is refused
+    rather than let through unlimited."""
+
     status_code, code, message = (
         503,
         ErrorCode.rate_limit_unavailable,

@@ -39,6 +39,12 @@ log = logging.getLogger("rag_engine.main")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Build shared resources on app.state at startup and close them at shutdown.
+
+    Sets httpx_client, orchestrator, user_repository, session_store, pg_pool and
+    redis. A failure to build the orchestrator or reach storage is logged, not
+    raised: the matching state is left as None and requests that need it get a 503.
+    """
     # startup
     # generous read timeout: generation streams token-by-token, so this only bounds
     # the gap between chunks, not the total time a slow reply can take

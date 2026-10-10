@@ -47,7 +47,12 @@ QUERY_REWRITE_PROMPT = """
 
 
 class Query:
-    # Query class used to store all relevant data for query preprocessing
+    """A query being preprocessed: its current text and the conversation it belongs to.
+
+    context is the chat history as (message, feedback) pairs, oldest first; see
+    ChatStore.context_search.
+    """
+
     resolved_query: str = ""
     context: list[tuple[str, bool | None]]
 
@@ -73,21 +78,24 @@ class QueryPreprocessor:
         self._rewrite_model = rewrite_model
 
     async def _retrieve_context(self, conversation_id: str) -> list[tuple[str, bool | None]]:
+        """The conversation's history from the chat store, oldest message first."""
         return await self._chat_db.context_search(conversation_id)
 
     def _normalize_query(self, text: str) -> str:
+        """Lowercase, put on one line, and drop leading conversational filler and
+        trailing punctuation. May return ""."""
         query = text.strip().lower().replace("\n", " ")
         query = CONVERSATIONAL_RE.sub("", query).strip()
         query = re.sub(PUNCTUATION_RE, "", query).strip()
         return query
 
     def _create_query(self, text: str, context: list[tuple[str, bool | None]]) -> Query:
-        # creates Query class for storing context and query data
+        """Bundle the normalised text with its conversation history."""
         return Query(text, context)
 
     def _req_coref_rewrite(self, query: Query) -> bool:
-        # determines if there are any recognized pronouns that need resolution, or if
-        # the query is too short
+        """Whether the query needs the LLM rewrite: there is history, and the query
+        has a pronoun or is five words or fewer."""
         if not query.context:
             return False
 
@@ -99,8 +107,9 @@ class QueryPreprocessor:
     async def _collect_keywords(
         self, query: Query, context: list[tuple[str, bool | None]], effort_settings: EffortSettings
     ) -> str:
-        # collects keywords from exact and fuzzy search to enforce preservation of
-        # domain specific terms/acronyms/labels
+        """The <domain-glossary> section of the rewrite prompt: keywords matching the
+        query and the conversation, so the model keeps domain terms, acronyms and
+        labels verbatim. effort_settings is not used yet."""
         # Known issue: keyword_search returns None when nothing matches, and the
         # join below then raises TypeError; guard with `or []` when fixing.
         terms = [entry[0] for entry in context]
@@ -116,11 +125,12 @@ class QueryPreprocessor:
         return f"<domain-glossary>{glossary_str}</domain-glossary>"
 
     def _process_context(self, context: list[tuple[str, bool | None]], prev_k: int) -> str:
-        # context is expected in the format (context string, status).
-        # status can be True indicating success, False indicating failure or None
-        # indicating no recorded reaction
+        """The <context> section of the rewrite prompt: the last prev_k messages, one
+        per line, labelled [user]/[assist] and tagged with the user's feedback.
 
-        # formats past context in order and amount requested
+        context holds (message, status) pairs; status is True (the reply worked),
+        False (it didn't) or None (no feedback recorded). "" when there is no history.
+        """
         if not context:
             return ""
 
@@ -146,6 +156,7 @@ class QueryPreprocessor:
         return f"<context>{formatted}</context>"
 
     def _format_query(self, query: Query) -> str:
+        """The <user-query> section of the rewrite prompt."""
         return f"<user-query>{query.resolved_query}</user-query>"
 
     async def process_prompt(

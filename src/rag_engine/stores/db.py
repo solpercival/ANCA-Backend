@@ -38,6 +38,7 @@ def get_db_pool() -> ConnectionPool | None:
 
 
 def close_db_pool() -> None:
+    """Close the pool and its connections at app shutdown. No-op if it was never created."""
     if _db_pool:
         _db_pool.close()
 

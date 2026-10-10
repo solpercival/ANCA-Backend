@@ -23,25 +23,34 @@ class Env(BaseModel):
 
 
 class EffortLevel(StrEnum):
+    """How much work a request asks for: higher levels retrieve and rerank more and
+    allow longer answers, at the cost of latency. See get_effort_settings."""
+
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
 
 
 class EffortSettings(BaseModel):
-    """Retrieval, reranking, rewriting and generation settings for the selected effort."""
+    """Retrieval, reranking, rewriting and generation settings for the selected effort.
 
-    retrieval_k: int = 0
-    reranker_n: int = 0
+    The values per level are LOW_CONFIG / MID_CONFIG / HIGH_CONFIG in config.py.
+    """
+
+    retrieval_k: int = 0  # candidates fetched per search
+    reranker_n: int = 0  # chunks kept after reranking and put in the prompt
+    # used twice: how many of the retrieved candidates are passed to the reranker
+    # (orchestrator), and how many past chat messages go into the rewrite prompt (rewriter)
     context_k: int = 0
-    reranker: str = "identity"
-    num_predict: int = 0
-    num_rewrite: int = 0
-    rewrite: bool = False
-    thinking: bool = False
+    reranker: str = "identity"  # "identity" keeps the fused order; anything else = Qwen3
+    num_predict: int = 0  # output-token cap for the answer
+    num_rewrite: int = 0  # output-token cap for the query rewrite
+    rewrite: bool = False  # run query preprocessing/rewriting before retrieval
+    thinking: bool = False  # let the answer model reason before it answers
 
 
 def get_effort_settings(level: EffortLevel | None) -> EffortSettings:
+    """The settings for an effort level; None (not specified) means medium."""
     # collect data based on config
     match level:
         case EffortLevel.LOW:

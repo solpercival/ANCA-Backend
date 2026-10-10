@@ -121,6 +121,8 @@ def get_reranker_backend() -> Reranker:
 
 
 def get_identity_reranker_backend() -> IdentityReranker:
+    """The pass-through reranker, used when the effort level's reranker is "identity"
+    whatever RERANK_PROVIDER says."""
     return IdentityReranker()
 
 
@@ -194,7 +196,8 @@ def _context_sentences(text: str) -> tuple[str, ...]:
 
 
 def _log_candidates(candidates: list[Chunk]) -> None:
-    # sanity check that retrieval returns usable text, not just ids/sources
+    """Log how many chunks retrieval returned, how many have no text, and the start
+    of the first: a sanity check that retrieval returns usable text, not just ids."""
     empty = sum(1 for c in candidates if not (c.text or "").strip())
     preview = candidates[0].text[:120].replace("\n", " ") if candidates else ""
     log.info("retrieved count=%d empty_text=%d first=%r", len(candidates), empty, preview)
@@ -222,21 +225,31 @@ class Orchestrator:
 
     @staticmethod
     def _format_context(chunks: list[Chunk]) -> str:
-        # no [n] labels: unlabelled context gives the model nothing to cite inline
+        """The prompt's context block: each chunk under its source path, separated by
+        rules. No [n] labels: unlabelled context gives the model nothing to cite inline."""
         return "\n\n---\n\n".join(f"({c.source})\n{c.text}" for c in chunks)
 
     @staticmethod
     def _strip_citations(text: str) -> str:
+        """Remove any citation markers the model added despite being told not to."""
         return _CITE_MARKER.sub("", text).strip()
 
     @staticmethod
     def _retrieval_query(req: ResolveRequest, alarm: Alarm) -> str:
-        # the code itself is opaque to the embedder; retrieve on what the alarm means
+        """What to search the docs for: the caller's query if given, else the alarm's
+        title and message. The code itself is opaque to the embedder, so retrieval
+        runs on what the alarm means."""
         return req.query or f"{alarm.title}. {alarm.alarm_text}"
 
     def _build_prompt(
         self, req: ResolveRequest, alarm: Alarm, chunks: list[Chunk], tier: Tier
     ) -> str:
+        """The generation prompt for a resolve call: instructions, the alarm header
+        and the retrieved context.
+
+        It asks for a COVERAGE line, then short action lines, then (for tiers that
+        may see causes) CAUSE lines; resolve() parses the answer in that order.
+        """
         # The docs describe machine behaviour, not per-alarm fixes, so the model is
         # asked for grounded guidance rather than a fix it would have to invent.
         # Output tokens dominate latency here (~16-33 tok/s on the demo GPU), so answers
@@ -285,6 +298,8 @@ class Orchestrator:
 
     @classmethod
     def _split_steps(cls, answer: str) -> list[str]:
+        """The answer as a list of steps: one per non-empty line, with list numbering,
+        bullets and citation markers removed."""
         steps = [cls._strip_citations(_STEP_PREFIX.sub("", ln)) for ln in answer.splitlines()]
         return [s for s in steps if s]
 

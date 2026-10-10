@@ -36,6 +36,8 @@ def ensure_auth_schema() -> None:
 
 
 def _to_user(row: dict) -> User:
+    """Build a User from a _USER_SELECT row. The password column is BYTEA holding
+    the UTF-8 hash string, so it is decoded back to text here."""
     password = row["password"]
     if isinstance(password, (bytes, bytearray, memoryview)):
         password_hash = bytes(password).decode("utf-8")
@@ -54,17 +56,22 @@ class PostgresUserRepository:
     """Datamapper for the existing ``users`` and ``role`` tables.
 
     The pool is synchronous psycopg, so every async method runs its query in a
-    worker thread via a _*_sync helper instead of blocking the event loop.
+    worker thread via a _*_sync helper instead of blocking the event loop. Any
+    database failure (including an uninitialised pool) is raised as AuthUnavailable.
     """
 
     @staticmethod
     def _unavailable(error: Exception) -> AuthUnavailable:
+        """The error returned to clients for any database failure; the cause is
+        chained by the caller (`raise ... from error`) and never put in the message."""
         return AuthUnavailable("Authentication database unavailable")
 
     async def get_by_id(self, user_id: int) -> User | None:
+        """The user with this id, or None if there is none."""
         return await asyncio.to_thread(self._get_by_id_sync, user_id)
 
     def _get_by_id_sync(self, user_id: int) -> User | None:
+        """Blocking query for get_by_id; runs in a worker thread."""
         try:
             with get_db_conn() as conn:
                 row = conn.execute(
@@ -76,9 +83,12 @@ class PostgresUserRepository:
         return _to_user(row) if row is not None else None
 
     async def get_by_username(self, username: str) -> User | None:
+        """The user with this exact username, or None. The match is case-sensitive,
+        so pass the normalised username."""
         return await asyncio.to_thread(self._get_by_username_sync, username)
 
     def _get_by_username_sync(self, username: str) -> User | None:
+        """Blocking query for get_by_username; runs in a worker thread."""
         try:
             with get_db_conn() as conn:
                 row = conn.execute(
@@ -90,9 +100,13 @@ class PostgresUserRepository:
         return _to_user(row) if row is not None else None
 
     async def create(self, username: str, password_hash: str, tier: Tier) -> User | None:
+        """Insert a user and return it, or None if the username is already taken.
+        Raises AuthUnavailable if the tier has no row in the role table."""
         return await asyncio.to_thread(self._create_sync, username, password_hash, tier)
 
     def _create_sync(self, username: str, password_hash: str, tier: Tier) -> User | None:
+        """Blocking insert for create; runs in a worker thread. The hash is stored
+        as UTF-8 bytes (the password column is BYTEA)."""
         try:
             with get_db_conn() as conn:
                 row = conn.execute(
@@ -120,9 +134,11 @@ class PostgresUserRepository:
         return _to_user(created)
 
     async def update_password_hash(self, user_id: int, password_hash: str) -> None:
+        """Replace the stored password hash. Does nothing if the user doesn't exist."""
         return await asyncio.to_thread(self._update_password_hash_sync, user_id, password_hash)
 
     def _update_password_hash_sync(self, user_id: int, password_hash: str) -> None:
+        """Blocking update for update_password_hash; runs in a worker thread."""
         try:
             with get_db_conn() as conn:
                 conn.execute(
@@ -133,9 +149,11 @@ class PostgresUserRepository:
             raise self._unavailable(error) from error
 
     async def update_tier(self, user_id: int, tier: Tier) -> bool:
+        """Change the user's tier. False if the user or the tier's role row is missing."""
         return await asyncio.to_thread(self._update_tier_sync, user_id, tier)
 
     def _update_tier_sync(self, user_id: int, tier: Tier) -> bool:
+        """Blocking update for update_tier; runs in a worker thread."""
         try:
             with get_db_conn() as conn:
                 result = conn.execute(
@@ -152,9 +170,11 @@ class PostgresUserRepository:
             raise self._unavailable(error) from error
 
     async def set_active(self, user_id: int, is_active: bool) -> bool:
+        """Enable or disable the account. False if the user doesn't exist."""
         return await asyncio.to_thread(self._set_active_sync, user_id, is_active)
 
     def _set_active_sync(self, user_id: int, is_active: bool) -> bool:
+        """Blocking update for set_active; runs in a worker thread."""
         try:
             with get_db_conn() as conn:
                 result = conn.execute(

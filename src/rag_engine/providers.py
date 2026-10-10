@@ -112,6 +112,8 @@ class OllamaEmbedder:
         self._client = client
 
     async def dense_embed(self, texts: list[str]) -> list[list[float]]:
+        """One vector per input text, in input order. Raises httpx.HTTPStatusError
+        if Ollama answers with an error status."""
         settings = get_settings()
         response = await self._client.post(
             f"{settings.ollama_base_url.rstrip('/')}/api/embed",
@@ -143,6 +145,8 @@ class OpenAIEmbedder:
         self._client = client
 
     async def dense_embed(self, texts: list[str]) -> list[list[float]]:
+        """One vector per input text, in input order. Raises ValueError when
+        OPENAI_API_KEY is unset and httpx.HTTPStatusError on an error status."""
         settings = get_settings()
         if not settings.openai_api_key:
             raise ValueError("OPENAI_API_KEY is required when embedding_provider=openai")
@@ -164,6 +168,7 @@ class AnthropicEmbedder:
         self._client = client
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
+        """Always raises NotImplementedError."""
         raise NotImplementedError(
             "Anthropic does not expose embeddings in the current provider layer."
         )
@@ -177,6 +182,8 @@ class TEIEmbedder:
         self._client = client
 
     async def sparse_embed(self, texts: list[str]) -> list[dict[int, float]]:
+        """One {vocab index: weight} dict per input text, in input order. Raises
+        httpx.HTTPStatusError if TEI answers with an error status."""
         settings = get_settings()
         response = await self._client.post(
             f"{settings.tei_endpoint.rstrip('/')}/embed_sparse",
@@ -204,6 +211,12 @@ class OllamaGenerator:
         self._client = client
 
     async def generate(self, prompt: str, tokens: int | None = None, thinking: bool = False) -> str:
+        """The model's answer to `prompt`, with any reasoning trace removed.
+
+        tokens: cap on output tokens (num_predict); None or 0 leaves Ollama's default.
+        thinking: let the model reason before answering; slower, and the reasoning
+            counts against `tokens`.
+        """
         settings = get_settings()
         # stream so the connection stays alive between tokens (avoids ReadTimeout on
         # slow CPU generations) and cap num_predict, the biggest CPU-side latency lever
@@ -248,6 +261,11 @@ class OllamaRewriteGenerator:
         self._client = client
 
     async def generate(self, prompt: str, tokens: int | None = None, thinking: bool = False) -> str:
+        """The rewritten query for a rewrite `prompt`, returned as the model wrote it.
+
+        tokens: cap on output tokens (num_predict).
+        thinking: accepted to match the Generator interface; not sent to the model.
+        """
         settings = get_settings()
 
         # similar to OllamaGenerator, slight modifications to account for longer prompt sizes.
@@ -279,12 +297,18 @@ class OllamaRewriteGenerator:
 
 class OpenAIGenerator:
     """Generator via an OpenAI-compatible /chat/completions endpoint (OpenAI,
-    OpenRouter, LiteLLM...). Non-streaming; no output-token cap is set."""
+    OpenRouter, LiteLLM...). Non-streaming."""
 
     def __init__(self, client: httpx.AsyncClient):
         self._client = client
 
     async def generate(self, prompt: str, tokens: int | None = None, thinking: bool = False) -> str:
+        """The model's answer to `prompt`, sent as a single user message.
+
+        tokens: cap on output tokens (max_completion_tokens); None leaves it unset.
+        thinking: request reasoning_effort=high.
+        Raises ValueError when OPENAI_API_KEY is unset.
+        """
         settings = get_settings()
         if not settings.openai_api_key:
             raise ValueError("OPENAI_API_KEY is required when llm_provider=openai")
@@ -312,13 +336,19 @@ class OpenAIGenerator:
 
 
 class AnthropicGenerator:
-    """Generator via the Anthropic Messages API (ANTHROPIC_LLM_MODEL), non-streaming,
-    max_tokens 1024."""
+    """Generator via the Anthropic Messages API (ANTHROPIC_LLM_MODEL), non-streaming."""
 
     def __init__(self, client: httpx.AsyncClient):
         self._client = client
 
     async def generate(self, prompt: str, tokens: int | None = None, thinking: bool = False) -> str:
+        """The model's answer to `prompt`, sent as a single user message.
+
+        tokens: cap on output tokens (max_tokens). The Messages API requires it, so
+            a call without it is rejected by Anthropic.
+        thinking: enable extended thinking with a 1024-token budget.
+        Raises ValueError when ANTHROPIC_API_KEY is unset.
+        """
         settings = get_settings()
         if not settings.anthropic_api_key:
             raise ValueError("ANTHROPIC_API_KEY is required when llm_provider=anthropic")

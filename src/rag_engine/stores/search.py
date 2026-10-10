@@ -142,6 +142,9 @@ class PostgresDBConnection:
     # stores/alarms.py is), and its SQL names columns the schema doesn't have
     # (ac.sequence, ac.id); left as-is pending a decision on removing it.
     async def alarm_search(self, request_json: dict) -> Alarm:
+        """Unused legacy lookup: the alarm for request_json["code"], or None if the
+        request lacks `code`/`env` or the code isn't three dot-separated parts.
+        Use PostgresAlarmStore.get_alarm instead."""
         # validate fields
         if (not request_json) or ("code" not in request_json) or ("env" not in request_json):
             return None
@@ -324,9 +327,12 @@ class RedisConnection:
     """
 
     def _create_key(self, text: str) -> str:
+        """Redis key for `text`: its SHA-256 hex digest, so keys have a fixed length
+        whatever the query or chunk id contains."""
         return hashlib.sha256(text.encode()).hexdigest()
 
     async def add_chunk(self, chunk: Chunk) -> None:
+        """Cache a chunk under its id for CHUNKS_TTL seconds. No-op without Redis."""
         with get_cache_conn() as client:
             if not client:
                 return
@@ -338,6 +344,7 @@ class RedisConnection:
             )
 
     async def retrieve_chunk(self, chunk_id: str) -> Chunk | None:
+        """The cached chunk, or None if it was never cached, expired, or Redis is down."""
         with get_cache_conn() as client:
             if not client:
                 return None
@@ -357,6 +364,8 @@ class RedisConnection:
             )
 
     async def add_response(self, query: str, response: str) -> None:
+        """Cache the response to an exact query string for RESPONSE_TTL seconds.
+        No-op without Redis."""
         with get_cache_conn() as client:
             if not client:
                 return
@@ -368,6 +377,8 @@ class RedisConnection:
             )
 
     async def retrieve_response(self, query: str) -> str | None:
+        """The cached entry for this exact query, or None on a miss. Note it returns
+        the stored object, {"response": ...}, not the bare response string."""
         with get_cache_conn() as client:
             if not client:
                 return None

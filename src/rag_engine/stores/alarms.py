@@ -12,6 +12,8 @@ from rag_engine.stores.db import get_db_conn
 
 
 class PostgresAlarmStore:
+    """AlarmStore backed by the alarm_code and alarm_module tables."""
+
     async def get_alarm(self, code: str) -> Alarm | None:
         """Return the catalogue record for `code`, or None if it isn't catalogued."""
         parts = code.split(get_settings().alarm_delim)

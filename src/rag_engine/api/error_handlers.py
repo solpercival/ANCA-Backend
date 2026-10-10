@@ -19,6 +19,7 @@ log = logging.getLogger("rag_engine.errors")
 
 
 def _json(status_code: int, body: ErrorBody, headers: dict[str, str] | None = None) -> JSONResponse:
+    """The error envelope as a JSON response, with X-Request-ID set from the body."""
     headers = dict(headers or {})
     # Set the id here rather than relying on the request-id middleware: the catch-all
     # handler runs outside all middleware, and the middleware's own early 413 returns
@@ -33,7 +34,8 @@ def _json(status_code: int, body: ErrorBody, headers: dict[str, str] | None = No
 
 
 def _request_id(request: Request) -> str | None:
-    # set by the request-id middleware in main.py; fall back to the raw header
+    """The id set by the request-id middleware in main.py, else the caller's raw
+    X-Request-ID header, else None."""
     return getattr(request.state, "request_id", None) or request.headers.get("x-request-id")
 
 

@@ -70,7 +70,7 @@ class Qwen3Reranker:
         self._load_lock = threading.Lock()
 
     def _ensure_loaded(self) -> None:
-        # Import is intentionally kept here, inside the backend implementation.
+        """Load the model on first use; later calls return immediately."""
         if self._model is not None:
             return
         with self._load_lock:  # concurrent first requests must not load it twice
@@ -78,6 +78,9 @@ class Qwen3Reranker:
                 self._load()
 
     def _load(self) -> None:
+        """Download (or read from the HF cache) the tokenizer and model, and move the
+        model to the GPU when one is visible. torch/transformers are imported here,
+        not at module level, so the module imports without them."""
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -108,6 +111,9 @@ class Qwen3Reranker:
             )
 
     def _score(self, query: str, texts: list[str]) -> list[float]:
+        """Relevance of each text to the query, in input order: the model's
+        probability (0-1) of answering "yes" to "does this document answer the
+        query?". Blocking; the model must already be loaded."""
         import torch
 
         prompts = [

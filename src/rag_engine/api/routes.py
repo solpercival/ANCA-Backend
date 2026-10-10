@@ -55,7 +55,9 @@ def get_orchestrator_from_request(request: Request):
 
 
 def _ping_postgres(pool) -> bool:
-    # bounded wait so an exhausted pool or unreachable DB fails the check instead of hanging
+    """Whether Postgres answers a trivial query (blocking). The wait for a connection
+    is bounded, so an exhausted pool or unreachable DB fails the check instead of
+    hanging."""
     with pool.connection(timeout=3.0) as conn:
         return conn.execute("SELECT 1").fetchone() is not None
 
