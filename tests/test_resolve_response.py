@@ -7,6 +7,7 @@ import pytest
 from rag_engine.api.schemas import ResolveRequest
 from rag_engine.auth.tiers import Tier
 from rag_engine.auth.tokens import create_access_token
+from rag_engine.config import API_PREFIX
 from rag_engine.orchestrator import Orchestrator
 from rag_engine.retrieval.interfaces import Chunk
 from rag_engine.retrieval.reranker import IdentityReranker
@@ -554,7 +555,9 @@ def _auth(tier):
 
 
 def test_api_technician_gets_causes_and_coverage(client):
-    r = client.post("/api/v2/resolve", json={"code": "am.fb.0002"}, headers=_auth(Tier.technician))
+    r = client.post(
+        f"{API_PREFIX}/resolve", json={"code": "am.fb.0002"}, headers=_auth(Tier.technician)
+    )
 
     assert r.status_code == 200
     body = r.json()
@@ -564,7 +567,9 @@ def test_api_technician_gets_causes_and_coverage(client):
 
 
 def test_api_operator_gets_no_causes(client):
-    r = client.post("/api/v2/resolve", json={"code": "am.fb.0002"}, headers=_auth(Tier.operator))
+    r = client.post(
+        f"{API_PREFIX}/resolve", json={"code": "am.fb.0002"}, headers=_auth(Tier.operator)
+    )
 
     assert r.status_code == 200
     assert r.json()["likely_causes"] == []

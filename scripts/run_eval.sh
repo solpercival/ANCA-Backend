@@ -23,14 +23,16 @@ if [ -f .env ]; then
 fi
 
 HOST=http://localhost:8080
-BASE="$HOST/api/v2"
+# the API version is defined once, in src/rag_engine/config.py
+API_PREFIX=$(.venv/bin/python -c 'from rag_engine.config import API_PREFIX; print(API_PREFIX)')
+BASE="$HOST$API_PREFIX"
 
 EVAL_USERNAME=${EVAL_USERNAME:-evaluser}
 EVAL_PASSWORD=${EVAL_PASSWORD:-eval-pw!}
 EVAL_GOLD=${1:-${EVAL_GOLD:-docs/docs-proto/starter-kit/alarms/reference-answers.json}}
 
 # ---- preflight: stack up? --------------------------------------------------
-# health/ready live under the /api/v2 router prefix, not the root.
+# health/ready live under the API router prefix, not the root.
 echo "--- CHECK STACK ---"
 if ! curl -fsS "$BASE/health" >/dev/null 2>&1; then
   echo "orchestrator not reachable at $BASE/health -- start it first: make up  (plain 'docker compose up' skips the GPU override)"

@@ -11,7 +11,7 @@ from rag_engine.api.schemas import (
     ResolveRequest,
     get_effort_settings,
 )
-from rag_engine.config import get_settings
+from rag_engine.config import API_PREFIX, get_settings
 from rag_engine.providers import OllamaGenerator
 from rag_engine.retrieval.interfaces import Chunk
 from rag_engine.retrieval.reranker import IdentityReranker, Qwen3Reranker
@@ -93,7 +93,7 @@ def test_api_resolve_endpoint_effort_boundary_validation(client, bearer):
     # Valid effort tiers return 200
     for effort in ("low", "medium", "high"):
         resp = client.post(
-            "/api/v2/resolve",
+            f"{API_PREFIX}/resolve",
             json={"code": "am.fb.0002", "effort": effort},
             headers=bearer,
         )
@@ -103,7 +103,7 @@ def test_api_resolve_endpoint_effort_boundary_validation(client, bearer):
 
     # Invalid effort tier rejected with 422
     resp_invalid = client.post(
-        "/api/v2/resolve",
+        f"{API_PREFIX}/resolve",
         json={"code": "am.fb.0002", "effort": "super_high"},
         headers=bearer,
     )
@@ -115,7 +115,7 @@ def test_api_chat_endpoint_effort_boundary_validation(client, bearer):
     # Valid effort tiers return 200
     for effort in ("low", "medium", "high"):
         resp = client.post(
-            "/api/v2/chat",
+            f"{API_PREFIX}/chat",
             json={"conversation_id": "c-1", "message": "how to fix", "effort": effort},
             headers=bearer,
         )
@@ -125,7 +125,7 @@ def test_api_chat_endpoint_effort_boundary_validation(client, bearer):
 
     # Invalid effort tier rejected with 422
     resp_invalid = client.post(
-        "/api/v2/chat",
+        f"{API_PREFIX}/chat",
         json={"conversation_id": "c-1", "message": "how to fix", "effort": "bad_tier"},
         headers=bearer,
     )

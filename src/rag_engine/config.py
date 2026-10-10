@@ -13,6 +13,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LOCAL_JWT_SECRET = "change-me-in-prod"
 
+# The API version lives here and nowhere else: routers, the refresh-cookie path, the
+# body-size check, scripts and tests all read API_PREFIX. A constant rather than a
+# setting, because the version is part of the contract with the frontend, not
+# something a deployment may change.
+API_VERSION = "v2"
+API_PREFIX = f"/api/{API_VERSION}"
+
 
 class Settings(BaseSettings):
     """All runtime settings. Each field is read from the environment variable of the

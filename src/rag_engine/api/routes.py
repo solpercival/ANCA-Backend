@@ -1,4 +1,5 @@
-"""HTTP surface under /api/v2: health/readiness probes, resolve-by-code, and chat.
+"""HTTP surface under API_PREFIX (/api/<version>): health/readiness probes,
+resolve-by-code, and chat.
 
 Every business endpoint authenticates (current_principal / require), is rate
 limited per IP and per tier, and gets the shared Orchestrator from
@@ -22,10 +23,10 @@ from rag_engine.api.schemas import (
 )
 from rag_engine.auth.dependencies import current_principal, require
 from rag_engine.auth.tiers import Principal, can_use_chat, can_view_likely_causes
-from rag_engine.config import get_settings
+from rag_engine.config import API_PREFIX, get_settings
 from rag_engine.orchestrator import Orchestrator, get_orchestrator
 
-router = APIRouter(prefix="/api/v2", tags=["api"])
+router = APIRouter(prefix=API_PREFIX, tags=["api"])
 settings = get_settings()
 resolve_rate_limit = rate_limit_dependency(
     "resolve", "resolve_rate_limit_per_ip", "resolve_rate_limit_per_tier"

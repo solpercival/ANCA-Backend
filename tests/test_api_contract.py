@@ -14,6 +14,7 @@ from rag_engine.api.errors import ModelUnavailable, RetrievalUnavailable, Unknow
 from rag_engine.api.schemas import ChatResponse, ResolveResponse
 from rag_engine.auth.tiers import Tier
 from rag_engine.auth.tokens import create_access_token
+from rag_engine.config import API_PREFIX
 from rag_engine.main import app
 from rag_engine.orchestrator import get_orchestrator
 
@@ -224,7 +225,7 @@ def _configure_probes(monkeypatch, pg: str, redis: str, model: str) -> None:
 async def test_resolve_app_errors_use_the_error_envelope(client, exc, status, code):
     app.dependency_overrides[get_orchestrator] = lambda: _RaisingOrchestrator(exc)
 
-    response = await client.post("/api/v2/resolve", json=RESOLVE_BODY, headers=_headers())
+    response = await client.post(f"{API_PREFIX}/resolve", json=RESOLVE_BODY, headers=_headers())
 
     _assert_error(response, status=status, code=code)
 
@@ -232,7 +233,7 @@ async def test_resolve_app_errors_use_the_error_envelope(client, exc, status, co
 async def test_unhandled_resolve_error_hides_the_exception(client):
     app.dependency_overrides[get_orchestrator] = lambda: _RaisingOrchestrator(Exception("secret"))
 
-    response = await client.post("/api/v2/resolve", json=RESOLVE_BODY, headers=_headers())
+    response = await client.post(f"{API_PREFIX}/resolve", json=RESOLVE_BODY, headers=_headers())
 
     error = _assert_error(response, status=500, code="internal_error")
     assert error["message"] == "Internal server error"
@@ -241,7 +242,7 @@ async def test_unhandled_resolve_error_hides_the_exception(client):
 
 async def test_invalid_alarm_code_is_a_validation_error(client):
     response = await client.post(
-        "/api/v2/resolve",
+        f"{API_PREFIX}/resolve",
         json={"code": "not-a-code"},
         headers=_headers(),
     )
@@ -252,7 +253,7 @@ async def test_invalid_alarm_code_is_a_validation_error(client):
 
 
 async def test_missing_token_challenge_is_bearer(client):
-    response = await client.post("/api/v2/resolve", json=RESOLVE_BODY)
+    response = await client.post(f"{API_PREFIX}/resolve", json=RESOLVE_BODY)
 
     assert response.status_code == 401
     assert response.json()["error"]["code"] == "unauthorized"
@@ -261,7 +262,7 @@ async def test_missing_token_challenge_is_bearer(client):
 
 async def test_malformed_token_challenge_names_invalid_token(client):
     response = await client.post(
-        "/api/v2/resolve",
+        f"{API_PREFIX}/resolve",
         json=RESOLVE_BODY,
         headers={"Authorization": "Bearer not-a-jwt"},
     )
@@ -272,7 +273,7 @@ async def test_malformed_token_challenge_names_invalid_token(client):
 
 
 async def test_operator_chat_has_no_authenticate_challenge(client):
-    response = await client.post("/api/v2/chat", json=CHAT_BODY, headers=_auth(Tier.operator))
+    response = await client.post(f"{API_PREFIX}/chat", json=CHAT_BODY, headers=_auth(Tier.operator))
 
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "forbidden"
@@ -288,7 +289,7 @@ async def test_operator_chat_has_no_authenticate_challenge(client):
     ],
 )
 async def test_resolve_applies_tier_rules(client, tier, sees_causes, chat_available):
-    response = await client.post("/api/v2/resolve", json=RESOLVE_BODY, headers=_auth(tier))
+    response = await client.post(f"{API_PREFIX}/resolve", json=RESOLVE_BODY, headers=_auth(tier))
 
     assert response.status_code == 200
     body = response.json()
@@ -304,7 +305,7 @@ async def test_resolve_applies_tier_rules(client, tier, sees_causes, chat_availa
     [(Tier.operator, 403), (Tier.technician, 200), (Tier.partner, 200)],
 )
 async def test_chat_is_limited_to_tiers_that_can_use_it(client, tier, status):
-    response = await client.post("/api/v2/chat", json=CHAT_BODY, headers=_auth(tier))
+    response = await client.post(f"{API_PREFIX}/chat", json=CHAT_BODY, headers=_auth(tier))
 
     assert response.status_code == status
     if status == 403:
@@ -330,7 +331,7 @@ async def test_chat_is_limited_to_tiers_that_can_use_it(client, tier, status):
 async def test_ready_reports_each_dependency(client, monkeypatch, pg, redis, model, status, checks):
     _configure_probes(monkeypatch, pg, redis, model)
 
-    response = await client.get("/api/v2/ready", headers={"x-request-id": REQUEST_ID})
+    response = await client.get(f"{API_PREFIX}/ready", headers={"x-request-id": REQUEST_ID})
 
     assert response.status_code == status
     assert response.headers["x-request-id"] == REQUEST_ID

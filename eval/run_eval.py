@@ -39,6 +39,8 @@ from pathlib import Path
 
 import httpx
 
+from rag_engine.config import API_PREFIX
+
 GOLD_PATH = "docs/docs-proto/starter-kit/alarms/reference-answers.json"
 
 
@@ -325,7 +327,7 @@ def score_fix(steps, groups):
     return met / len(groups)
 
 
-API_URL = "http://localhost:8080/api/v2"
+API_URL = f"http://localhost:8080{API_PREFIX}"
 
 
 def fetch_answer(code, api_url=API_URL, token=None):

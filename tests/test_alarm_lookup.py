@@ -8,6 +8,7 @@ import pytest
 from rag_engine.api.errors import RetrievalUnavailable, UnknownAlarmCode
 from rag_engine.api.schemas import ResolveRequest
 from rag_engine.auth.tiers import Tier
+from rag_engine.config import API_PREFIX
 from rag_engine.orchestrator import Orchestrator, get_orchestrator
 from rag_engine.retrieval.interfaces import Chunk
 from rag_engine.stores import alarms as alarms_module
@@ -199,7 +200,7 @@ def test_seed_source_is_the_sample_catalogue():
 
 
 def test_api_unknown_code_returns_404_envelope(client, bearer):
-    r = client.post("/api/v2/resolve", json={"code": "am.fb.9999"}, headers=bearer)
+    r = client.post(f"{API_PREFIX}/resolve", json={"code": "am.fb.9999"}, headers=bearer)
 
     assert r.status_code == 404
     assert r.json()["error"]["code"] == "unknown_alarm_code"
@@ -209,7 +210,7 @@ def test_api_catalogue_down_returns_503(client, bearer):
     from rag_engine.main import app
 
     app.dependency_overrides[get_orchestrator] = lambda: _orch(BrokenAlarmStore())
-    r = client.post("/api/v2/resolve", json={"code": "am.fb.0002"}, headers=bearer)
+    r = client.post(f"{API_PREFIX}/resolve", json={"code": "am.fb.0002"}, headers=bearer)
 
     assert r.status_code == 503
     assert r.json()["error"]["code"] == "retrieval_unavailable"

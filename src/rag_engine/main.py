@@ -2,7 +2,7 @@
 
 Startup (lifespan) builds the shared HTTP client, the orchestrator, and the
 Postgres/Redis pools. It degrades instead of crashing: if storage isn't reachable
-the app still starts, auth storage is marked unavailable, and /api/v2/ready
+the app still starts, auth storage is marked unavailable, and <API_PREFIX>/ready
 reports which dependency is down.
 
 Request path, outermost first: host check -> security headers -> gzip -> CORS ->
@@ -27,7 +27,7 @@ from rag_engine.api.security import add_security_middleware
 from rag_engine.auth.routes import router as auth_router
 from rag_engine.auth.session_store import RedisSessionStore
 from rag_engine.auth.user_repository import PostgresUserRepository, ensure_auth_schema
-from rag_engine.config import get_settings
+from rag_engine.config import API_PREFIX, get_settings
 from rag_engine.orchestrator import get_orchestrator
 from rag_engine.stores.cache import close_cache_pool, get_cache_client, init_cache_pool
 from rag_engine.stores.db import close_db_pool, get_db_pool, init_db_pool
@@ -98,7 +98,7 @@ async def add_request_id(request: Request, call_next):
     """Tag each request with an id, cap API body size, and write one access log line.
 
     The id is the caller's X-Request-ID if sent, else a new one; it is echoed in the
-    response header and in error bodies. For /api/v2, bodies over
+    response header and in error bodies. For API routes, bodies over
     max_request_body_bytes get 413 -- checked on Content-Length first, then on the
     actual body, since the header can be absent or wrong.
     """
@@ -106,7 +106,7 @@ async def add_request_id(request: Request, call_next):
     request_id = request.state.request_id
     t0 = time.perf_counter()
 
-    if request.url.path.startswith("/api/v2"):
+    if request.url.path.startswith(API_PREFIX):
         content_length = request.headers.get("content-length")
         try:
             declared_length = int(content_length) if content_length else None

@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from rag_engine.api.security import API_CSP, SECURITY_HEADERS, add_security_middleware
-from rag_engine.config import Settings
+from rag_engine.config import API_PREFIX, Settings
 from rag_engine.main import app as main_app
 
 LONG_SECRET = "x" * 40
@@ -39,7 +39,7 @@ def test_security_headers_are_on_successful_responses(client, header):
 @pytest.mark.parametrize("header", sorted(SECURITY_HEADERS))
 def test_security_headers_are_on_error_responses(client, header):
     # An error response is still a response an attacker can reach.
-    r = client.post("/api/v2/resolve", json={"code": "am.fb.0002"})
+    r = client.post(f"{API_PREFIX}/resolve", json={"code": "am.fb.0002"})
 
     assert r.status_code == 401
     assert r.headers[header] == SECURITY_HEADERS[header]

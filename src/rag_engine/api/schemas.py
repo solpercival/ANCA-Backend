@@ -67,7 +67,7 @@ def get_effort_settings(level: EffortLevel | None) -> EffortSettings:
 
 
 class ResolveRequest(BaseModel):
-    """Body of POST /api/v2/resolve."""
+    """Body of POST <API_PREFIX>/resolve."""
 
     code: str = Field(
         ...,
@@ -119,7 +119,7 @@ class ResolveResponse(BaseModel):
     )
     citations: list[Citation] = Field(default_factory=list)
     tier: Tier
-    ai_chat_available: bool = False  # whether the caller may use /api/v2/chat
+    ai_chat_available: bool = False  # whether the caller may use the chat endpoint
     confidence: float = Field(
         0.0,
         ge=0.0,
@@ -132,7 +132,7 @@ class ResolveResponse(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    """Body of POST /api/v2/chat. Reuse conversation_id to continue a conversation."""
+    """Body of POST <API_PREFIX>/chat. Reuse conversation_id to continue a conversation."""
 
     conversation_id: str = Field(..., min_length=1, max_length=128)
     effort: EffortLevel = EffortLevel.MEDIUM

@@ -12,7 +12,9 @@ if [ -f .env ]; then
   set +a
 fi
 
-BASE=http://localhost:8080/api/v2
+# the API version is defined once, in src/rag_engine/config.py
+API_PREFIX=$(.venv/bin/python -c 'from rag_engine.config import API_PREFIX; print(API_PREFIX)')
+BASE=http://localhost:8080$API_PREFIX
 PG_USER=${POSTGRES_USER:-rag}
 PG_DB=${POSTGRES_DB:-rag}
 

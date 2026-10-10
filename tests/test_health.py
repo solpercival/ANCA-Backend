@@ -2,9 +2,11 @@
 resolve rejects unauthenticated calls.
 """
 
+from rag_engine.config import API_PREFIX
+
 
 def test_health(client):
-    r = client.get("/api/v2/health")
+    r = client.get(f"{API_PREFIX}/health")
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
 
@@ -17,5 +19,5 @@ def test_missing_route_uses_standard_error_payload(client):
 
 
 def test_resolve_requires_auth(client):
-    r = client.post("/api/v2/resolve", json={"code": "am.fb.0002"})
+    r = client.post(f"{API_PREFIX}/resolve", json={"code": "am.fb.0002"})
     assert r.status_code == 401
