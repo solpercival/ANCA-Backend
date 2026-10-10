@@ -54,11 +54,17 @@ where = ["src"]
 line-length = 100
 target-version = "py312"
 src = ["src", "ingestion", "tests"]
+# docs/ is the vendored starter kit and a git submodule: not our code to lint or format
+extend-exclude = ["docs"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 # B008: Depends() in defaults is the idiomatic FastAPI pattern.
 ignore = ["B008"]
+
+[tool.ruff.lint.per-file-ignores]
+# migrations are write-once: don't re-wrap SQL in a revision that may already be applied
+"migrations/versions/*.py" = ["E501"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
@@ -71,5 +77,9 @@ markers = [
 
 [tool.mypy]
 python_version = "3.12"
-packages = ["rag_engine"]
+# check the source tree directly: `packages = ["rag_engine"]` resolved to the installed
+# (editable) package, which has no py.typed marker, so mypy exited without checking
+files = ["src/rag_engine"]
+mypy_path = "src"
+explicit_package_bases = true
 ignore_missing_imports = true
