@@ -73,7 +73,10 @@ async def client():
             delattr(app.state, name)
     app.dependency_overrides[get_orchestrator] = lambda: StubOrchestrator()
     try:
-        transport = httpx.ASGITransport(app=app, lifespan="off")
+        # ASGITransport never runs the lifespan (and has no `lifespan` argument).
+        # raise_app_exceptions=False: return the app's 500 response like a real HTTP
+        # client would, instead of re-raising the unhandled exception into the test.
+        transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as http:
             yield http
     finally:

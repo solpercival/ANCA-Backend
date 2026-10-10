@@ -63,7 +63,9 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@router.get("/ready", tags=["ops"])
+# response_model=None: FastAPI can't build a response model from a return type that
+# includes a Response class, and raises at import time (the app would not start)
+@router.get("/ready", tags=["ops"], response_model=None)
 async def ready(request: Request) -> dict[str, object] | JSONResponse:
     """Readiness: Postgres, Redis and the model server all answer.
 

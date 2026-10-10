@@ -18,6 +18,12 @@ log = logging.getLogger("rag_engine.errors")
 
 
 def _json(status_code: int, body: ErrorBody, headers: dict[str, str] | None = None,) -> JSONResponse:
+    headers = dict(headers or {})
+    # Set the id here rather than relying on the request-id middleware: the catch-all
+    # handler runs outside all middleware, and the middleware's own early 413 returns
+    # never reach the line that adds it, so those responses would lose the header.
+    if body.request_id:
+        headers.setdefault("x-request-id", body.request_id)
     return JSONResponse(
         status_code=status_code,
         content=ErrorResponse(error=body).model_dump(),
