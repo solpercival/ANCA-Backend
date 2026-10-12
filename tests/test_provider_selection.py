@@ -122,6 +122,30 @@ def test_ollama_generator_logs_prompt_and_output_timing(caplog):
     assert "done_reason=length" in stats
 
 
+@pytest.mark.parametrize(("env", "expected"), [(None, 0.0), ("0.7", 0.7)])
+def test_ollama_generator_sends_temperature(monkeypatch, env, expected):
+    # default 0: without it Ollama samples at 0.8 and identical requests give
+    # different steps, so bench/eval runs could not be compared
+    import json
+
+    if env:
+        monkeypatch.setenv("LLM_TEMPERATURE", env)
+    else:
+        monkeypatch.delenv("LLM_TEMPERATURE", raising=False)
+    sent = {}
+
+    def handler(request):
+        sent.update(json.loads(request.content))
+        return httpx.Response(200, text=json.dumps({"response": "ok", "done": True}))
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await OllamaGenerator(client).generate("prompt", 200, False)
+
+    assert asyncio.run(run()) == "ok"
+    assert sent["options"] == {"temperature": expected, "num_predict": 200}
+
+
 @pytest.mark.parametrize(("env", "expected"), [(None, 0), ("99", 99)])
 def test_ollama_query_embedder_defaults_to_cpu(monkeypatch, env, expected):
     # num_gpu=0 keeps the query embedder off the 6 GB GPU budget

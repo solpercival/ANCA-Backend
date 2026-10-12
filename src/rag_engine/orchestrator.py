@@ -4,10 +4,14 @@ resolve (alarm code -> guidance):
   1. look the code up in the alarm catalogue (404 if unknown)
   2. build a retrieval query from the alarm's title + message (or the caller's query)
   3. retrieve candidates, keep the first 20, rerank to rerank_top_n
-  4. prompt the LLM for a COVERAGE line, action steps and (technician+) CAUSE quotes
+  4. prompt the LLM for a COVERAGE line, action steps (as many as the docs support)
+     and (technician+) CAUSE quotes
   5. post-process the answer so only grounded content survives: drop catalogue
-     echoes and non-action filler, settle coverage, keep causes only when they
-     match a real sentence of the retrieved docs (the doc's wording is returned)
+     echoes, generalise or drop steps stating a doc example's values (0x04,
+     Drive_3), drop non-action filler and repeated steps (incl. checks that only
+     restate an earlier step), settle coverage, keep causes only when they match a
+     real sentence of the retrieved docs that isn't a worked example (the doc's
+     wording is returned)
   6. record the turn (store_context) and return steps, causes, citations (top 3)
 chat follows the same retrieve -> rerank -> generate path with a simpler prompt,
 after the query preprocessor rewrites the message using the conversation history.
@@ -71,8 +75,9 @@ _ECHO_RATIO = 0.8
 _ACTION_VERBS = frozenset(
     """
     acknowledge activate add adjust align allow apply assign attach avoid back
-    calibrate call change check clean clear close compare configure confirm connect
-    consult contact coordinate copy correct create cycle deactivate decrease define
+    calibrate call change check choose clean clear close compare configure confirm
+    connect consult contact coordinate copy correct create cycle deactivate decide
+    decrease define
     delete detach determine disable disconnect document downgrade edit enable ensure
     enter examine execute find fix go identify increase insert inspect install
     interpret investigate jog keep limit load locate look lower make map mark measure
@@ -84,6 +89,57 @@ _ACTION_VERBS = frozenset(
     switch synchronise synchronize test tighten transfer try turn type uninstall
     unmap update upgrade upload use validate verify wait write
 """.split()
+)
+
+# Example-specific literals the docs use for illustration (one machine's values),
+# which must never be presented as facts about the caller's machine. Deliberately
+# narrow: plain numbers ("at least 3 control points"), config properties
+# ("opcua.enable = false", "mcode.101.mode = 5") and bracketed UI names are untouched.
+_EXAMPLE_LITERALS = (
+    # register / station hex: 0x04. Not CoE object addresses (index:subindex, e.g.
+    # "error code (0x1001:00)"): those are fixed by the standard, the same on every drive
+    re.compile(r"\b0x[0-9a-f]+\b(?!:[0-9a-f]{1,2}\b)", re.I),
+    re.compile(r"\b[a-z]+_\d+\b", re.I),  # numbered device names: Drive_3
+    # quoted device names: "Drive 3" (no ASCII apostrophe, so possessives can't match)
+    re.compile(r"[\"“‘][a-z][\w -]*\d[\"”’]", re.I),
+    # numbered lists of devices: "devices 2, 4 and 5", "stations 1 and 3"
+    re.compile(
+        r"\b(?:devices|drives|stations|slaves|nodes|axes|joints)\s+\d+"
+        r"(?:\s*,\s*\d+)*\s*,?\s+(?:and|or)\s+\d+\b",
+        re.I,
+    ),
+)
+# parts of a step that can be cut to generalise it when they hold an example literal:
+# a parenthetical, or a trailing "e.g. / for example / such as ..." clause
+_EXAMPLE_ASIDE = re.compile(r"\s*\([^()]*\)")
+_EXAMPLE_CLAUSE = re.compile(
+    r",?\s*\b(?:e\.g\.|for example|for instance|such as)\s+[^.;,()]*", re.I
+)
+# Two steps are repeats when their content words are the same set, or mostly
+# coincide: shared / smaller set >= _DUPLICATE_OVERLAP, for sets of at least
+# _DUPLICATE_MIN_WORDS words. Word sets, not a character ratio: "Check the drive's
+# error register" and "... status register" are ~0.9 alike by difflib yet distinct.
+_DUPLICATE_OVERLAP = 0.8
+_DUPLICATE_MIN_WORDS = 3
+_STOPWORDS = frozenset(
+    "a an and are as at be by for from if in into is it its of on or so that the "
+    "then this to was when with you your".split()
+)
+# A check that restates an earlier step ("Set opcua.enable to false" -> "Verify
+# opcua.enable is set to false in configuration") is also a repeat: the check's
+# words, minus its verb and these generic ones, are mostly (_DUPLICATE_OVERLAP)
+# found in the earlier step. Only checks are judged this way: two actions with the
+# same object ("Enable the drive watchdog" / "Disable ...") are not repeats.
+_CHECK_VERBS = frozenset("check confirm ensure validate verify".split())
+_RESTATEMENT_FILLER = frozenset(
+    "applied configuration configured correct correctly done file now properly "
+    "property set setting still value".split()
+)
+
+# "If/When/Once/Unless <condition>, <main clause>" (or ":" after the condition);
+# group 1 is the main clause, with a leading "then"/"just" skipped
+_CONDITIONAL_STEP = re.compile(
+    r"^\s*(?:if|when|once|unless)\b[^,:;]*[,:;]\s*(?:(?:then|just)\s+)?(.*)$", re.I
 )
 
 # first line of a resolve answer, e.g. "COVERAGE: partial"; tolerate markdown bold
@@ -273,27 +329,59 @@ class Orchestrator:
             "COVERAGE: full    (the context gives explicit steps that resolve this alarm)\n"
             "COVERAGE: partial (the context explains the alarm or behaviour, but no complete fix)\n"
             "COVERAGE: none    (the context is unrelated to this alarm)\n"
-            "Then output one line per point, no numbering: at most 4 lines, each one short "
-            "sentence of at most 20 words, stated concisely in your own words. "
-            "Start each line with a verb. Put the action that resolves the alarm first "
-            "(for example Restart, Reinitialise, Set, Change, Reconfigure, Add or Move), "
-            "then at most two diagnostic lines (Check, Verify). If the context says the "
-            "alarm requires a restart or reinitialisation, that must be one of the lines. "
-            "Never write a line that only describes the alarm or restates its "
-            "message or error code. Fewer lines are better than filler: stop when the "
-            "context has nothing more that applies.\n"
+            "Then output the steps, one line per point, no numbering. Give as many or as "
+            "few steps as the context supports: there is no fixed number and no minimum, "
+            "and one step is right when that is all the context gives. Each line is one "
+            "short imperative sentence of at most 20 words, stated concisely in your own "
+            "words. Start each line with a verb (for example Restart, Reinitialise, Set, "
+            "Change, Add, Check or Verify). When the context makes a step depend on a "
+            "condition, start with that condition instead, then the verb, in the form "
+            '"If <condition from the context>, <verb> ...". Give each alternative the '
+            "context offers as its own conditional step. Put first the step that "
+            "resolves the alarm, written as the action itself (Set, Add, Disable, "
+            "Restart, Reinitialise), not as a check that it was done; then the other "
+            "steps in the order a technician would carry them out. Include each check "
+            "the context gives for diagnosing this alarm, such as what a reported value "
+            "or state means. Add a Check or Verify step only when "
+            "the context says what to look for and what to do about it; never add one "
+            "that checks whether another step was done, or that restates a step or a "
+            "rule as a check. Never repeat a step in different words. Make sure no step "
+            "would cause this alarm (for example by enabling a feature it reports as "
+            "unlicensed). If the context says the alarm requires a restart or reinitialisation, "
+            "that must be one of the lines. Never write a line that only describes the "
+            "alarm or restates its message or error code. Fewer lines are better than "
+            "filler: stop when the context has nothing more that applies.\n"
             "Ignore context about a different task or feature than this alarm, and never "
             "give advice that would cause this alarm again.\n"
+            "Values in the context are examples from one machine and will not match this "
+            "one. Never reproduce example-specific identifiers or values: device names "
+            "(such as Drive_3), station or register hex values (such as 0x03 or 0x04), "
+            "lists of device numbers (such as devices 2, 4 and 5), coordinates or example "
+            "counts. Describe them generally instead: write \"Check the drive's reported "
+            'error register", not "The error register is 0x04". Configuration property '
+            "names, the values the documentation says to set, and limits it states as "
+            "rules are not examples; keep those.\n"
             "Never copy code, program examples, coordinates, tables or long passages from "
             "the context. No citation markers or brackets, no introduction, no summary.\n"
             "For COVERAGE: none, the only following line must be exactly: "
             f'"{_NOT_COVERED}"\n'
             f"{causes}"
             "The alarm header below is what the machine reported, not documentation: "
-            "use it to understand the alarm, but never repeat it as guidance.\n"
+            "use it to understand the alarm, and never repeat its description of the "
+            "fault as guidance. If the alarm message itself states a remedy (it names a "
+            "setting to change, or something to obtain or do), give that remedy as a "
+            "step, in the direction the message says, and never give a step that "
+            "contradicts it.\n"
             f"Tier: {tier.value}\nAlarm: {req.code} - {alarm.title}\n"
             f"Alarm message: {alarm.alarm_text}\n\n"
-            f"Context:\n{self._format_context(chunks)}"
+            f"Context:\n{self._format_context(chunks)}\n\n"
+            # repeated after the context: a small model follows what it read last, and
+            # the context may describe the opposite of the fix (how to enable a feature
+            # the alarm says to disable)
+            f"Reminder: the alarm to resolve is {req.code} - {alarm.title}. "
+            f"Its message: {alarm.alarm_text}\n"
+            "The steps must make this alarm go away. If the message states a remedy, "
+            "your first step is that remedy, and no step may do the opposite."
         )
 
     @classmethod
@@ -310,9 +398,12 @@ class Orchestrator:
         """Remove steps that just restate the catalogue's alarm title/message.
 
         The catalogue identifies the alarm; it is not documentation, so repeating
-        its text back must not pass as guidance. An echo is kept only when the
-        retrieved context says the same thing, i.e. the docs back it. Steps that
-        merely mention the alarm while explaining it are not echoes.
+        its text back must not pass as guidance. An echo is kept when the retrieved
+        context says the same thing, i.e. the docs back it, or when it is an action:
+        some alarm messages state their own remedy ("... disable the server with the
+        opcua.enable configuration property"), and that part is guidance from the
+        machine, unlike a restatement of the fault. Steps that merely mention the
+        alarm while explaining it are not echoes.
         """
         header = [cls._norm(t) for t in (alarm.alarm_text, alarm.title) if t]
         kept = []
@@ -323,7 +414,11 @@ class Orchestrator:
                 or (len(s) >= _MIN_PARTIAL_QUOTE and s in h)
                 for h in header
             )
-            if is_echo and cls._match_context_sentence(step, chunks) is None:
+            if (
+                is_echo
+                and not cls._starts_with_action(step)
+                and cls._match_context_sentence(step, chunks) is None
+            ):
                 log.info("step_dropped_catalogue_echo code=%s step=%r", alarm.code, step[:120])
                 continue
             kept.append(step)
@@ -331,8 +426,12 @@ class Orchestrator:
 
     @staticmethod
     def _starts_with_action(step: str) -> bool:
-        """True if the step's first word is a known action verb (see _ACTION_VERBS)."""
-        words = step.split()
+        """True if the step's first word is a known action verb (see _ACTION_VERBS), or
+        it is a conditional action whose main clause starts with one: "If it's an
+        error (non-zero code), recover by reinitialising the bus", "If PLC: configure
+        ...". The reference answers branch like this, so such steps are not filler."""
+        conditional = _CONDITIONAL_STEP.match(step)
+        words = (conditional.group(1) if conditional else step).split()
         return bool(words) and words[0].strip(".,:;!\"'").lower() in _ACTION_VERBS
 
     @classmethod
@@ -354,6 +453,95 @@ class Orchestrator:
                 kept.append(step)
             else:
                 log.info("step_dropped_non_action code=%s step=%r", code, step[:120])
+        return kept
+
+    @staticmethod
+    def _has_example_literal(text: str) -> bool:
+        """True if the text contains an example-specific literal (_EXAMPLE_LITERALS)."""
+        return any(p.search(text) for p in _EXAMPLE_LITERALS)
+
+    @classmethod
+    def _scrub_example_literals(cls, steps: list[str], code: str) -> list[str]:
+        """Generalise or drop steps that state a doc example's value as fact.
+
+        The docs illustrate with one machine's values (register 0x04, Drive_3,
+        devices 2, 4 and 5); repeated as guidance they won't match the caller's
+        machine. A step is generalised only by cutting the aside that holds the
+        literal -- a parenthetical or a trailing "e.g. ..." clause -- so the rest of
+        the sentence is untouched. If a literal is still there, the step is dropped:
+        losing an example-bound step is safer than rewriting it into something wrong.
+        """
+        kept = []
+        for step in steps:
+            if not cls._has_example_literal(step):
+                kept.append(step)
+                continue
+            cut = step
+            for aside in (_EXAMPLE_ASIDE, _EXAMPLE_CLAUSE):
+                cut = aside.sub(
+                    lambda m: "" if cls._has_example_literal(m.group(0)) else m.group(0), cut
+                )
+            cut = re.sub(r"\s+([.,;:!?])", r"\1", " ".join(cut.split())).strip(" ,;:")
+            if cut and not cls._has_example_literal(cut) and cls._norm(cut):
+                log.info("step_generalised code=%s step=%r", code, step[:120])
+                kept.append(cut)
+            else:
+                log.info("step_dropped_example_literal code=%s step=%r", code, step[:120])
+        return kept
+
+    @classmethod
+    def _content_words(cls, text: str) -> set[str]:
+        """The step's distinctive words for duplicate detection: normalised, no
+        stopwords, a plural "s" removed so "point" and "points" coincide."""
+        words = set()
+        for w in cls._norm(text).split():
+            if len(w) < 2 or w in _STOPWORDS:  # len: the "s" of a split "drive's"
+                continue
+            words.add(w[:-1] if len(w) > 3 and w.endswith("s") and not w.endswith("ss") else w)
+        return words
+
+    @classmethod
+    def _is_near_duplicate(cls, a: str, b: str) -> bool:
+        """True if two steps say the same thing: the same content words, or (for
+        steps with enough content) the smaller's words are almost all in the other."""
+        wa, wb = cls._content_words(a), cls._content_words(b)
+        if wa and wa == wb:
+            return True
+        smaller = min(len(wa), len(wb))
+        return smaller >= _DUPLICATE_MIN_WORDS and len(wa & wb) / smaller >= _DUPLICATE_OVERLAP
+
+    @classmethod
+    def _restates_as_check(cls, check: str, earlier: str) -> bool:
+        """True if `check` is a Check/Verify/... line that only re-states `earlier`
+        (see _CHECK_VERBS): its object words are mostly in the earlier step."""
+        words = check.split()
+        if not words or words[0].strip(".,:;!\"'").lower() not in _CHECK_VERBS:
+            return False
+        claim = cls._content_words(" ".join(words[1:])) - _RESTATEMENT_FILLER
+        if len(claim) < _DUPLICATE_MIN_WORDS:
+            return False
+        source = cls._content_words(earlier) - _RESTATEMENT_FILLER
+        return len(claim & source) / len(claim) >= _DUPLICATE_OVERLAP
+
+    @classmethod
+    def _drop_duplicate_steps(cls, steps: list[str], code: str) -> list[str]:
+        """Collapse repeated steps to their first occurrence.
+
+        Small models pad a short answer by restating one instruction several ways
+        (am.lic.0001: "Disable opcua.server with opcua.enable set to false", then
+        "Verify opcua.enable is set to false in configuration", then "Check
+        opcua.enable property is false in configuration file"). A later step is a
+        repeat when it rewords an earlier one or only checks it. The first wording
+        is kept, in place, so the step order is unchanged.
+        """
+        kept: list[str] = []
+        for step in steps:
+            if any(
+                cls._is_near_duplicate(step, k) or cls._restates_as_check(step, k) for k in kept
+            ):
+                log.info("step_dropped_duplicate code=%s step=%r", code, step[:120])
+                continue
+            kept.append(step)
         return kept
 
     @staticmethod
@@ -432,7 +620,9 @@ class Orchestrator:
             if len(causes) == _MAX_CAUSES:
                 break
             match = cls._match_context_sentence(quote, chunks)
-            if match is None or _STRUCTURAL.search(match):
+            # a doc example ("maps index 0x6040 of device 1 to devices 2, 4, and 5")
+            # is one machine's setup, not this alarm's cause
+            if match is None or _STRUCTURAL.search(match) or cls._has_example_literal(match):
                 log.info("cause_rejected code=%s quote=%r", code, quote[:120])
                 continue
             if match not in causes:
@@ -599,7 +789,10 @@ class Orchestrator:
         # always strip CAUSE lines so they never leak into steps, whatever the tier
         cause_claims, body = self._split_causes(body)
         steps = self._drop_catalogue_echoes(self._split_steps(body), alarm, top)
+        steps = self._scrub_example_literals(steps, req.code)
         steps = self._drop_filler_beside_actions(steps, req.code)
+        # after the scrub, which can leave two steps saying the same thing
+        steps = self._drop_duplicate_steps(steps, req.code)
         # empty (header only / only catalogue echoes) or only the disclaimer -> "none"
         doc_coverage, steps = self._settle_coverage(doc_coverage, steps, req.code)
         # the route also strips causes per tier; skipping here just avoids the work

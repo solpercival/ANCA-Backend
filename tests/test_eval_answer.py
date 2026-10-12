@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from eval.run_eval import (
+    FIX_TERMS_PATH,
     GOLD_PATH,
     content_stems,
     load_fix_terms,
@@ -41,6 +42,20 @@ def test_actionable_steps_score_high():
     assert scores["actionable"] == 1.0
     assert scores["coverage_match"] == 1.0
     assert scores["step_recall"] > 0.6
+
+
+def test_conditional_steps_count_as_actionable():
+    # the gold answers branch: "If PLC: configure ...", "If you do need it, contact ..."
+    answer = {
+        "steps": [
+            "If the same device drops out again, restart (power-cycle) that drive.",
+            "If PLC: configure the M-code to a PLC mode.",
+            "If the device drops out, the master resets the bus.",  # no action
+        ],
+        "doc_coverage": "full",
+    }
+
+    assert score_answer(answer, GOLD)["actionable"] == pytest.approx(2 / 3)
 
 
 def test_restating_the_alarm_scores_low():
@@ -93,6 +108,36 @@ def test_fix_absent_when_steps_only_check_things():
     ]
 
     assert score_fix(steps, [["false", "disable"], ["licen", "anca"]]) == 0.0
+
+
+def test_lic_0001_fix_terms_do_not_reward_the_opposite_fix():
+    # bench at temperature 0 scored this 1.0: "false" matched the certificate
+    # setting and "anca" matched the certificate subject
+    if not FIX_TERMS_PATH.exists():
+        pytest.skip("fix terms file not present")
+    groups = load_fix_terms()["am.lic.0001"]
+    harmful = [
+        "Set opcua.enable to true",
+        "Check the opcua.enable configuration property value",
+        "Ensure the opcua.certificate.autogenerate is set to false",
+        "Verify the opcua.certificate.subject matches CN=ANCA Motion AMCore OPC UA Server",
+    ]
+    gold = [
+        "If you don't need the OPC UA server, set the configuration property "
+        "opcua.enable = false.",
+        "If you do need it, contact ANCA to add the OPC UA option to your license.",
+    ]
+
+    assert score_fix(harmful, groups) == 0.0
+    assert score_fix(gold, groups) == 1.0
+    assert (
+        score_fix(
+            ["Disable the OPC UA server by setting the opcua.enable configuration "
+             "property to false."],
+            groups,
+        )
+        == 0.5
+    )
 
 
 def test_summarize_reports_fix_present_only_for_listed_codes():

@@ -152,6 +152,12 @@ STOPWORDS = {
     "if",
 }
 
+# "If/When/Once/Unless <condition>, <main clause>": the gold answers branch like this
+# ("If PLC: configure ..."); same pattern as the engine's _CONDITIONAL_STEP
+CONDITIONAL_STEP = re.compile(
+    r"^\s*(?:if|when|once|unless)\b[^,:;]*[,:;]\s*(?:(?:then|just)\s+)?(.*)$", re.I
+)
+
 # Verbs a resolution step should start with ("Restart the system", "Check ...")
 ACTION_VERBS = {
     "check",
@@ -232,6 +238,8 @@ ACTION_VERBS = {
     "re-initialize",
     "re-run",
     "rerun",
+    "decide",
+    "choose",
     "recover",
     "place",
     "insert",
@@ -287,7 +295,9 @@ def score_answer(answer, gold_entry):
 
     action_steps = 0
     for step in steps:
-        words = step.split()
+        # "If <condition>, <verb> ..." counts by its main clause, as in the engine
+        conditional = CONDITIONAL_STEP.match(step)
+        words = (conditional.group(1) if conditional else step).split()
         if words and words[0].lower().strip(".,:;") in ACTION_VERBS:
             action_steps += 1
     actionable = action_steps / len(steps) if steps else 0.0
