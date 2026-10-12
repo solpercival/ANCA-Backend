@@ -86,3 +86,9 @@ def can_use_chat(tier: Tier) -> bool:
 def can_view_likely_causes(tier: Tier) -> bool:
     """Return whether the tier may see the likely causes behind an alarm."""
     return (tier is Tier.technician) or (tier is Tier.partner)
+
+
+def should_escalate_when_unsure(tier: Tier) -> bool:
+    """Return whether the tier is told to escalate rather than act on an alarm that
+    is safety-related or not fully covered by the documentation (operators only)."""
+    return tier is Tier.operator

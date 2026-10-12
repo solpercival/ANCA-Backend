@@ -35,6 +35,7 @@ from langfuse import Langfuse
 
 from rag_engine.api.errors import ModelUnavailable, RetrievalUnavailable, UnknownAlarmCode
 from rag_engine.api.metrics import rag_resolve_total, rag_stage_seconds
+from rag_engine.api.safety import is_safety_alarm
 from rag_engine.api.schemas import (
     ChatRequest,
     ChatResponse,
@@ -65,6 +66,9 @@ from rag_engine.stores.search import PostgresDBConnection
 log = logging.getLogger("rag_engine.orchestrator")
 
 _NOT_COVERED = "The documentation does not cover this alarm."
+# Shown with the answer for safety-related alarms (api/safety.py), whatever the tier
+# and whatever the docs say: the steps come from documentation, not from the machine.
+_SAFETY_NOTE = "Verify the machine's actual state before acting on these steps."
 
 # models sometimes number or bullet lines despite the prompt; strip that prefix
 _STEP_PREFIX = re.compile(r"^\s*(?:\d+[.)]|[-*•])\s*")
@@ -858,6 +862,7 @@ class Orchestrator:
             tier=tier,
             doc_coverage=doc_coverage,
             confidence=_COVERAGE_CONFIDENCE[doc_coverage],
+            safety_note=_SAFETY_NOTE if is_safety_alarm(alarm.severity_category) else None,
         )
 
     async def chat(self, req: ChatRequest, tier: Tier) -> ChatResponse:

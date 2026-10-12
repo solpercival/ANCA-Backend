@@ -130,6 +130,24 @@ class ResolveResponse(BaseModel):
     citations: list[Citation] = Field(default_factory=list)
     tier: Tier
     ai_chat_available: bool = False  # whether the caller may use the chat endpoint
+    safety_note: str | None = Field(
+        None,
+        description=(
+            "Verify-before-acting caution, set for safety-related alarms (Fatal by "
+            "default) for every tier; null otherwise. Show it with the steps"
+        ),
+    )
+    escalation_suggested: bool = Field(
+        False,
+        description=(
+            "True when the caller is an operator and the alarm is safety-related or "
+            "the docs don't fully cover it (doc_coverage none/partial): prompt them "
+            "to escalate. Always false for technician and partner"
+        ),
+    )
+    escalation_note: str | None = Field(
+        None, description="Operator-facing escalation message; set iff escalation_suggested"
+    )
     confidence: float = Field(
         0.0,
         ge=0.0,

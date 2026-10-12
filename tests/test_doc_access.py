@@ -13,6 +13,7 @@ from rag_engine.api.schemas import ChatRequest, ResolveRequest
 from rag_engine.auth.tiers import DocAudience, Tier, allowed_doc_audiences
 from rag_engine.config import get_settings
 from rag_engine.orchestrator import Orchestrator
+from rag_engine.retrieval.doc_refs import doc_path
 from rag_engine.retrieval.hybrid import HybridRetriever
 from rag_engine.retrieval.interfaces import Chunk
 from rag_engine.stores import search
@@ -71,7 +72,7 @@ def _chat(store, tier):
 
 
 def _sources(resp):
-    return {c.source for c in resp.citations}
+    return {c.path for c in resp.citations}
 
 
 # --- the tier rule -----------------------------------------------------------
@@ -104,7 +105,7 @@ def test_operator_resolve_excludes_user_guide_sources(embedding_setup):
     store = FakeDocStore(USER_GUIDE, PPR)
     resp = _resolve(store, Tier.operator)
 
-    assert _sources(resp) == {PPR_DOC}
+    assert _sources(resp) == {doc_path(PPR_DOC)}
     # every search (semantic, plus lexical in dual mode) got the restriction
     kinds = ["semantic"] if embedding_setup == "unified" else ["semantic", "lexical"]
     assert store.calls == [(k, OPERATOR_WHERE) for k in kinds]
@@ -122,7 +123,7 @@ def test_technician_and_partner_resolve_include_user_guide(tier):
     store = FakeDocStore(USER_GUIDE, PPR)
     resp = _resolve(store, tier)
 
-    assert _sources(resp) == {USER_GUIDE_DOC, PPR_DOC}
+    assert _sources(resp) == {doc_path(USER_GUIDE_DOC), doc_path(PPR_DOC)}
     assert store.calls[0] == ("semantic", None)  # unchanged: no filter at all
 
 
@@ -142,7 +143,7 @@ def test_operator_chat_excludes_user_guide_sources():
     store = FakeDocStore(USER_GUIDE, PPR)
     resp = _chat(store, Tier.operator)
 
-    assert _sources(resp) == {PPR_DOC}
+    assert _sources(resp) == {doc_path(PPR_DOC)}
     assert store.calls[0] == ("semantic", OPERATOR_WHERE)
 
 
@@ -151,7 +152,7 @@ def test_technician_and_partner_chat_include_user_guide(tier):
     store = FakeDocStore(USER_GUIDE, PPR)
     resp = _chat(store, tier)
 
-    assert _sources(resp) == {USER_GUIDE_DOC, PPR_DOC}
+    assert _sources(resp) == {doc_path(USER_GUIDE_DOC), doc_path(PPR_DOC)}
     assert store.calls[0] == ("semantic", None)
 
 

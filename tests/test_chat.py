@@ -184,8 +184,7 @@ def test_reply_has_citation_markers_stripped():
 def test_citations_are_the_top_three_reranked_chunks():
     resp = _chat(_orch(retriever=RecordingRetriever(_chunks(6))))
 
-    assert [c.chunk_id for c in resp.citations] == ["c0", "c1", "c2"]
-    assert [c.source for c in resp.citations] == ["doc0.md", "doc1.md", "doc2.md"]
+    assert [c.path for c in resp.citations] == ["doc0.md", "doc1.md", "doc2.md"]
 
 
 def test_no_chunks_still_generates_with_no_citations():
