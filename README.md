@@ -283,7 +283,11 @@ Response `200`:
   "doc_coverage": "partial",
   "likely_causes": ["A device sends an emergency message when it detects an internal error."],
   "citations": [
-    { "source": "docs/user-guide/troubleshoot/coe-device-errors.md", "chunk_id": "1234" }
+    {
+      "doc": "AMCore User Guide",
+      "path": "user-guide/troubleshoot/coe-device-errors.md",
+      "section": "Emergency Error"
+    }
   ],
   "tier": "technician",
   "ai_chat_available": true,
@@ -297,7 +301,7 @@ Response `200`:
 | `steps` | The guidance, one point per element, already cleaned of numbering. Render as a list |
 | `doc_coverage` | `full`: the docs give explicit steps. `partial`: the docs explain the alarm but give no complete fix. `none`: the docs don't cover it |
 | `likely_causes` | Up to 3 sentences taken from the documentation; often empty |
-| `citations` | Up to 3 source documents. `source` is a path inside the docs repo |
+| `citations` | Up to 3 documentation sections the answer drew on. `doc` is the document's display name, `path` is relative to the documentation root (link to it), `section` is the heading the text sits under, or `null` if it has none |
 | `confidence` | Derived from `doc_coverage` (0.9, 0.5, 0.0). Use `doc_coverage` for UI decisions |
 
 When `doc_coverage` is `none`, `steps` holds the single line "The documentation
@@ -325,7 +329,13 @@ Response `200`:
 {
   "conversation_id": "c-7f3a",
   "reply": "Check the device's EMCY code in the diagnostics view ...",
-  "citations": [{ "source": "docs/user-guide/troubleshoot/coe-device-errors.md", "chunk_id": "1234" }]
+  "citations": [
+    {
+      "doc": "AMCore User Guide",
+      "path": "user-guide/troubleshoot/coe-device-errors.md",
+      "section": "Emergency Error"
+    }
+  ]
 }
 ```
 

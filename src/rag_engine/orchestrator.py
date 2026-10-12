@@ -40,6 +40,7 @@ from rag_engine.api.schemas import (
 )
 from rag_engine.auth.tiers import Tier, can_view_likely_causes
 from rag_engine.config import get_settings
+from rag_engine.retrieval.doc_refs import doc_name, doc_path, section_title
 from rag_engine.retrieval.hybrid import HybridRetriever
 from rag_engine.retrieval.interfaces import Alarm, AlarmStore, Chunk, Generator, Reranker
 from rag_engine.retrieval.reranker import IdentityReranker, Qwen3Reranker
@@ -60,6 +61,7 @@ _CAUSE_LINE = re.compile(r"^\W*cause\s*[:=-]\s*(.+?)\s*$", re.I)
 # response: sources are reported only through the structured citations list
 _CITE_MARKER = re.compile(r"\s*\[(?:n|\d+(?:\s*[,–-]\s*\d+)*)\]", re.I)
 _MAX_CAUSES = 3
+_MAX_CITATIONS = 3  # top-ranked chunks reported as citations
 # how close a quoted cause must be to a real context sentence (difflib ratio);
 # tolerates a small model's punctuation/markup slips, not paraphrase
 _CAUSE_MATCH_RATIO = 0.85
@@ -228,6 +230,21 @@ class Orchestrator:
         """The prompt's context block: each chunk under its source path, separated by
         rules. No [n] labels: unlabelled context gives the model nothing to cite inline."""
         return "\n\n---\n\n".join(f"({c.source})\n{c.text}" for c in chunks)
+
+    @staticmethod
+    def _citations(chunks: list[Chunk]) -> list[Citation]:
+        """The top chunks as contract citations {doc, path, section} (see
+        retrieval/doc_refs.py): the first _MAX_CITATIONS chunks, with chunks of the
+        same section merged, since they would be the same reference to a client."""
+        citations: list[Citation] = []
+        for chunk in chunks[:_MAX_CITATIONS]:
+            path = doc_path(chunk.source)
+            citation = Citation(
+                doc=doc_name(path), path=path, section=section_title(chunk.section)
+            )
+            if citation not in citations:
+                citations.append(citation)
+        return citations
 
     @staticmethod
     def _strip_citations(text: str) -> str:
@@ -625,7 +642,7 @@ class Orchestrator:
             severity_category=alarm.severity_category.capitalize(),  # "error" -> "Error"
             steps=steps,
             likely_causes=likely_causes,
-            citations=[Citation(source=c.source, chunk_id=c.chunk_id) for c in top[:3]],
+            citations=self._citations(top),
             tier=tier,
             doc_coverage=doc_coverage,
             confidence=_COVERAGE_CONFIDENCE[doc_coverage],
@@ -732,7 +749,7 @@ class Orchestrator:
         return ChatResponse(
             conversation_id=req.conversation_id,
             reply=self._strip_citations(reply),
-            citations=[Citation(source=c.source, chunk_id=c.chunk_id) for c in top[:3]],
+            citations=self._citations(top),
         )
 
 

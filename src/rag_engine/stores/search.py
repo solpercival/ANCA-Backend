@@ -21,6 +21,17 @@ from rag_engine.stores.cache import get_cache_conn
 from rag_engine.stores.db import get_db_conn
 
 
+# Select-list column giving a chunk's heading text as `section` (NULL when it has no
+# closest_heading). heading.heading_order holds the heading's text. Equivalent to a
+# LEFT JOIN on heading's primary key, written as a scalar subquery so the searches'
+# FROM / ORDER BY distance / LIMIT shape -- and so the vector index scan -- is
+# unchanged and only the returned rows look their heading up. Shared by both searches.
+_SECTION_COLUMN = """(
+                        SELECT h.heading_order FROM heading h
+                        WHERE h.heading_id = document_chunks.closest_heading
+                    ) AS section"""
+
+
 class PostgresDBConnection:
     """Postgres-backed retrieval stores.
 
@@ -48,9 +59,10 @@ class PostgresDBConnection:
         result_chunks = []
 
         with get_db_conn() as conn:
-            query_str = """
+            query_str = f"""
                 SELECT chunk_id, content, metadata, document_source AS file_path,
-                    semantic_embedding <=> %s AS distance
+                    semantic_embedding <=> %s AS distance,
+                    {_SECTION_COLUMN}
                 FROM document_chunks
             """
             params = [Vector(vector)]
@@ -81,6 +93,7 @@ class PostgresDBConnection:
                         text=entry["content"],
                         source=entry["file_path"],
                         metadata=entry["metadata"],
+                        section=entry["section"] or None,
                     )
                 )
 
@@ -103,9 +116,10 @@ class PostgresDBConnection:
         settings = get_settings()
 
         with get_db_conn() as conn:
-            query_str = """
+            query_str = f"""
                 SELECT chunk_id, content, metadata, document_source AS file_path,
-                    lexical_embedding <#> %s AS distance
+                    lexical_embedding <#> %s AS distance,
+                    {_SECTION_COLUMN}
                 FROM document_chunks
                 WHERE lexical_embedding IS NOT NULL
             """
@@ -133,6 +147,7 @@ class PostgresDBConnection:
                         text=entry["content"],
                         source=entry["file_path"],
                         metadata=entry["metadata"],
+                        section=entry["section"] or None,
                     )
                 )
 
@@ -361,6 +376,7 @@ class RedisConnection:
                 source=json_result["source"],
                 metadata=json_result["metadata"],
                 score=json_result["score"],
+                section=json_result.get("section"),
             )
 
     async def add_response(self, query: str, response: str) -> None:
