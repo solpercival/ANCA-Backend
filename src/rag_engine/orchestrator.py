@@ -311,6 +311,32 @@ class Orchestrator:
         return "\n\n---\n\n".join(f"({c.source})\n{c.text}" for c in chunks)
 
     @staticmethod
+    def _has_relevant_context(top: list[Chunk], reranker: Reranker, code: str) -> bool:
+        """Whether the reranked chunks include anything about the alarm.
+
+        False when the reranker scores relevance (Qwen3: chunk.score is P(yes)) and
+        even its best chunk is below RESOLVE_MIN_RELEVANCE, or there are no chunks.
+        That happens when the docs the caller may see don't cover the alarm, e.g. an
+        operator asking about one documented only in the User Guide. With a reranker
+        that doesn't score relevance (identity: low effort, RERANK_PROVIDER=none) the
+        scores mean nothing here, so the context is always passed on.
+        """
+        floor = get_settings().resolve_min_relevance
+        if floor <= 0 or not getattr(reranker, "scores_relevance", False):
+            return True
+        best = max((c.score for c in top), default=0.0)
+        if best >= floor:
+            return True
+        log.info(
+            "resolve_no_relevant_docs code=%s best_score=%.2f floor=%.2f chunks=%d",
+            code,
+            best,
+            floor,
+            len(top),
+        )
+        return False
+
+    @staticmethod
     def _citations(chunks: list[Chunk]) -> list[Citation]:
         """The top chunks as contract citations {doc, path, section} (see
         retrieval/doc_refs.py): the first _MAX_CITATIONS chunks, with chunks of the
@@ -765,10 +791,8 @@ class Orchestrator:
         trimmed = candidates[: effort_settings.context_k]
 
         t0 = time.perf_counter()
-        if effort_settings.reranker == "identity":
-            top = await self._id_reranker.rerank(query, trimmed, effort=effort_settings)
-        else:
-            top = await self._reranker.rerank(query, trimmed, effort=effort_settings)
+        reranker = self._id_reranker if effort_settings.reranker == "identity" else self._reranker
+        top = await reranker.rerank(query, trimmed, effort=effort_settings)
         t_rerank = time.perf_counter() - t0
         rag_stage_seconds.labels(stage="rerank").observe(t_rerank)
 
@@ -780,19 +804,25 @@ class Orchestrator:
                 duration_ms=int(t_rerank * 1000),
             )
 
-        t0 = time.perf_counter()
-        try:
-            answer = await self._generator.generate(
-                prompt=self._build_prompt(req, alarm, top, tier),
-                tokens=effort_settings.num_predict,
-                thinking=effort_settings.thinking,
-            )
-        except Exception as exc:
-            log.exception("generation_error code=%s", req.code)
-            rag_resolve_total.labels(outcome="error").inc()
-            raise ModelUnavailable() from exc
-        t_generate = time.perf_counter() - t0
-        rag_stage_seconds.labels(stage="generate").observe(t_generate)
+        t_generate = 0.0
+        if self._has_relevant_context(top, reranker, req.code):
+            t0 = time.perf_counter()
+            try:
+                answer = await self._generator.generate(
+                    prompt=self._build_prompt(req, alarm, top, tier),
+                    tokens=effort_settings.num_predict,
+                    thinking=effort_settings.thinking,
+                )
+            except Exception as exc:
+                log.exception("generation_error code=%s", req.code)
+                rag_resolve_total.labels(outcome="error").inc()
+                raise ModelUnavailable() from exc
+            t_generate = time.perf_counter() - t0
+            rag_stage_seconds.labels(stage="generate").observe(t_generate)
+        else:
+            # nothing retrieved is about this alarm: say so rather than let the model
+            # build steps out of unrelated text. Parsed like a generated answer below.
+            answer = f"COVERAGE: none\n{_NOT_COVERED}"
 
         if self._langfuse and trace:
             trace.span(
@@ -858,7 +888,8 @@ class Orchestrator:
             severity_category=alarm.severity_category.capitalize(),  # "error" -> "Error"
             steps=steps,
             likely_causes=likely_causes,
-            citations=self._citations(top),
+            # a "not covered" answer drew on nothing, so it cites nothing
+            citations=self._citations(top) if doc_coverage != "none" else [],
             tier=tier,
             doc_coverage=doc_coverage,
             confidence=_COVERAGE_CONFIDENCE[doc_coverage],

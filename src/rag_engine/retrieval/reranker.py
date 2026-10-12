@@ -33,6 +33,10 @@ log = logging.getLogger("rag_engine.reranker")
 class IdentityReranker:
     """No-op reranker: preserves incoming order, truncates to top_n."""
 
+    # chunk.score is left as the retriever set it (an RRF score or 0), so it says
+    # nothing about relevance and must not be compared with a relevance threshold
+    scores_relevance = False
+
     async def rerank(self, query: str, chunks: list[Chunk], effort: EffortSettings) -> list[Chunk]:
         """Return the first top_n chunks unchanged."""
         del query  # unused: ordering is left to the caller
@@ -50,6 +54,10 @@ class Qwen3Reranker:
     min_score: drop chunks below this P(yes), always keeping the best
         (RERANK_MIN_SCORE; 0 disables).
     """
+
+    # chunk.score is P(yes), the probability (0-1) that the chunk answers the query;
+    # the orchestrator's relevance floor (RESOLVE_MIN_RELEVANCE) relies on this
+    scores_relevance = True
 
     def __init__(
         self,

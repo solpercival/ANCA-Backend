@@ -141,6 +141,14 @@ class Settings(BaseSettings):
     # alarms off-topic chunks scored 0.6-0.95 (same topic, wrong task) while a gold
     # chunk for am.nc.0004 scored <=0.10, so 0.2 dropped the wrong ones.
     rerank_min_score: float = 0.0
+    # Relevance floor for a resolve answer: if even the best reranked chunk scores
+    # below this P(yes), nothing retrieved is about the alarm, so the answer is "not
+    # covered" without calling the generator (it would otherwise build steps out of
+    # unrelated text). Unlike rerank_min_score this looks only at the best chunk.
+    # 0 disables. Chosen from the sample alarms: answerable ones had a best score of
+    # 0.47-0.99; an operator asking about User Guide-only alarms got 0.00-0.02.
+    # Applies only with a reranker that scores relevance (Qwen3), so not at low effort.
+    resolve_min_relevance: float = 0.1
     rrf_k: int = 60  # reciprocal-rank-fusion constant; higher flattens rank differences
 
     # embeddings (the dims must match the vector/sparsevec columns in migration 0001)
