@@ -151,6 +151,13 @@ class Settings(BaseSettings):
     # alarms data
     alarm_delim: str = "."  # separator in alarm codes: <origin>.<module>.<sequence>
 
+    # Alarm severity categories treated as safety-related: a resolve answer for one
+    # carries a verify-before-acting note, and operators are told to escalate
+    # (api/safety.py). Compared case-insensitively. Widen it as the client's
+    # definition of "safety-related" grows, e.g.
+    # SAFETY_SEVERITY_CATEGORIES='["Fatal","Critical"]'
+    safety_severity_categories: set[str] = {"Fatal"}
+
     # query rewriting: how many domain keywords to look up for the query itself and
     # for the conversation context (retrieval/rewriter.py)
     KEYWORD_K: int = 10

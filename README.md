@@ -287,6 +287,9 @@ Response `200`:
   ],
   "tier": "technician",
   "ai_chat_available": true,
+  "safety_note": null,
+  "escalation_suggested": false,
+  "escalation_note": null,
   "confidence": 0.5
 }
 ```
@@ -299,6 +302,8 @@ Response `200`:
 | `likely_causes` | Up to 3 sentences taken from the documentation; often empty |
 | `citations` | Up to 3 source documents. `source` is a path inside the docs repo |
 | `confidence` | Derived from `doc_coverage` (0.9, 0.5, 0.0). Use `doc_coverage` for UI decisions |
+| `safety_note` | A verify-before-acting caution, set for safety-related alarms (`severity_category` `Fatal` by default; `SAFETY_SEVERITY_CATEGORIES`) for every tier, otherwise `null`. Show it prominently with the steps |
+| `escalation_suggested`, `escalation_note` | `true` with a message for an operator when the alarm is safety-related or `doc_coverage` is `none`/`partial`: prompt them to escalate. Always `false`/`null` for technician and partner |
 
 When `doc_coverage` is `none`, `steps` holds the single line "The documentation
 does not cover this alarm." and `likely_causes` is empty. Show that state
