@@ -1,12 +1,12 @@
 {
   "summary": {
-    "hit": 1.0,
-    "precision": 0.667,
+    "hit": 0.909,
+    "precision": 0.788,
     "recall": 0.864,
-    "reciprocal_rank": 0.939,
-    "step_recall": 0.336,
-    "actionable": 0.977,
-    "coverage_match": 0.273,
+    "reciprocal_rank": 0.909,
+    "step_recall": 0.473,
+    "actionable": 1.0,
+    "coverage_match": 0.182,
     "fix_present": 0.636,
     "fix_solved": 4,
     "codes": 11,
@@ -16,68 +16,81 @@
     {
       "hit": true,
       "precision": 0.6666666666666666,
-      "recall": 0.5,
+      "recall": 1.0,
       "reciprocal_rank": 1.0,
-      "step_recall": 0.37202380952380953,
+      "step_recall": 0.6130952380952381,
       "actionable": 1.0,
       "coverage_match": 0.0,
-      "fix_present": 0.0,
+      "fix_present": 1.0,
       "code": "am.nc.0001",
       "steps": [
-        "Check PPP2 uses barrier to prevent rewind before A axis is detached",
-        "Verify both PPPs use correct logical machine assignments for A axis"
+        "Set the X and A axes to the same logical machine",
+        "Verify the electronic cam link is defined between the X and A axes",
+        "Ensure the part program processor is attached to the logical machine containing both axes",
+        "Check that no other logical machine has the A axis assigned",
+        "Confirm the electronic_cam_enable command is used in the correct sequence"
       ],
       "doc_coverage": "partial"
     },
     {
       "hit": true,
-      "precision": 0.3333333333333333,
-      "recall": 0.5,
+      "precision": 1.0,
+      "recall": 1.0,
       "reciprocal_rank": 1.0,
-      "step_recall": 0.4398148148148148,
-      "actionable": 0.75,
+      "step_recall": 0.5509259259259259,
+      "actionable": 1.0,
       "coverage_match": 0.0,
       "fix_present": 1.0,
       "code": "am.nc.0002",
       "steps": [
-        "Detach the x axis from logical machine 2",
-        "Verify the axis is no longer attached to logical machine 2",
-        "Check the program line 1 in mdi1.pp for correct attach command",
-        "Reinitialise the part program processor after axis reassignment"
+        "Check the x' axis attachment status in logical machine 2",
+        "If the x' axis is attached to logical machine 2, detach it from logical machine 2",
+        "Check the program mdi1.pp for an attach command targeting logical machine 1",
+        "If the program includes an attach command, ensure it is executed after the axis is detached from machine 2",
+        "Use the barrier function to synchronize PPP1 and PPP2 execution sequences",
+        "Restart the Part Program Processor if the axis remains attached after detaching"
       ],
       "doc_coverage": "partial"
     },
     {
-      "hit": true,
-      "precision": 0.3333333333333333,
-      "recall": 0.5,
-      "reciprocal_rank": 0.3333333333333333,
-      "step_recall": 0.31180555555555556,
+      "hit": false,
+      "precision": 0.0,
+      "recall": 0.0,
+      "reciprocal_rank": 0.0,
+      "step_recall": 0.5958333333333333,
       "actionable": 1.0,
       "coverage_match": 0.0,
       "fix_present": 0.5,
       "code": "am.nc.0003",
       "steps": [
-        "Activate the part program named m101.pp",
-        "Verify the part program exists in the search hierarchy",
-        "Check the hierarchy path contains m101.pp"
+        "Run the part program using the command prompt with pp_run and the M-code number 101.",
+        "Verify that a part program named m101.pp exists in the configured search hierarchy.",
+        "Check the part program search hierarchy path to confirm the presence of m101.pp.",
+        "Ensure the M-code M101 is configured to use mode 4 (trailing subprogram call).",
+        "Verify the part program file m101.pp is accessible and not corrupted.",
+        "Check that the main program mdi1.pp contains the M-code M101 on line 1.",
+        "If the part program m101.pp is not found in the search hierarchy, add it to a root hierarchy folder."
       ],
       "doc_coverage": "partial"
     },
     {
       "hit": true,
-      "precision": 0.6666666666666666,
-      "recall": 1.0,
+      "precision": 1.0,
+      "recall": 0.5,
       "reciprocal_rank": 1.0,
-      "step_recall": 0.5714285714285715,
+      "step_recall": 0.6190476190476191,
       "actionable": 1.0,
       "coverage_match": 1.0,
       "fix_present": 1.0,
       "code": "am.nc.0004",
       "steps": [
-        "Add at least three control points between splineon and splineoff.",
-        "Verify all points are between the splineon and splineoff commands.",
-        "Check that fm and st are only programmed on the splineon block."
+        "Set splineon command in the program",
+        "Add at least three control points between splineon and splineoff",
+        "Verify that fm and st are only programmed in the splineon block",
+        "Check that tf is programmed only in the splineon block or in a subsequent block within the spline section",
+        "Ensure the spline type is set to uniform, chord, or bspline",
+        "Confirm the splineoff command is present after the spline section",
+        "Verify the dummy point is defined in the splineoff block"
       ],
       "doc_coverage": "full"
     },
@@ -86,15 +99,18 @@
       "precision": 1.0,
       "recall": 1.0,
       "reciprocal_rank": 1.0,
-      "step_recall": 0.4166666666666667,
+      "step_recall": 0.4583333333333333,
       "actionable": 1.0,
       "coverage_match": 0.0,
-      "fix_present": 1.0,
+      "fix_present": 0.0,
       "code": "am.nc.0005",
       "steps": [
-        "Remove duplicate class 1 preparatory words from the block",
-        "Check program for multiple G-code words in same block",
-        "Verify no two class 1 words are used in one block"
+        "Check the program block for class 1 preparatory words",
+        "Remove any class 1 preparatory word that is not required",
+        "Verify the current mode for the Dimension Mode group",
+        "Check if the block contains multiple preparatory words that influence dimension or interpolation",
+        "If the block contains more than one class 1 preparatory word, remove the redundant one",
+        "Restart the program execution after modifying the block"
       ],
       "doc_coverage": "partial"
     },
@@ -103,15 +119,34 @@
       "precision": 0.6666666666666666,
       "recall": 1.0,
       "reciprocal_rank": 1.0,
-      "step_recall": 0.34920634920634913,
+      "step_recall": 0.30158730158730157,
       "actionable": 1.0,
       "coverage_match": 0.0,
       "fix_present": 0.5,
       "code": "am.cfg.0001",
       "steps": [
-        "Set the Joint logical device for the joint to the logical address of the device.",
-        "Verify the logical device is assigned to only one joint.",
-        "Check the device mapping configuration for duplicate entries."
+        "Set the Joint logical device for the joint to the logical address of the device",
+        "Check the joint number from the axis table",
+        "Check that no other joint has the same logical device mapped to it"
+      ],
+      "doc_coverage": "partial"
+    },
+    {
+      "hit": true,
+      "precision": 1.0,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.46031746031746035,
+      "actionable": 1.0,
+      "coverage_match": 0.0,
+      "fix_present": 0.5,
+      "code": "am.lic.0001",
+      "steps": [
+        "Disable the OPC UA server by setting opcua.enable to false in the configuration.",
+        "Check the opcua.enable configuration property value to confirm it is set to false.",
+        "Verify the OPC UA server is disabled by checking the system status for OPC UA server operation.",
+        "Check the opcua.applicationUri value to ensure it is not being used if the server is disabled.",
+        "Check the opcua.certificate.autogenerate value to confirm it is set to false if a custom certificate is provided."
       ],
       "doc_coverage": "partial"
     },
@@ -120,32 +155,18 @@
       "precision": 0.6666666666666666,
       "recall": 1.0,
       "reciprocal_rank": 1.0,
-      "step_recall": 0.2777777777777778,
-      "actionable": 1.0,
-      "coverage_match": 1.0,
-      "fix_present": 0.5,
-      "code": "am.lic.0001",
-      "steps": [
-        "Disable opcua.server with opcua.enable set to false",
-        "Verify opcua.enable is set to false in configuration",
-        "Check opcua.enable property in configuration file"
-      ],
-      "doc_coverage": "full"
-    },
-    {
-      "hit": true,
-      "precision": 0.3333333333333333,
-      "recall": 1.0,
-      "reciprocal_rank": 1.0,
-      "step_recall": 0.23650793650793653,
+      "step_recall": 0.44285714285714284,
       "actionable": 1.0,
       "coverage_match": 0.0,
       "fix_present": 1.0,
       "code": "am.fb.0001",
       "steps": [
-        "Reinitialise the EtherCAT bus",
-        "Verify drive 'Drive_3' station 0x03 actual state",
-        "Check fieldbus is in INIT or PREOP state"
+        "Check the drive's actual operational state",
+        "Check the master's expected operational state",
+        "Verify the device station address is correct",
+        "Ensure the fieldbus is in INIT or PREOP state",
+        "Restart the fieldbus if the state mismatch persists",
+        "Verify the device response to EtherCAT frames"
       ],
       "doc_coverage": "partial"
     },
@@ -154,16 +175,17 @@
       "precision": 1.0,
       "recall": 1.0,
       "reciprocal_rank": 1.0,
-      "step_recall": 0.46805555555555556,
+      "step_recall": 0.6291666666666667,
       "actionable": 1.0,
       "coverage_match": 0.0,
       "fix_present": 0.5,
       "code": "am.fb.0002",
       "steps": [
-        "Acknowledge the emergency message",
-        "Verify error code 0x2350 is not zero",
-        "Check drive 'Drive_3' is in error state",
-        "Reinitialise the Ethercat bus"
+        "Acknowledge the emergency message as informational if error code is zero.",
+        "Check the error register value reported by the drive.",
+        "If the error code is non-zero, reinitialise the Ethercat bus.",
+        "Verify the drive's actual state is not in an error condition.",
+        "Restart the system if the drive remains in an emergency state."
       ],
       "doc_coverage": "partial"
     },
@@ -172,15 +194,23 @@
       "precision": 1.0,
       "recall": 1.0,
       "reciprocal_rank": 1.0,
-      "step_recall": 0.13571428571428573,
+      "step_recall": 0.21626984126984128,
       "actionable": 1.0,
       "coverage_match": 0.0,
       "fix_present": 0.5,
       "code": "am.fb.0003",
       "steps": [
-        "Reinitialise the EtherCAT bus",
-        "Verify the error type in the frame response error data",
-        "Check the cyclic task ID for task 1"
+        "Check the error type for frame response error to determine if it is CRC, Wrong Index, or another type",
+        "Check the expected index value against the actual index value to verify frame index mismatch",
+        "Check the number of lost cyclic frames to confirm communication loss severity",
+        "Verify the cyclic task ID is correctly assigned to the affected task",
+        "Check the EtherCAT network configuration file for correct device addressing and mapping",
+        "Check that all devices are properly connected and physically present on the EtherCAT bus",
+        "Check the drive's reported error register for CRC or hardware-level errors",
+        "If the error type is CRC, inspect the physical cabling and connectors for damage or loose connections",
+        "If the error type is Wrong Index, verify the device index mapping in the EtherCAT network configuration",
+        "If the error type is Foreign Source MAC, confirm the source MAC address is valid and authorized",
+        "Restart the EtherCAT bus or reinitial"
       ],
       "doc_coverage": "partial"
     },
@@ -189,15 +219,15 @@
       "precision": 0.6666666666666666,
       "recall": 1.0,
       "reciprocal_rank": 1.0,
-      "step_recall": 0.11936507936507937,
+      "step_recall": 0.31936507936507935,
       "actionable": 1.0,
       "coverage_match": 1.0,
       "fix_present": 0.5,
       "code": "am.fb.0004",
       "steps": [
-        "Upgrade firmware for Drive_3 to 1.4.0",
-        "Verify firmware version on Drive_3 matches 1.4.0",
-        "Check device configuration specifies expected firmware version"
+        "Check the fieldbus state is INIT or PREOP",
+        "Ensure the device's dsd_firmware_version parameter is configured",
+        "Restart AMCore after updating the firmware version"
       ],
       "doc_coverage": "full"
     }

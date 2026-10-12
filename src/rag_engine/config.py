@@ -101,6 +101,11 @@ class Settings(BaseSettings):
     embedding_num_gpu: int = 0
     # caps generated tokens; the single biggest CPU-side latency lever
     llm_num_predict: int = 180
+    # sampling temperature for answer generation. 0 = always the most likely token, so
+    # the same alarm and context give the same steps: grounded answers don't benefit
+    # from variety, and bench/eval runs become comparable (Ollama's own default, 0.8,
+    # moved fix_present by a whole alarm between identical runs)
+    llm_temperature: float = 0.0
     rewrite_num_predict: int = 512
 
     # generation http client (streaming keeps the connection alive between tokens,

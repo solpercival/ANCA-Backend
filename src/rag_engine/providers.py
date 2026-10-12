@@ -228,7 +228,8 @@ class OllamaGenerator:
             # skip qwen3's hidden reasoning trace, which otherwise burns num_predict
             # tokens before any answer text is produced
             "think": thinking,
-            "options": {},
+            # LLM_TEMPERATURE (default 0: repeatable answers); see config.py
+            "options": {"temperature": settings.llm_temperature},
         }
 
         if tokens:
