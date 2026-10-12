@@ -7,7 +7,7 @@ runtime inside the model containers.
 
 import json
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Any, Protocol
 
 from rag_engine.api.schemas import EffortSettings
 
@@ -56,12 +56,21 @@ class SparseEmbedder(Protocol):
         """Embed each text; the result has one sparse vector per input, in input order."""
 
 
+# Retrieval filter passed as `where`; every key is optional and all present keys
+# must match (AND):
+#   "machine_variant": str        -- chunk metadata machine_variant equals it
+#   "versions": list[str]         -- chunk metadata versions contains all of them
+#   "doc_audiences": list[str]    -- DocAudience values (auth/tiers.py); the chunk's
+#                                    document must lie in one of their folders.
+#                                    Absent = all documents (set from the caller's tier)
+Where = dict[str, Any]
+
+
 class VectorStore(Protocol):
-    """Nearest-neighbour search over dense embeddings. `where` filters on chunk
-    metadata (machine_variant, versions)."""
+    """Nearest-neighbour search over dense embeddings, filtered by `where` (see Where)."""
 
     async def semantic_search(
-        self, vector: list[float], top_k: int, where: dict[str, str] | None = None
+        self, vector: list[float], top_k: int, where: Where | None = None
     ) -> list[Chunk]:
         """Up to top_k chunks nearest to the query `vector`, closest first."""
 
@@ -70,7 +79,7 @@ class LexicalIndex(Protocol):
     """Search over sparse embeddings; same `where` filters as VectorStore."""
 
     async def lexical_search(
-        self, vector: dict[int, float], top_k: int, where: dict[str, str] | None = None
+        self, vector: dict[int, float], top_k: int, where: Where | None = None
     ) -> list[Chunk]:
         """Up to top_k chunks best matching the sparse query `vector`, best first."""
 

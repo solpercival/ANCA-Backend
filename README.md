@@ -240,11 +240,15 @@ PY
 
 ### Tiers
 
-| Tier | `/resolve` | `likely_causes` | `/chat` |
-|------|-----------|-----------------|---------|
-| `operator` | yes | always `[]` | `403 forbidden` |
-| `technician` | yes | shown | yes |
-| `partner` | yes | shown | yes |
+| Tier | `/resolve` | `likely_causes` | `/chat` | Answers drawn from |
+|------|-----------|-----------------|---------|--------------------|
+| `operator` | yes | always `[]` | `403 forbidden` | Part Programmer's Reference only |
+| `technician` | yes | shown | yes | all docs (incl. User Guide) |
+| `partner` | yes | shown | yes | all docs (incl. User Guide) |
+
+The documentation restriction is a query-time filter on the document path
+(`auth/tiers.py` `allowed_doc_audiences`), so an operator resolve for an alarm
+documented only in the User Guide returns `doc_coverage: "none"` and no citations.
 
 Use `ai_chat_available` from the resolve response (or `tier` from `/auth/me`)
 to decide whether to show the chat entry point, rather than hard-coding tier

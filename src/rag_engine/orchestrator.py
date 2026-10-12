@@ -3,14 +3,17 @@
 resolve (alarm code -> guidance):
   1. look the code up in the alarm catalogue (404 if unknown)
   2. build a retrieval query from the alarm's title + message (or the caller's query)
-  3. retrieve candidates, keep the first 20, rerank to rerank_top_n
+  3. retrieve candidates, keep the first 20, rerank to rerank_top_n. Retrieval is
+     limited to the documentation sets the caller's tier may see (operator: Part
+     Programmer's Reference only; auth/tiers.py allowed_doc_audiences)
   4. prompt the LLM for a COVERAGE line, action steps and (technician+) CAUSE quotes
   5. post-process the answer so only grounded content survives: drop catalogue
      echoes and non-action filler, settle coverage, keep causes only when they
      match a real sentence of the retrieved docs (the doc's wording is returned)
   6. record the turn (store_context) and return steps, causes, citations (top 3)
 chat follows the same retrieve -> rerank -> generate path with a simpler prompt,
-after the query preprocessor rewrites the message using the conversation history.
+after the query preprocessor rewrites the message using the conversation history,
+and with the same tier restriction on retrieval.
 
 Every component sits behind an interface from retrieval/interfaces.py, so tests
 inject fakes; get_orchestrator wires the real backends. Stage timings go to the
@@ -38,10 +41,17 @@ from rag_engine.api.schemas import (
     ResolveResponse,
     get_effort_settings,
 )
-from rag_engine.auth.tiers import Tier, can_view_likely_causes
+from rag_engine.auth.tiers import Tier, allowed_doc_audiences, can_view_likely_causes
 from rag_engine.config import get_settings
 from rag_engine.retrieval.hybrid import HybridRetriever
-from rag_engine.retrieval.interfaces import Alarm, AlarmStore, Chunk, Generator, Reranker
+from rag_engine.retrieval.interfaces import (
+    Alarm,
+    AlarmStore,
+    Chunk,
+    Generator,
+    Reranker,
+    Where,
+)
 from rag_engine.retrieval.reranker import IdentityReranker, Qwen3Reranker
 from rag_engine.retrieval.rewriter import QueryPreprocessor
 from rag_engine.stores.alarms import PostgresAlarmStore
@@ -222,6 +232,15 @@ class Orchestrator:
         self._generator = generator
         self._alarms = alarm_store
         self._langfuse = langfuse_client
+
+    @staticmethod
+    def _tier_where(tier: Tier) -> Where:
+        """The retrieval filter every request starts from: the documentation sets the
+        tier may draw on (auth/tiers.py allowed_doc_audiences). Empty when unrestricted."""
+        audiences = allowed_doc_audiences(tier)
+        if audiences is None:
+            return {}
+        return {"doc_audiences": sorted(audiences)}
 
     @staticmethod
     def _format_context(chunks: list[Chunk]) -> str:
@@ -480,7 +499,7 @@ class Orchestrator:
         # retrieve request effort settings
         effort_settings: EffortSettings = get_effort_settings(req.effort)
 
-        where = {}
+        where = self._tier_where(tier)
         if req.env.versions:
             where["versions"] = req.env.versions
         if req.env.machine_variant:
@@ -656,10 +675,12 @@ class Orchestrator:
                 name="chat", input={"conversation_id": req.conversation_id, "message": req.message}
             )
 
+        where = self._tier_where(tier)
+
         t0 = time.perf_counter()
         try:
             candidates = await self._retriever.retrieve(
-                req.message, top_k=effort_settings.retrieval_k
+                req.message, top_k=effort_settings.retrieval_k, where=where or None
             )
         except Exception as exc:
             log.exception("retrieval_error conversation_id=%s", req.conversation_id)
@@ -672,7 +693,11 @@ class Orchestrator:
         if self._langfuse and trace:
             trace.span(
                 name="retrieve",
-                input={"query": req.message, "top_k": effort_settings.retrieval_k},
+                input={
+                    "query": req.message,
+                    "top_k": effort_settings.retrieval_k,
+                    "where": where or None,
+                },
                 output={"candidates_count": len(candidates)},
                 duration_ms=int(t_retrieve * 1000),
             )

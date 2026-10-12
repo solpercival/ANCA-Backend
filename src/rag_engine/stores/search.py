@@ -15,10 +15,22 @@ import re
 
 from pgvector import Vector
 
+from rag_engine.auth.tiers import DocAudience
 from rag_engine.config import get_settings
-from rag_engine.retrieval.interfaces import Alarm, Chunk
+from rag_engine.retrieval.interfaces import Alarm, Chunk, Where
 from rag_engine.stores.cache import get_cache_conn
 from rag_engine.stores.db import get_db_conn
+
+
+def _doc_audience_condition(where: Where | None) -> tuple[str, list[str]] | None:
+    """SQL predicate and its parameter for where["doc_audiences"], or None when the
+    key is absent (all documents). The chunk's document_source must contain one of
+    the audiences' folders; an empty list matches nothing. Shared by the semantic
+    and lexical searches so the tier rule is applied identically by both."""
+    if not where or "doc_audiences" not in where:
+        return None
+    patterns = [f"%{DocAudience(a).path_fragment}%" for a in where["doc_audiences"]]
+    return "document_source LIKE ANY(%s)", patterns
 
 
 class PostgresDBConnection:
@@ -34,7 +46,7 @@ class PostgresDBConnection:
 
     # VectorStore search
     async def semantic_search(
-        self, vector: list[float], top_k: int, where: dict[str, str] | None = None
+        self, vector: list[float], top_k: int, where: Where | None = None
     ) -> list[Chunk]:
         """Nearest chunks by cosine distance on the dense embedding."""
         if not vector or top_k < 1:
@@ -42,7 +54,7 @@ class PostgresDBConnection:
         return await asyncio.to_thread(self._semantic_search_sync, vector, top_k, where)
 
     def _semantic_search_sync(
-        self, vector: list[float], top_k: int, where: dict[str, str] | None
+        self, vector: list[float], top_k: int, where: Where | None
     ) -> list[Chunk]:
         """Blocking query for semantic_search; runs in a worker thread."""
         result_chunks = []
@@ -64,6 +76,10 @@ class PostgresDBConnection:
                     versions_json = json.dumps(where["versions"])
                     where_conditions.append("metadata->'versions' @> %s::jsonb")
                     params.append(versions_json)
+                audience = _doc_audience_condition(where)
+                if audience:
+                    where_conditions.append(audience[0])
+                    params.append(audience[1])
 
                 if where_conditions:
                     query_str += "WHERE " + " AND ".join(where_conditions) + "\n"
@@ -88,7 +104,7 @@ class PostgresDBConnection:
 
     # Lexical index search
     async def lexical_search(
-        self, vector: dict[int, float], top_k: int, where: dict[str, str] | None = None
+        self, vector: dict[int, float], top_k: int, where: Where | None = None
     ) -> list[Chunk]:
         """Best chunks by inner product on the sparse (lexical) embedding."""
         if not vector or top_k < 1:
@@ -96,7 +112,7 @@ class PostgresDBConnection:
         return await asyncio.to_thread(self._lexical_search_sync, vector, top_k, where)
 
     def _lexical_search_sync(
-        self, vector: dict[int, float], top_k: int, where: dict[str, str] | None
+        self, vector: dict[int, float], top_k: int, where: Where | None
     ) -> list[Chunk]:
         """Blocking query for lexical_search; runs in a worker thread."""
         result_chunks = []
@@ -119,6 +135,10 @@ class PostgresDBConnection:
                     versions_json = json.dumps(where["versions"])
                     query_str += "AND metadata->'versions' @> %s::jsonb\n"
                     params.append(versions_json)
+                audience = _doc_audience_condition(where)
+                if audience:
+                    query_str += f"AND {audience[0]}\n"
+                    params.append(audience[1])
 
             query_str += """ORDER BY distance
                 LIMIT %s;
