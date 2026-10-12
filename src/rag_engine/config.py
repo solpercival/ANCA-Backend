@@ -101,7 +101,16 @@ class Settings(BaseSettings):
     embedding_num_gpu: int = 0
     # caps generated tokens; the single biggest CPU-side latency lever
     llm_num_predict: int = 180
+
     rewrite_num_predict: int = 512
+
+    # Make answers repeatable: temperature 0 and a fixed seed.
+    # On for resolve, so the same alarm gets the same steps.
+    # Off for chat, so conversations keep some variety.
+    resolve_deterministic: bool = True
+    chat_deterministic: bool = False
+    deterministic_temperature: float = 0.0
+    deterministic_seed: int = 42
 
     # generation http client (streaming keeps the connection alive between tokens,
     # so read_timeout only needs to cover the gap between chunks, not the full reply)
