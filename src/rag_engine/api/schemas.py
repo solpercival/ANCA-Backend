@@ -86,10 +86,20 @@ class ResolveRequest(BaseModel):
 
 
 class Citation(BaseModel):
-    """A documentation chunk the answer was built from."""
+    """A documentation section the answer was built from, in the shape of
+    reference-answers.json doc_refs (see retrieval/doc_refs.py)."""
 
-    source: str  # document path
-    chunk_id: str
+    doc: str = Field(..., examples=["Part Programmer's Reference"])
+    path: str = Field(
+        ...,
+        description="Document path relative to the documentation root",
+        examples=["part-programmers-reference/05-functions.md"],
+    )
+    section: str | None = Field(
+        None,
+        description="Heading the cited text sits under; null if it has none",
+        examples=["electronic_cam"],
+    )
 
 
 class ResolveResponse(BaseModel):

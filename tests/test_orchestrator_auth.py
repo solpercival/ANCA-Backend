@@ -11,6 +11,8 @@ from rag_engine.auth.tiers import Tier
 from rag_engine.auth.tokens import create_access_token, decode_access_token
 from rag_engine.config import get_settings
 from rag_engine.orchestrator import Orchestrator, get_reranker_backend
+from rag_engine.retrieval.doc_refs import DOCS_ROOT
+from rag_engine.retrieval.interfaces import Chunk
 from rag_engine.retrieval.reranker import IdentityReranker, Qwen3Reranker
 from tests.fakes import FakeAlarmStore
 
@@ -88,16 +90,13 @@ def test_orchestrator_resolve_uses_query_and_returns_top_results():
     class FakeRetriever:
         async def retrieve(self, query, top_k, where=None):
             return [
-                type(
-                    "Chunk",
-                    (),
-                    {"text": "Step 1", "source": "manual.md", "chunk_id": "c1", "score": 0.91},
-                )(),
-                type(
-                    "Chunk",
-                    (),
-                    {"text": "Step 2", "source": "manual.md", "chunk_id": "c2", "score": 0.81},
-                )(),
+                Chunk(
+                    chunk_id="c1",
+                    text="Step 1",
+                    source=f"{DOCS_ROOT}user-guide/a.md",
+                    section="Drives",
+                ),
+                Chunk(chunk_id="c2", text="Step 2", source=f"{DOCS_ROOT}user-guide/a.md"),
             ]
 
     class FakeGenerator:
@@ -122,7 +121,12 @@ def test_orchestrator_resolve_uses_query_and_returns_top_results():
 
     assert response.code == "am.fb.0002"
     assert response.steps == ["answer"]
-    assert response.citations[0].chunk_id == "c1"
+    # contract shape: display name, bundle-relative path, heading; no local prefix or
+    # chunk number. The second chunk has no heading, so it is its own citation
+    assert [c.model_dump() for c in response.citations] == [
+        {"doc": "AMCore User Guide", "path": "user-guide/a.md", "section": "Drives"},
+        {"doc": "AMCore User Guide", "path": "user-guide/a.md", "section": None},
+    ]
     assert response.doc_coverage == "partial"  # no COVERAGE header from the fake
     assert response.confidence == 0.5
     assert orch._generator.calls == 1
@@ -144,13 +148,7 @@ def test_orchestrator_chat_returns_retrieved_citations():
 
     class FakeRetriever:
         async def retrieve(self, query, top_k, where=None):
-            return [
-                type(
-                    "Chunk",
-                    (),
-                    {"text": "text", "source": "faq.md", "chunk_id": "c1", "score": 0.5},
-                )(),
-            ]
+            return [Chunk(chunk_id="c1", text="text", source="faq.md", score=0.5)]
 
     class FakeGenerator:
         prompt = None
@@ -171,6 +169,8 @@ def test_orchestrator_chat_returns_retrieved_citations():
     assert response.conversation_id == "c-1"
     assert response.reply == "final reply"
     assert orch._generator.calls == 1
-    assert response.citations[0].chunk_id == "c1"
+    assert [c.model_dump() for c in response.citations] == [
+        {"doc": "Documentation", "path": "faq.md", "section": None}
+    ]
     assert "what happened?" in orch._generator.prompt
     assert "text" in orch._generator.prompt

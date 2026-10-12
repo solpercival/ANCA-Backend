@@ -68,7 +68,7 @@ for i, s in enumerate(data.get("steps") or [], 1):
 for c in data.get("likely_causes") or []:
     print(f"      cause : {c}")
 for c in data.get("citations") or []:
-    print(f"      cite  : {c.get('source')} #{c.get('chunk_id')}")
+    print(f"      cite  : {c.get('doc')} | {c.get('path')} | {c.get('section')}")
 PY
 }
 

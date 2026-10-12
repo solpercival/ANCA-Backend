@@ -23,6 +23,9 @@ class Chunk:
     # meaning depends on the last stage that set it: RRF score after fusion,
     # relevance probability (0-1) after the Qwen3 reranker
     score: float = 0.0
+    # text of the heading the chunk sits under (its closest heading); None when the
+    # chunk has none. Reported to clients as the citation's section.
+    section: str | None = None
 
     def __str__(self):
         return json.dumps(self.__dict__, default=str)

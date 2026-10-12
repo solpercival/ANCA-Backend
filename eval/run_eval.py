@@ -77,7 +77,7 @@ def score_code(citations, gold_entry):
     for citation in citations:
         is_correct = False
         for gold_path in gold_paths:
-            if same_doc(citation["source"], gold_path):
+            if same_doc(citation["path"], gold_path):
                 is_correct = True
         correct.append(is_correct)
 
@@ -85,7 +85,7 @@ def score_code(citations, gold_entry):
     found = []
     for gold_path in gold_paths:
         for citation in citations:
-            if same_doc(citation["source"], gold_path):
+            if same_doc(citation["path"], gold_path):
                 found.append(gold_path)
                 break
 
@@ -455,7 +455,7 @@ def normalize_result(payload: dict) -> dict:
     return {
         "query": payload.get("query", ""),
         "code": payload.get("code", ""),
-        "citation_ids": [c["chunk_id"] for c in payload.get("citations", [])],
+        "citation_paths": [c["path"] for c in payload.get("citations", [])],
         "step_count": len(payload.get("steps", [])),
         "confidence": round(float(payload.get("confidence", 0.0)), 3),
         "status": payload.get("status", "ok"),
@@ -490,8 +490,8 @@ def run_local_eval() -> dict:
             "Verify the control board status",
         ],
         "citations": [
-            {"source": "manual.md", "chunk_id": "c1"},
-            {"source": "faq.md", "chunk_id": "c9"},
+            {"doc": "Documentation", "path": "manual.md", "section": "Drive"},
+            {"doc": "Documentation", "path": "faq.md", "section": None},
         ],
         "confidence": 0.891234,
         "status": "ok",

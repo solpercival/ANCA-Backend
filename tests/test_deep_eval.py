@@ -12,7 +12,7 @@ def test_score_snapshot_returns_expected_metrics():
     result = {
         "query": "motor stalls after startup",
         "code": "am.fb.0002",
-        "citation_ids": ["c1", "c9"],
+        "citation_paths": ["manual.md", "faq.md"],
         "step_count": 3,
         "confidence": 0.89,
         "status": "ok",
@@ -41,7 +41,7 @@ def test_snapshot_output_is_json_serializable(tmp_path):
     result = {
         "query": "motor stalls after startup",
         "code": "am.fb.0002",
-        "citation_ids": ["c1", "c9"],
+        "citation_paths": ["manual.md", "faq.md"],
         "step_count": 3,
         "confidence": 0.891,
         "status": "ok",

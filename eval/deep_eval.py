@@ -59,7 +59,7 @@ def score_snapshot(result: dict[str, Any]) -> dict[str, float]:
     full model-side evaluator. Replace this with DeepEval metrics once the live
     RAG dataset is wired in.
     """
-    citation_count = len(result.get("citation_ids", []))
+    citation_count = len(result.get("citation_paths", []))
     step_count = int(result.get("step_count", 0))
     confidence = float(result.get("confidence", 0.0))
 

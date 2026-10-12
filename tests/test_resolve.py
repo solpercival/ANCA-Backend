@@ -12,6 +12,8 @@ def test_resolve_returns_steps_and_citations(client, bearer):
     assert body["code"] == "am.fb.0002"
     assert len(body["steps"]) >= 1
     assert len(body["citations"]) >= 1
+    # contract shape; the fake store's file sits outside the named doc folders
+    assert body["citations"][0] == {"doc": "Documentation", "path": "manual.md", "section": None}
 
 
 def test_resolve_rejects_invalid_alarm_code_format(client, bearer):
