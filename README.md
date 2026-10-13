@@ -173,6 +173,7 @@ written relative to that base, so `POST /resolve` means
 | GET | `/auth/me` | bearer | Current account |
 | POST | `/resolve` | bearer | Guidance for an alarm code |
 | POST | `/chat` | bearer, technician or partner | Follow-up question |
+| POST | `/feedback` | bearer, technician or partner | Mark a chat reply as helpful or not |
 | GET | `/health` | none | Process is up |
 | GET | `/ready` | none | Postgres, Redis and model server reachable |
 
@@ -325,11 +326,30 @@ Response `200`:
 {
   "conversation_id": "c-7f3a",
   "reply": "Check the device's EMCY code in the diagnostics view ...",
-  "citations": [{ "source": "docs/user-guide/troubleshoot/coe-device-errors.md", "chunk_id": "1234" }]
+  "citations": [{ "source": "docs/user-guide/troubleshoot/coe-device-errors.md", "chunk_id": "1234" }],
+  "response_id": 4821
 }
 ```
 
-`reply` is plain text and may contain line breaks.
+`reply` is plain text and may contain line breaks. `response_id` identifies
+this reply for `POST /feedback`; it is `null` when nothing was stored (an empty
+message gets an empty reply and no id).
+
+### POST /feedback
+
+The "this did not help" button. Request:
+
+```json
+{ "conversation_id": "c-7f3a", "response_id": 4821, "helpful": false }
+```
+
+Response `204` with no body. Sending feedback again for the same reply
+replaces the earlier value. The next `/chat` message in the conversation passes
+it to the query rewriter, which treats a reply marked `helpful: false` as one
+that was tried and failed.
+
+A `response_id` that doesn't exist, or doesn't belong to `conversation_id`,
+returns `404 not_found`.
 
 ### Errors
 
@@ -356,7 +376,7 @@ Branch on `error.code`, never on `message` (messages may be reworded).
 | 401 | `session_expired` | Send the user to login |
 | 403 | `forbidden` | The tier can't use this feature; hide it |
 | 404 | `unknown_alarm_code` | Tell the user the code isn't recognised |
-| 404 | `not_found` | Wrong URL |
+| 404 | `not_found` | Wrong URL, or `/feedback` for a reply that isn't in the conversation |
 | 413 | `payload_too_large` | Input too long |
 | 422 | `validation_error` | Show `details` next to the fields |
 | 429 | `rate_limited` | Wait `Retry-After` seconds before retrying |
@@ -365,8 +385,8 @@ Branch on `error.code`, never on `message` (messages may be reworded).
 | 500 | `internal_error` | Show a generic failure with the request id |
 
 Rate limits on the business endpoints, per minute: `/resolve` 30 per IP,
-`/chat` 10 per IP (plus a shared per-tier ceiling). All are configurable in
-the backend `.env`.
+`/chat` 10 per IP, `/feedback` 30 per IP (each plus a shared per-tier
+ceiling). All are configurable in the backend `.env`.
 
 ### Minimal client
 

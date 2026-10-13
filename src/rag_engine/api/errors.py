@@ -120,6 +120,12 @@ class Forbidden(AppError):
     status_code, code, message = 403, ErrorCode.forbidden, "Insufficient tier for this resource"
 
 
+class NotFound(AppError):
+    """404: the requested resource does not exist (or not under the given parent)."""
+
+    status_code, code, message = 404, ErrorCode.not_found, "Resource not found"
+
+
 class UnknownAlarmCode(AppError):
     """404: a well-formed alarm code that is not in the alarm catalogue."""
 

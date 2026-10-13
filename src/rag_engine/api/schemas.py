@@ -145,6 +145,14 @@ class ChatResponse(BaseModel):
     conversation_id: str
     reply: str
     citations: list[Citation] = Field(default_factory=list)
+    response_id: int | None = Field(
+        None,
+        description=(
+            "Id of the stored turn, for POST <API_PREFIX>/feedback; "
+            "None when the turn was not stored (e.g. an empty reply)"
+        ),
+    )
+
 
 
 class FeedbackRequest(BaseModel):
