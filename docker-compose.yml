@@ -112,8 +112,7 @@ services:
       - ollamadata:/root/.ollama
     entrypoint: ["/bin/sh", "-c"]
     command:
-      # qwen3:0.6b is REWRITE_MODEL: /chat rewrites follow-up messages with it
-      - ollama pull qwen3-embedding:0.6b && ollama pull qwen3:4b-instruct-2507-q4_K_M && ollama pull qwen3:0.6b
+      - ollama pull qwen3-embedding:0.6b && ollama pull qwen3:4b-instruct-2507-q4_K_M
 
   # --- optional: tei for sparse/SPLADE embeddings (start with: docker compose --profile sparse up) ---
   tei:

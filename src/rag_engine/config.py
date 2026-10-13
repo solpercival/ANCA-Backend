@@ -91,7 +91,11 @@ class Settings(BaseSettings):
     # instruct (non-thinking) build: plain qwen3:4b is the always-thinking 2507 model,
     # which ignores think:false and spends num_predict on reasoning text
     llm_model: str = "qwen3:4b-instruct-2507-q4_K_M"
-    rewrite_model: str = "qwen3:0.6b"  # small model for query rewriting (retrieval/rewriter.py)
+    # model that rewrites a follow-up chat message into a standalone query
+    # (retrieval/rewriter.py). Empty = LLM_MODEL, which is already loaded. A much
+    # smaller model does not do the task: qwen3:0.6b returned "why does it happen?"
+    # unchanged, with commentary around it.
+    rewrite_model: str = ""
     # query-time embedding context. Ollama's default (4096) makes the 0.6B embedder
     # hold ~2.4 GB of VRAM; queries are short, and 1024 still covers the longest chat
     # message (4096 chars ~ 1k tokens). Longer input is truncated, not rejected.

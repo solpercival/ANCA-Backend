@@ -248,8 +248,8 @@ class OllamaGenerator:
 
 
 class OllamaRewriteGenerator:
-    """Generator for query rewriting (retrieval/rewriter.py) with the small
-    REWRITE_MODEL and its own REWRITE_NUM_PREDICT cap."""
+    """Generator for query rewriting (retrieval/rewriter.py): REWRITE_MODEL, or
+    LLM_MODEL when that is not set, with its own REWRITE_NUM_PREDICT cap."""
 
     def __init__(self, client: httpx.AsyncClient):
         self._client = client
@@ -265,7 +265,7 @@ class OllamaRewriteGenerator:
         # similar to OllamaGenerator, slight modifications to account for longer prompt sizes.
         chunks: list[str] = []
         generate_payload = {
-            "model": settings.rewrite_model,
+            "model": settings.rewrite_model or settings.llm_model,
             "prompt": prompt,
             "stream": True,
             # qwen3 reasons by default, which spends num_predict before any query

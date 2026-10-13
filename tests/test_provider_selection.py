@@ -13,6 +13,7 @@ from rag_engine.providers import (
     AnthropicGenerator,
     OllamaEmbedder,
     OllamaGenerator,
+    OllamaRewriteGenerator,
     OpenAIEmbedder,
     OpenAIGenerator,
     TEIEmbedder,
@@ -144,6 +145,30 @@ def test_ollama_generator_sends_temperature(monkeypatch, env, expected):
 
     assert asyncio.run(run()) == "ok"
     assert sent["options"] == {"temperature": expected, "num_predict": 200}
+
+
+@pytest.mark.parametrize(("env", "expected"), [(None, "answer-model"), ("small", "small")])
+def test_rewriter_uses_the_answer_model_unless_one_is_set(monkeypatch, env, expected):
+    # a third, smaller model had to be pulled and did not do the task (qwen3:0.6b)
+    import json
+
+    monkeypatch.setenv("LLM_MODEL", "answer-model")
+    # set to empty rather than deleted, so a developer's .env cannot supply one
+    monkeypatch.setenv("REWRITE_MODEL", env or "")
+    get_settings.cache_clear()
+    sent = {}
+
+    def handler(request):
+        sent.update(json.loads(request.content))
+        return httpx.Response(200, text=json.dumps({"response": "query", "done": True}))
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await OllamaRewriteGenerator(client).generate("prompt", 100)
+
+    assert asyncio.run(run()) == "query"
+    assert sent["model"] == expected
+    assert sent["think"] is False
 
 
 @pytest.mark.parametrize(("env", "expected"), [(None, 0), ("99", 99)])
