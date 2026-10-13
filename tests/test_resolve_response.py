@@ -7,7 +7,7 @@ import pytest
 from rag_engine.api.schemas import ResolveRequest
 from rag_engine.auth.tiers import Tier
 from rag_engine.auth.tokens import create_access_token
-from rag_engine.config import API_PREFIX
+from rag_engine.config import API_PREFIX, get_settings
 from rag_engine.orchestrator import Orchestrator
 from rag_engine.retrieval.interfaces import Alarm, Chunk
 from rag_engine.retrieval.reranker import IdentityReranker
@@ -359,6 +359,20 @@ def test_disclaimer_is_not_treated_as_filler():
 
     assert resp.steps == REAL
     assert resp.doc_coverage == "partial"
+
+
+def test_step_the_context_does_not_back_up_is_dropped(monkeypatch):
+    # a reworded doc step stays; one with no basis in the context is invented
+    monkeypatch.setattr(get_settings(), "step_support_min", 0.5)
+
+    resp = _resolve(
+        "COVERAGE: partial\n"
+        "Reset the drive using the HMI.\n"
+        "Replace the hydraulic pump filter cartridge.\n",
+        chunks=_chunks(0.9, 0.5, 0.4),
+    )
+
+    assert resp.steps == ["Reset the drive using the HMI."]
 
 
 # --- step count follows the docs; repeats collapse ---------------------------

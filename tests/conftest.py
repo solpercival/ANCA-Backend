@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from rag_engine.auth.tiers import Tier
 from rag_engine.auth.tokens import create_access_token
+from rag_engine.config import get_settings
 from rag_engine.main import app
 from rag_engine.orchestrator import Orchestrator, get_orchestrator
 from rag_engine.retrieval.hybrid import HybridRetriever
@@ -82,6 +83,14 @@ def _fake_orchestrator() -> Orchestrator:
     return Orchestrator(
         FakePreprocessor(), retriever, FakeReranker(), FakeGenerator(), FakeAlarmStore()
     )
+
+
+@pytest.fixture(autouse=True)
+def _step_support_floor_off(monkeypatch):
+    # a developer's .env may turn it on, and the fake answers in these tests are not
+    # written against the fake chunks; a test of the floor sets it itself
+    monkeypatch.setenv("STEP_SUPPORT_MIN", "0")
+    monkeypatch.setattr(get_settings(), "step_support_min", 0.0)
 
 
 @pytest.fixture

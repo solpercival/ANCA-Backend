@@ -704,6 +704,44 @@ class Orchestrator:
             kept.append(step)
         return kept
 
+    @classmethod
+    def _support_stems(cls, text: str) -> set[str]:
+        """Content words cut to 5 letters, so a step in the model's own words still
+        meets the docs' wording ("restart" / "restarting")."""
+        return {w[:5] for w in cls._content_words(text)}
+
+    @classmethod
+    def _drop_unsupported_steps(
+        cls, steps: list[str], alarm: Alarm, chunks: list[Chunk], code: str
+    ) -> list[str]:
+        """Drop steps the context does not back up (STEP_SUPPORT_MIN; 0 disables).
+
+        A step is unsupported when less than that share of its key words is found
+        in what the model was shown: the context chunks and the alarm's title and
+        message. Such steps are invented rather than reworded. The not-covered
+        disclaimer is left for `_settle_coverage`.
+        """
+        floor = get_settings().step_support_min
+        if floor <= 0:
+            return steps
+        shown = [alarm.title or "", alarm.alarm_text or "", *(c.context_text for c in chunks)]
+        source = cls._support_stems(" ".join(shown))
+        disclaimer = cls._norm(_NOT_COVERED)
+        kept = []
+        for step in steps:
+            stems = cls._support_stems(step)
+            support = len(stems & source) / len(stems) if stems else 1.0
+            if support >= floor or disclaimer in cls._norm(step):
+                kept.append(step)
+            else:
+                log.info(
+                    "step_dropped_unsupported code=%s support=%.2f step=%r",
+                    code,
+                    support,
+                    step[:120],
+                )
+        return kept
+
     @staticmethod
     def _split_coverage(answer: str, code: str) -> tuple[DocCoverage, str]:
         """Strip the leading COVERAGE line; return (claimed coverage, remaining answer).
@@ -962,6 +1000,7 @@ class Orchestrator:
         steps = self._drop_filler_beside_actions(steps, req.code)
         # after the scrub, which can leave two steps saying the same thing
         steps = self._drop_duplicate_steps(steps, req.code)
+        steps = self._drop_unsupported_steps(steps, alarm, context, req.code)
         # empty (header only / only catalogue echoes) or only the disclaimer -> "none"
         doc_coverage, steps = self._settle_coverage(doc_coverage, steps, req.code)
         # the route also strips causes per tier; skipping here just avoids the work

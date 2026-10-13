@@ -177,6 +177,11 @@ class Settings(BaseSettings):
     # 0.47-0.99; an operator asking about User Guide-only alarms got 0.00-0.02.
     # Applies only with a reranker that scores relevance (Qwen3), so not at low effort.
     resolve_min_relevance: float = 0.1
+    # Grounding floor for resolve steps: a step is dropped when less than this share
+    # of its key words is found in the context the answer was generated from (or in
+    # the alarm's own title and message, which the prompt also shows the model).
+    # Catches steps the model invents. 0 disables.
+    step_support_min: float = 0.0
     rrf_k: int = 60  # reciprocal-rank-fusion constant; higher flattens rank differences
 
     # embeddings (the dims must match the vector/sparsevec columns in migration 0001)
