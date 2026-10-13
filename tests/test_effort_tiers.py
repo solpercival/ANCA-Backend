@@ -81,7 +81,8 @@ def test_get_effort_settings_mapping():
     assert high.reranker_n == settings.HIGH_CONFIG["reranker_n"]
     assert high.num_predict == settings.HIGH_CONFIG["num_predict"]
     assert high.rewrite is True
-    assert high.thinking is True
+    # thinking spends the output budget before any answer is written
+    assert high.thinking is False
 
     # None defaults to Medium
     default = get_effort_settings(None)

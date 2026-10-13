@@ -253,7 +253,9 @@ class Settings(BaseSettings):
         "num_predict": 250,
         "num_rewrite": 512,
         "rewrite": True,
-        "thinking": True,
+        # off: with thinking on, qwen3:8b spent all 250 tokens reasoning and every
+        # high-effort resolve came back "not covered" (33 of 33 eval requests)
+        "thinking": False,
     }
 
     @model_validator(mode="after")
