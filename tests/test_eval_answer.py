@@ -6,12 +6,14 @@ import pytest
 from eval.run_eval import (
     FIX_TERMS_PATH,
     GOLD_PATH,
+    average_results,
     content_stems,
     load_fix_terms,
     load_gold,
     score_answer,
     score_fix,
     summarize,
+    summarize_runs,
 )
 
 GOLD = {
@@ -75,11 +77,70 @@ def test_restating_the_alarm_scores_low():
 def test_empty_answer_scores_zero():
     scores = score_answer({"steps": []}, GOLD)
 
-    assert scores == {"step_recall": 0.0, "actionable": 0.0, "coverage_match": 0.0}
+    assert scores == {
+        "step_recall": 0.0,
+        "step_precision": 0.0,
+        "length_ratio": 0.0,
+        "actionable": 0.0,
+        "coverage_match": 0.0,
+    }
+
+
+def test_padding_lowers_step_precision_but_not_step_recall():
+    """step_recall cannot see padding: the gold words are all there either way."""
+    fix = [
+        "Restart the system to reinitialise the EtherCAT bus.",
+        "If the same device drops out again, power-cycle that drive.",
+    ]
+    padding = [
+        "Check the G_DD_COE_DRIVE_STATE_ACTUAL3 diagnostic variable.",
+        "Verify the expected operational state defined by the master.",
+    ]
+
+    exact = score_answer({"steps": fix}, GOLD)
+    padded = score_answer({"steps": fix + padding}, GOLD)
+
+    assert padded["step_recall"] == exact["step_recall"]
+    assert (exact["step_precision"], exact["length_ratio"]) == (1.0, 1.0)
+    assert (padded["step_precision"], padded["length_ratio"]) == (0.5, 2.0)
+
+
+def test_several_passes_are_averaged_and_their_spread_reported():
+    base = {
+        "hit": True,
+        "precision": 1.0,
+        "recall": 1.0,
+        "reciprocal_rank": 1.0,
+        "length_ratio": 1.0,
+        "actionable": 1.0,
+        "coverage_match": 1.0,
+        "code": "am.fb.0001",
+        "doc_coverage": "full",
+    }
+    first = [{**base, "step_recall": 0.4, "step_precision": 0.5, "steps": ["Restart."]}]
+    second = [{**base, "step_recall": 0.6, "step_precision": 1.0, "steps": ["Reset."]}]
+
+    summary = summarize_runs([first, second])
+    merged = average_results([first, second])
+
+    assert summary["step_precision"] == 0.75
+    assert summary["range"]["step_precision"] == [0.5, 1.0]
+    assert summary["runs"] == 2
+    assert merged[0]["step_recall"] == 0.5
+    assert merged[0]["steps"] == ["Restart."]
+    # one pass is the plain summary, with no range
+    assert "range" not in summarize_runs([first])
 
 
 def test_summarize_averages_answer_scores():
-    base = {"hit": True, "precision": 1.0, "recall": 1.0, "reciprocal_rank": 1.0}
+    base = {
+        "hit": True,
+        "precision": 1.0,
+        "recall": 1.0,
+        "reciprocal_rank": 1.0,
+        "step_precision": 1.0,
+        "length_ratio": 1.0,
+    }
     results = [
         {**base, "step_recall": 1.0, "actionable": 1.0, "coverage_match": 1.0},
         {**base, "step_recall": 0.0, "actionable": 0.5, "coverage_match": 0.0},
@@ -147,6 +208,8 @@ def test_summarize_reports_fix_present_only_for_listed_codes():
         "recall": 1.0,
         "reciprocal_rank": 1.0,
         "step_recall": 1.0,
+        "step_precision": 1.0,
+        "length_ratio": 1.0,
         "actionable": 1.0,
         "coverage_match": 1.0,
     }
