@@ -29,7 +29,8 @@ EXCLUDED_DIRS = frozenset({"mock-api", "alarms"})
 # file's digest, so the next `make ingest` re-chunks and re-embeds all documents
 # instead of skipping them as unchanged.
 #   2: chunks embedded under their heading path; content-free pieces dropped
-CHUNKING_VERSION = 2
+#   3: horizontal rules dropped; a short label joins the block it introduces
+CHUNKING_VERSION = 3
 
 
 def iter_markdown_files(docs_dir: Path) -> list[Path]:

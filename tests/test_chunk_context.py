@@ -71,6 +71,26 @@ def test_heading_only_and_blank_pieces_are_not_chunks():
     assert any(c.text.startswith("### AMCore device mode") for c in chunks)
 
 
+def test_label_stays_with_the_block_it_introduces():
+    """'**Rules:**' alone is embedded as little more than its heading path, and the
+    list after it does not say what it lists."""
+    page = (
+        "## M-Code Modes\n\n"
+        "A mode 4 M-Code calls a subprogram.\n\n"
+        "1. Lookahead is broken by mode 4 M-Codes.\n\n"
+        "**Rules:**\n\n"
+        "1. Only one mode 4 M-Code per block.\n\n"
+        "---\n"
+    )
+
+    chunks = chunk_markdown(page, "mcodes.md")
+
+    assert [c.kind for c in chunks] == ["list", "list"]
+    assert chunks[0].text.startswith("## M-Code Modes\n\nA mode 4 M-Code calls a subprogram.\n\n1.")
+    assert chunks[1].text == "**Rules:**\n\n1. Only one mode 4 M-Code per block.\n"
+    assert not any("---" in c.text for c in chunks)
+
+
 def test_chunk_without_headings_is_embedded_as_its_text():
     chunk = RawChunk(text="plain paragraph", source="a.md")
 

@@ -32,6 +32,12 @@ IDX_HEADERS = 2
 
 # a markdown heading line; a piece made only of these (and blank lines) has no content
 HEADING_LINE = re.compile(r"^\s*#{1,6}\s.*$", re.MULTILINE)
+# a horizontal rule on its own line: layout, not content
+HORIZONTAL_RULE = re.compile(r"^[ \t]*(?:-{3,}|\*{3,}|_{3,})[ \t]*$\n?", re.MULTILINE)
+# A text piece this short (headings not counted) that is followed by a table, code
+# block or list is that block's label ("**Rules:**", "Start AMCore in device mode:")
+# and is kept with it instead of becoming a chunk of its own.
+LABEL_MAX_CHARS = 100
 # separates the headings in RawChunk.heading_path, outermost first
 HEADING_PATH_SEPARATOR = " > "
 
@@ -82,9 +88,10 @@ def chunk_markdown(text: str, source: str) -> list[RawChunk]:
     (langchain-text-splitters), then each table, fenced code block and list cut
     out of its section as its own chunk. There is no size limit, so a section or
     block becomes one chunk however long it is. Pieces with no content of their own
-    (a bare heading whose body was cut out as a list or table, or the whitespace
-    left between two blocks) are dropped: the heading lives on in the heading path
-    of the section's other chunks.
+    (a bare heading whose body was cut out as a list or table, a horizontal rule,
+    or the whitespace left between two blocks) are dropped: the heading lives on in
+    the heading path of the section's other chunks. A short label in front of a
+    block stays with that block (merge_labels).
 
     Parameters:
     text - the content of the document as a str
@@ -101,12 +108,10 @@ def chunk_markdown(text: str, source: str) -> list[RawChunk]:
         for k, v in ATOMIC_BLOCKS.items():
             segments = extract_atomic_blocks(text_sections=segments, pattern=v, title=k)
 
-        buf.extend(segments)
+        buf.extend(merge_labels(segments))
 
     # convert segments into RawChunks
     for segment in buf:
-        if not has_content(segment[IDX_TEXT]):
-            continue
         new_chunk = RawChunk(
             text=segment[IDX_TEXT],
             source=source,
@@ -121,6 +126,39 @@ def chunk_markdown(text: str, source: str) -> list[RawChunk]:
 def has_content(text: str) -> bool:
     """False for a piece that is only heading lines and whitespace."""
     return bool(HEADING_LINE.sub("", text).strip())
+
+
+def merge_labels(segments: list[tuple[str, str, str]]) -> list[tuple[str, str, str]]:
+    """
+    Tidies the pieces of one section: horizontal rules are removed from its text,
+    pieces without content are dropped, and a short text piece directly before a
+    table, code block or list is joined onto that block (see LABEL_MAX_CHARS). On
+    its own such a label is embedded as little more than its heading path, and the
+    block it introduces does not say what it lists. The block keeps its kind.
+    Returns a list of tuples in same format as the segments parameter.
+
+    Parameters:
+    segments - The pieces of a single section, in document order.
+        Stored as (tag, text, headers)
+    """
+    pieces = [
+        (tag, HORIZONTAL_RULE.sub("", text) if tag == "text" else text, headers)
+        for tag, text, headers in segments
+    ]
+    pieces = [piece for piece in pieces if has_content(piece[IDX_TEXT])]
+
+    merged: list[tuple[str, str, str]] = []
+    label = ""
+    for i, (tag, text, headers) in enumerate(pieces):
+        introduces_block = i + 1 < len(pieces) and pieces[i + 1][IDX_TAG] != "text"
+        content = HEADING_LINE.sub("", text).strip()
+        if tag == "text" and introduces_block and len(content) <= LABEL_MAX_CHARS:
+            label = text.strip()
+            continue
+        # lstrip: a list match can start with the blank lines above it
+        merged.append((tag, f"{label}\n\n{text.lstrip()}" if label else text, headers))
+        label = ""
+    return merged
 
 
 def extract_atomic_blocks(
