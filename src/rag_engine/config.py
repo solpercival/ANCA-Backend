@@ -81,7 +81,6 @@ class Settings(BaseSettings):
     lexical_provider: str = "postgres"
     llm_provider: str = "ollama"
     chat_store_provider: str = "postgres"
-    alarm_store_provider: str = "postgres"
 
     # ollama
     ollama_base_url: str = "http://ollama:11434"

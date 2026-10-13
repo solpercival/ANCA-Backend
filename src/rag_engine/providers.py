@@ -89,19 +89,6 @@ def get_chat_store_backend() -> Any:
     raise ValueError(f"Unsupported chat store provider: {provider}")
 
 
-def get_alarm_store_backend() -> Any:
-    """Unused: get_orchestrator builds stores.alarms.PostgresAlarmStore directly.
-    Note this returns PostgresDBConnection, which has no get_alarm method, so it
-    does not satisfy AlarmStore."""
-    settings = get_settings()
-    provider = settings.alarm_store_provider.lower()
-
-    if provider == "postgres":
-        return PostgresDBConnection()
-
-    raise ValueError(f"Unsupported alarm store provider: {provider}")
-
-
 # --- embedders ---------------------------------------------------------------------
 
 

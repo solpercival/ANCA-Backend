@@ -49,7 +49,6 @@ def _assert_concurrent(elapsed: float) -> None:
         ("_lexical_search_sync", lambda db: db.lexical_search({1: 0.5}, top_k=5)),
         ("_keyword_search_sync", lambda db: db.keyword_search("spline control points", top_k=5)),
         ("_context_search_sync", lambda db: db.context_search("conv-1")),
-        ("_alarm_search_sync", lambda db: db.alarm_search({"code": "am.fb.0002", "env": {}})),
     ],
 )
 def test_search_methods_run_concurrently(monkeypatch, helper, call):

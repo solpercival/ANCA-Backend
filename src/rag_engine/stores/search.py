@@ -17,7 +17,7 @@ from pgvector import Vector
 
 from rag_engine.auth.tiers import DocAudience
 from rag_engine.config import get_settings
-from rag_engine.retrieval.interfaces import Alarm, Chunk, Where
+from rag_engine.retrieval.interfaces import Chunk, Where
 from rag_engine.stores.cache import get_cache_conn
 from rag_engine.stores.db import get_db_conn
 
@@ -205,60 +205,6 @@ class PostgresDBConnection:
             str(entry["selected"]): (str(entry["heading_id"]), entry["section_text"])
             for entry in result
         }
-
-    # AlarmStore search. Not used on the request path (PostgresAlarmStore in
-    # stores/alarms.py is), and its SQL names columns the schema doesn't have
-    # (ac.sequence, ac.id); left as-is pending a decision on removing it.
-    async def alarm_search(self, request_json: dict) -> Alarm:
-        """Unused legacy lookup: the alarm for request_json["code"], or None if the
-        request lacks `code`/`env` or the code isn't three dot-separated parts.
-        Use PostgresAlarmStore.get_alarm instead."""
-        # validate fields
-        if (not request_json) or ("code" not in request_json) or ("env" not in request_json):
-            return None
-
-        alarm_code = request_json["code"].split(".")
-
-        # validate alarm code format
-        if len(alarm_code) != 3:
-            return None
-
-        return await asyncio.to_thread(self._alarm_search_sync, request_json["code"], alarm_code)
-
-    def _alarm_search_sync(self, code: str, alarm_code: list[str]) -> Alarm | None:
-        """Blocking query for alarm_search; runs in a worker thread."""
-        with get_db_conn() as conn:
-            result = conn.execute(
-                """
-                SELECT 
-                    am.code as module, am.title as domain,
-                    ac.origin as origin, 
-                    ac.sequence as sequence,
-                    ac.title as title,
-                    ac.severity_category as severity_category, 
-                    ac.severity_score as severity_score,
-                    ac.alarm_text as alarm_text,
-                    ac.data_fields as data_fields
-                FROM alarm_code ac
-                INNER JOIN alarm_module am
-                ON ac.id = am.module
-                WHERE ac.origin = %s AND am.code = %s AND ac.sequence = %s;
-                """,
-                (alarm_code[0], alarm_code[1], alarm_code[2]),
-            ).fetchone()
-
-            # no results
-            if not result:
-                return None
-
-        return Alarm(
-            code=code,
-            title=result["title"],
-            domain=result["domain"],
-            severity_score=result["severity_score"],
-            alarm_text=result["alarm_text"],
-            data_fields=json.loads(result["data_fields"]),
-        )
 
     # KeywordStore search
     async def keyword_search(self, query: str, top_k: int) -> list[str]:
