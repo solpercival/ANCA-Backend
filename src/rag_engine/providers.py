@@ -255,10 +255,10 @@ class OllamaRewriteGenerator:
         self._client = client
 
     async def generate(self, prompt: str, tokens: int | None = None, thinking: bool = False) -> str:
-        """The rewritten query for a rewrite `prompt`, returned as the model wrote it.
+        """The rewritten query for a rewrite `prompt`, with any reasoning trace removed.
 
         tokens: cap on output tokens (num_predict).
-        thinking: accepted to match the Generator interface; not sent to the model.
+        thinking: accepted to match the Generator interface; the rewrite never reasons.
         """
         settings = get_settings()
 
@@ -268,6 +268,9 @@ class OllamaRewriteGenerator:
             "model": settings.rewrite_model,
             "prompt": prompt,
             "stream": True,
+            # qwen3 reasons by default, which spends num_predict before any query
+            # text is written and leaves the rewrite empty
+            "think": False,
             "options": {},
         }
 
@@ -287,7 +290,8 @@ class OllamaRewriteGenerator:
                 chunks.append(payload.get("response", ""))
                 if payload.get("done"):
                     break
-        return "".join(chunks)
+        # older Ollama versions ignore "think" and inline the trace; drop it
+        return _THINK_SPAN.sub("", "".join(chunks)).strip()
 
 
 class OpenAIGenerator:
