@@ -19,5 +19,9 @@ resolves the alarm is there, using the key phrases in `fix_terms.json`.
 or a code is added, update it too; `tests/test_eval_answer.py` fails if a gold code
 has no entry.
 
-Not yet wired: an LLM-judged faithfulness score, and failing the run when a score
-regresses below a threshold.
+To fail the run when a score falls below a minimum, set `EVAL_MIN` to comma-separated
+`name=value` pairs, for example `EVAL_MIN="fix_present=0.68,hit=0.9" make eval`. The
+run exits with status 1 and names each score that missed. Set the minimums below the
+min-max range of a repeated run (`EVAL_RUNS=3`), or noise will trip them.
+
+Not yet wired: an LLM-judged faithfulness score.

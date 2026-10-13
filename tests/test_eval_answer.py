@@ -7,6 +7,7 @@ from eval.run_eval import (
     FIX_TERMS_PATH,
     GOLD_PATH,
     average_results,
+    below_minimums,
     content_stems,
     load_fix_terms,
     load_gold,
@@ -130,6 +131,16 @@ def test_several_passes_are_averaged_and_their_spread_reported():
     assert merged[0]["steps"] == ["Restart."]
     # one pass is the plain summary, with no range
     assert "range" not in summarize_runs([first])
+
+
+def test_scores_below_their_minimum_are_reported():
+    summary = {"fix_present": 0.682, "hit": 0.909}
+
+    assert below_minimums(summary, "fix_present=0.68, hit=0.9") == []
+    assert below_minimums(summary, "fix_present=0.7,hit=0.9") == [("fix_present", 0.682, 0.7)]
+    # a misspelt score name must not pass silently
+    assert below_minimums(summary, "fix_presnt=0.1") == [("fix_presnt", None, 0.1)]
+    assert below_minimums(summary, None) == []
 
 
 def test_summarize_averages_answer_scores():

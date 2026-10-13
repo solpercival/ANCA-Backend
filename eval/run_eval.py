@@ -40,6 +40,7 @@ import argparse
 import json
 import os
 import re
+import sys
 from pathlib import Path
 
 import httpx
@@ -527,6 +528,22 @@ def run_live_eval(gold_path, runs=1):
     if spread:
         print(f"min-max over {runs} passes:", {k: f"{lo}-{hi}" for k, (lo, hi) in spread.items()})
     print(f"wrote {output_path}")
+    return summary
+
+
+def below_minimums(summary, spec):
+    """Scores in `summary` under their minimum, as (name, score, minimum) tuples
+
+    spec is EVAL_MIN: comma-separated name=value pairs, e.g.
+    "fix_present=0.68,hit=0.9". A name the summary lacks counts as failing
+    """
+    failed = []
+    for pair in filter(None, (part.strip() for part in (spec or "").split(","))):
+        name, _, minimum = pair.partition("=")
+        score = summary.get(name.strip())
+        if score is None or score < float(minimum):
+            failed.append((name.strip(), score, float(minimum)))
+    return failed
 
 
 def normalize_result(payload: dict) -> dict:
@@ -595,7 +612,12 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.gold:
-        run_live_eval(args.gold, runs=max(1, args.runs))
+        summary = run_live_eval(args.gold, runs=max(1, args.runs))
+        failed = below_minimums(summary, os.environ.get("EVAL_MIN"))
+        for name, score, minimum in failed:
+            print(f"EVAL_MIN not met: {name} is {score}, minimum {minimum}")
+        if failed:
+            sys.exit(1)
         return
 
     # When there is no --gold. Snapshot check used by the rag-eval and rag-snapshot CI workflows
