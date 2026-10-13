@@ -43,7 +43,6 @@ class Settings(BaseSettings):
     access_token_ttl_minutes: int = 15  # bearer JWT lifetime
     refresh_token_idle_days: int = 7  # session ends if unused this long
     session_max_days: int = 30  # absolute session cap, however active
-    auth_allow_registration: bool = False
     auth_cookie_secure: bool = True
     auth_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
     login_max_attempts: int = 5
@@ -99,14 +98,16 @@ class Settings(BaseSettings):
     # request is cheap on CPU and frees ~1.4 GB of VRAM for the generator and reranker.
     # Ingestion embeds through its own path and is unaffected.
     embedding_num_gpu: int = 0
-    # caps generated tokens; the single biggest CPU-side latency lever
+    # caps generated tokens at the default (medium) effort; the single biggest
+    # CPU-side latency lever
     llm_num_predict: int = 180
     # sampling temperature for answer generation. 0 = always the most likely token, so
     # the same alarm and context give the same steps: grounded answers don't benefit
     # from variety, and bench/eval runs become comparable (Ollama's own default, 0.8,
     # moved fix_present by a whole alarm between identical runs)
     llm_temperature: float = 0.0
-    rewrite_num_predict: int = 512
+    # caps the query rewrite's output tokens at the default (medium) effort
+    rewrite_num_predict: int = 256
 
     # generation http client (streaming keeps the connection alive between tokens,
     # so read_timeout only needs to cover the gap between chunks, not the full reply)
@@ -132,6 +133,7 @@ class Settings(BaseSettings):
     # retrieval
     retrieval_top_k: int = 50  # candidates fetched per search before reranking
     rerank_top_n: int = 8  # chunks kept after reranking and put in the prompt
+    # both apply to the default (medium) effort; low and high have fixed presets below
     rerank_provider: str = "none"  # none = keep fused order; anything else = Qwen3 reranker
     rerank_model: str = "Qwen/Qwen3-Reranker-0.6B"
     # pairs per reranker forward pass; bounds GPU activation memory (scores unchanged)
@@ -220,7 +222,10 @@ class Settings(BaseSettings):
         "rewrite": False,
         "thinking": False,
     }
-    MID_CONFIG: dict = {  # mid config is based on default settings
+    # retrieval_k, reranker_n, num_predict and num_rewrite here are overwritten from
+    # RETRIEVAL_TOP_K, RERANK_TOP_N, LLM_NUM_PREDICT and REWRITE_NUM_PREDICT (see
+    # _medium_effort_follows_settings), so those settings tune the default effort
+    MID_CONFIG: dict = {
         "retrieval_k": 50,
         "reranker_n": 8,
         "context_k": 10,
@@ -247,6 +252,18 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _require_explicit_allowed_hosts_outside_local(self) -> Self:
+    @model_validator(mode="after")
+    def _medium_effort_follows_settings(self) -> Self:
+        """Medium is the default effort, so the documented knobs are its values."""
+        self.MID_CONFIG = {
+            **self.MID_CONFIG,
+            "retrieval_k": self.retrieval_top_k,
+            "reranker_n": self.rerank_top_n,
+            "num_predict": self.llm_num_predict,
+            "num_rewrite": self.rewrite_num_predict,
+        }
+        return self
+
         """A deployment that accepts any Host can be used to forge links back to itself."""
         if self.app_env != "local" and "*" in self.allowed_hosts:
             raise ValueError(

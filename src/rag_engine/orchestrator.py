@@ -1174,8 +1174,6 @@ def get_orchestrator() -> Orchestrator:  # pragma: no cover - wired at runtime
     Cached (lru_cache), so the routes' Depends(get_orchestrator) share one instance
     and the reranker model loads once per process. Imports are local to avoid an
     import cycle with main and to keep model-provider imports out of test runs.
-    Note: HybridRetriever gets its default rrf_k (60), not settings.rrf_k, and the
-    Orchestrator its default top_k/top_n (50/8), not RETRIEVAL_TOP_K/RERANK_TOP_N.
     """
     from rag_engine.main import app
 
@@ -1199,7 +1197,9 @@ def get_orchestrator() -> Orchestrator:  # pragma: no cover - wired at runtime
         sparse_embedder = None
         lexical = None
 
-    retriever = HybridRetriever(dense_embedder, sparse_embedder, vector_store, lexical)
+    retriever = HybridRetriever(
+        dense_embedder, sparse_embedder, vector_store, lexical, rrf_k=get_settings().rrf_k
+    )
 
     rewrite_model = get_rewrite_backend(client)
     chat_store = get_chat_store_backend()

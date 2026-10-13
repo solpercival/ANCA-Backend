@@ -89,6 +89,21 @@ def test_get_effort_settings_mapping():
     assert default.num_predict == mid.num_predict
 
 
+def test_medium_effort_follows_the_documented_settings(monkeypatch):
+    # these four were read by nothing: changing them in .env had no effect
+    monkeypatch.setenv("RETRIEVAL_TOP_K", "40")
+    monkeypatch.setenv("RERANK_TOP_N", "6")
+    monkeypatch.setenv("LLM_NUM_PREDICT", "150")
+    monkeypatch.setenv("REWRITE_NUM_PREDICT", "200")
+    get_settings.cache_clear()
+    try:
+        mid = get_effort_settings(EffortLevel.MEDIUM)
+    finally:
+        get_settings.cache_clear()
+
+    assert (mid.retrieval_k, mid.reranker_n, mid.num_predict, mid.num_rewrite) == (40, 6, 150, 200)
+
+
 def test_api_resolve_endpoint_effort_boundary_validation(client, bearer):
     # Valid effort tiers return 200
     for effort in ("low", "medium", "high"):
