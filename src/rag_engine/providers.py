@@ -268,6 +268,7 @@ class OllamaRewriteGenerator:
             generate_payload["options"]["num_predict"] = tokens
 
         async with self._client.stream(
+            "options": {},
             "POST",
             f"{settings.ollama_base_url.rstrip('/')}/api/generate",
             json=generate_payload,

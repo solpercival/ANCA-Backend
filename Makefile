@@ -59,10 +59,11 @@ build:          ## rebuild the orchestrator, migrate and ingestion images
 restart:        ## rebuild and recreate the orchestrator in the background (runs migrate first)
 	$(COMPOSE) up -d --build orchestrator
 
-models:         ## start Ollama and pull the embedding + generation models
+models:         ## start Ollama and pull the embedding, generation and rewrite models
 	$(COMPOSE) up -d ollama
 	$(COMPOSE) exec ollama ollama pull qwen3-embedding:0.6b
 	$(COMPOSE) exec ollama ollama pull qwen3:4b-instruct-2507-q4_K_M
+	$(COMPOSE) exec ollama ollama pull qwen3:0.6b
 
 # --- database migrations (Alembic) -----------------------------------------------
 
