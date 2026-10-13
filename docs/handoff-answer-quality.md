@@ -8,7 +8,7 @@ Working notes for continuing this work on another machine. Delete this file befo
 - `8a5b922`: reranker cutoffs, reranker input length, chunk heading paths, section context, wider reranker input, device-name filter exemption.
 - `aebda34`: eval gains `step_precision`, `length_ratio` and `EVAL_RUNS`.
 - Unit tests: 503 pass.
-- Not yet measured: the build at `aebda34`. The baseline run below is the next step.
+- The build at `aebda34` is measured; the baseline is recorded below.
 
 ## Setting up on a new machine
 
@@ -32,6 +32,20 @@ EVAL_RUNS=3 make eval
 
 Record the summary line and the `min-max over 3 passes` line. Every later change is compared with this run, and a difference smaller than the min-max range is noise. Numbers from the old machine (6 GB laptop GPU) are not comparable for latency.
 
+### Baseline at `aebda34` (2026-10-13, 3 passes, 11 codes, 0 errors)
+
+| Measure | Mean | Min-max |
+|---|---|---|
+| `step_precision` | 0.491 | 0.479-0.497 |
+| `length_ratio` | 1.855 | 1.83-1.868 |
+| `step_recall` | 0.499 | 0.497-0.5 |
+| `fix_present` / `fix_solved` | 0.682 / 5 | no spread |
+| `actionable` | 0.991 | 0.987-1.0 |
+| Citation precision / recall | 0.712 / 0.773 | no spread |
+| `hit` / `reciprocal_rank` / `coverage_match` | 0.909 / 0.864 / 0.545 | no spread |
+
+Only `am.nc.0001`, `am.nc.0005` and `am.fb.0002` varied between passes; the other eight answers were identical each time.
+
 ## Targets
 
 | Measure | Last measured | Target |
@@ -45,7 +59,7 @@ Record the summary line and the `min-max over 3 passes` line. Every later change
 ## Remaining plan
 
 1. **Baseline** (above).
-2. **Prompt, subtraction only.** Remove the sentence "Include each check the context gives for diagnosing this alarm, such as what a reported value or state means." from `_build_prompt` in `src/rag_engine/orchestrator.py`, and the matching assertion in `tests/test_resolve_response.py`. Keep it only if `step_precision` rises and `fix_present` does not fall beyond the noise range.
+2. **Prompt, subtraction only (done, kept).** Removed the sentence "Include each check the context gives for diagnosing this alarm, such as what a reported value or state means." from `_build_prompt` in `src/rag_engine/orchestrator.py`, and the matching assertion in `tests/test_resolve_response.py`. Result in the table below.
 3. **Unsupported-step rule (awaiting a decision).** Drop a step when fewer than half of its key words appear in the context it was generated from. Offline, on the 73 saved steps, this removed 10 of 45 non-matching steps (the invented ones) and 1 of 28 matching ones. It would bring 73 steps to about 62, so it does not reach the target alone.
 4. **Latency.** Find the smallest `rerank_k` that still passes the gold chunks to the reranker (30 was chosen from one alarm); try `RERANK_MAX_LENGTH=1024`; check why generation speed fell from about 45 to about 17 tokens/s within a bench run on the laptop.
 5. **Missing half-fixes.** `am.nc.0003`, `am.cfg.0001`, `am.lic.0001`, `am.fb.0002`, `am.fb.0003` and `am.nc.0005` still lack part of the fix. Classify each as "not retrieved" or "retrieved but not used" before choosing a fix.
@@ -63,6 +77,7 @@ If steps 2 and 3 do not reach the targets, the 4B generator is the limit and the
 | Reranker instruction rewording | Mixed on both model sizes; dropped |
 | Qwen3-Reranker-4B (4-bit) | Ranked gold chunks higher on 3 of 4 alarms, but 4.1 GB and 7.4 s per call on the laptop; not usable there |
 | Heading paths, section context, 30 reranked candidates | `fix_present` 0.636 to 0.682, `fix_solved` 4 to 5; citation precision 0.803 to 0.712, recall 0.864 to 0.773; answers twice the gold length |
+| Removing the "Include each check the context gives" prompt sentence (3 passes) | `length_ratio` 1.855 to 1.602 (1.592-1.623); `step_precision` 0.491 to 0.519 (0.513-0.522); `step_recall` 0.499 to 0.482; `fix_present` 0.682 and `fix_solved` 5 unchanged; kept. The precision gain comes almost entirely from `am.nc.0002` (0.57 to 1.0); `am.fb.0003` fell from 0.2 to 0.0 and `am.fb.0001` from 0.33 to 0.2 |
 | Extra model call that selects which steps to keep | Failed offline: lost the fix on two alarms in each of two prompt variants; not built |
 
 Other findings worth keeping:

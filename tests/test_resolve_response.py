@@ -108,7 +108,6 @@ def test_prompt_lets_the_docs_set_the_number_of_steps():
     assert "as many or as few steps as the context supports" in prompt
     assert "no fixed number and no minimum" in prompt
     assert "Never repeat a step in different words" in prompt
-    assert "Include each check the context gives" in prompt
     # bench: with no count, padding came back as Check/Verify lines instead
     # (am.lic.0001: check, verify, set, ensure, restart; am.nc.0004 restated its rule)
     assert "Add a Check or Verify step only when" in prompt
