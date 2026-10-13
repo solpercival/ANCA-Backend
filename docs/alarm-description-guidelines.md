@@ -72,4 +72,6 @@ This exact wording has not been tested.
 1. Someone who has not seen the reference answers writes descriptions for the 11 sample alarms using this document.
 2. The evaluation runs with each description as the search query, and the results are compared with the current ones.
 
-This needs a description field in the alarm catalogue, which does not exist yet.
+The alarm catalogue has an optional `description` field for this (`alarms.sample.json`), and the
+assistant searches with it when it is present. The 11 sample alarms carry first-draft descriptions
+written by someone who had read the reference answers, so they do not count as this validation.

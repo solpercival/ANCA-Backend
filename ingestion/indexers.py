@@ -394,6 +394,8 @@ def populate_alarms(alarms_json: dict) -> None:
                         "severity_category"
                     ].lower(),  # severity category (enum)
                     "alarm_text": alarm["alarm_text"],
+                    # optional: older alarm files have none
+                    "description": alarm.get("description") or "",
                     "data_fields": alarm["data_fields"],
                     # alarm_module data
                     "code": code_sections[1],
@@ -437,13 +439,14 @@ def populate_alarms(alarms_json: dict) -> None:
                     """
                     INSERT INTO alarm_code
                     (origin, alarm_sequence, title, severity_score, severity_category,
-                     alarm_text, data_fields, module)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                     alarm_text, description, data_fields, module)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (origin, alarm_sequence, module) DO UPDATE 
                         SET title = EXCLUDED.title,
                             severity_score = EXCLUDED.severity_score,
                             severity_category = EXCLUDED.severity_category,
                             alarm_text = EXCLUDED.alarm_text,
+                            description = EXCLUDED.description,
                             data_fields = EXCLUDED.data_fields; 
                     """,
                     (
@@ -453,6 +456,7 @@ def populate_alarms(alarms_json: dict) -> None:
                         alarm_data["severity_score"],
                         alarm_data["severity_category"],
                         alarm_data["alarm_text"],
+                        alarm_data["description"],
                         Jsonb(alarm_data["data_fields"]),
                         module_res["id"],
                     ),

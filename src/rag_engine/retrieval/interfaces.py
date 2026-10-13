@@ -53,6 +53,9 @@ class Alarm:
     severity_category: str
     alarm_text: str
     data_fields: dict
+    # the condition in the documentation's own terms, with no values from one
+    # occurrence; what the docs are searched with when present ("" = none)
+    description: str = ""
 
 
 class DenseEmbedder(Protocol):

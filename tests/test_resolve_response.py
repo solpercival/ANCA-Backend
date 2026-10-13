@@ -60,6 +60,38 @@ def _resolve(answer="Reset the drive [1].", chunks=None, reranker=None, tier=Tie
     return asyncio.run(orch.resolve(REQ, tier))
 
 
+# --- retrieval query -------------------------------------------------------
+
+
+def _alarm(description=""):
+    return Alarm(
+        code="am.nc.0003",
+        title="M-code part program could not be activated",
+        domain="Numerical Controller",
+        severity_score=833,
+        severity_category="error",
+        alarm_text="Program mdi1.pp, line 1: Could not activate part program 'm101.pp'.",
+        data_fields={},
+        description=description,
+    )
+
+
+def test_docs_are_searched_with_the_alarm_description_when_it_has_one():
+    # the message carries one occurrence's file name and line, not the docs' terms
+    req = ResolveRequest(code="am.nc.0003")
+    described = _alarm("An M-code configured to run as a part program could not run.")
+
+    query = Orchestrator._retrieval_query(req, described)
+    fallback = Orchestrator._retrieval_query(req, _alarm())
+
+    assert query.endswith("An M-code configured to run as a part program could not run.")
+    assert "mdi1.pp" not in query
+    assert "mdi1.pp" in fallback
+    # a caller's own query still wins
+    asked = ResolveRequest(code="am.nc.0003", query="happens after a tool change")
+    assert Orchestrator._retrieval_query(asked, described) == "happens after a tool change"
+
+
 # --- steps -----------------------------------------------------------------
 
 

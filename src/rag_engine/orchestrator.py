@@ -489,9 +489,11 @@ class Orchestrator:
     @staticmethod
     def _retrieval_query(req: ResolveRequest, alarm: Alarm) -> str:
         """What to search the docs for: the caller's query if given, else the alarm's
-        title and message. The code itself is opaque to the embedder, so retrieval
-        runs on what the alarm means."""
-        return req.query or f"{alarm.title}. {alarm.alarm_text}"
+        title with its description, or with its message when it has no description.
+        The code itself is opaque to the embedder, so retrieval runs on what the
+        alarm means; the description says that in the documentation's terms, where
+        the message carries one occurrence's program names and addresses."""
+        return req.query or f"{alarm.title}. {alarm.description or alarm.alarm_text}"
 
     def _build_prompt(
         self, req: ResolveRequest, alarm: Alarm, chunks: list[Chunk], tier: Tier
