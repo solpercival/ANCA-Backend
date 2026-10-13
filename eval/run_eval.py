@@ -373,6 +373,9 @@ def fetch_answer(code, api_url=API_URL, token=None):
         headers["Authorization"] = f"Bearer {token}"
 
     body = {"code": code, "env": {"versions": {}, "locale": "en-US"}}
+    # EVAL_EFFORT=low|high scores another effort level; unset = the API default (medium)
+    if os.environ.get("EVAL_EFFORT"):
+        body["effort"] = os.environ["EVAL_EFFORT"]
 
     response = httpx.post(f"{api_url}/resolve", json=body, headers=headers, timeout=120)
     response.raise_for_status()

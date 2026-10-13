@@ -24,4 +24,7 @@ To fail the run when a score falls below a minimum, set `EVAL_MIN` to comma-sepa
 run exits with status 1 and names each score that missed. Set the minimums below the
 min-max range of a repeated run (`EVAL_RUNS=3`), or noise will trip them.
 
+`EVAL_EFFORT=low` or `EVAL_EFFORT=high` scores another effort level; unset, the eval uses the
+API default (medium).
+
 Not yet wired: an LLM-judged faithfulness score.
