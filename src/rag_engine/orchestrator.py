@@ -387,6 +387,11 @@ class Orchestrator:
         return "\n\n---\n\n".join(f"({c.source})\n{c.text}" for c in chunks)
 
     @staticmethod
+    def _chunk_label(chunk: Chunk) -> str:
+        """A chunk as "document path # heading path", for log lines."""
+        return f"{chunk.source} # {(chunk.metadata or {}).get('heading_path', '')}"
+
+    @staticmethod
     def _has_relevant_context(top: list[Chunk], reranker: Reranker, code: str) -> bool:
         """Whether the reranked chunks include anything about the alarm.
 
@@ -936,6 +941,22 @@ class Orchestrator:
                 output={"top_count": len(top)},
                 duration_ms=int(t_rerank * 1000),
             )
+
+        # which sections were found and which survived the reranker: tells "not
+        # retrieved" from "retrieved but not used" when an answer lacks a fix
+        log.info(
+            "resolve_candidates code=%s n=%d reranked=%d: %s",
+            req.code,
+            len(candidates),
+            len(trimmed),
+            " | ".join(f"{i}. {self._chunk_label(c)}" for i, c in enumerate(candidates, 1)),
+        )
+        log.info(
+            "resolve_ranked code=%s n=%d: %s",
+            req.code,
+            len(top),
+            " | ".join(f"{c.score:.2f} {self._chunk_label(c)}" for c in top),
+        )
 
         t_generate = 0.0
         # what the generator reads and what its answer is checked against; `top`
