@@ -182,6 +182,25 @@ def test_fix_absent_when_steps_only_check_things():
     assert score_fix(steps, [["false", "disable"], ["licen", "anca"]]) == 0.0
 
 
+def test_nc_0005_fix_is_recognised_in_other_words_than_the_gold_answer():
+    # scored 0.0 for three days on an answer that gave the fix: only "split",
+    # "separate block" and "remove duplicate class 1" were accepted
+    if not FIX_TERMS_PATH.exists():
+        pytest.skip("fix terms file not present")
+    groups = load_fix_terms()["am.nc.0005"]
+
+    # the two answers the 8B generator alternates between
+    reworded = [
+        "Edit the program to ensure only one class 1 preparatory word is used per block."
+    ]
+    removes = ["Edit the program to remove all but one class 1 preparatory word from the block."]
+    checks_only = ["Check which preparatory words in the block belong to class 1."]
+
+    assert score_fix(reworded, groups) == 1.0
+    assert score_fix(removes, groups) == 1.0
+    assert score_fix(checks_only, groups) == 0.0
+
+
 def test_lic_0001_fix_terms_do_not_reward_the_opposite_fix():
     # bench at temperature 0 scored this 1.0: "false" matched the certificate
     # setting and "anca" matched the certificate subject
