@@ -1133,6 +1133,13 @@ class Orchestrator:
             )
             if not rewritten_prompt:
                 return ChatResponse(conversation_id=req.conversation_id, reply="", citations=[])
+            # the query retrieval runs on: the message as sent, or its rewrite
+            log.info(
+                "chat_query conversation_id=%s message=%r query=%r",
+                req.conversation_id,
+                req.message[:200],
+                rewritten_prompt[:300],
+            )
             req.message = rewritten_prompt
 
         trace = None
