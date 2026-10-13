@@ -173,6 +173,39 @@ class PostgresDBConnection:
 
             return result_chunks
 
+    # SectionStore lookup
+    async def section_texts(self, chunk_ids: list[str]) -> dict[str, tuple[str, str]]:
+        """Each chunk's whole section: the text of every chunk under the same
+        heading, joined in document order, keyed by chunk id as (heading id, text).
+        Ingestion cuts a section into text, list, table and code pieces; this puts
+        them back together. Chunks without a heading are left out."""
+        ids = [int(i) for i in chunk_ids if str(i).isdigit()]
+        if not ids:
+            return {}
+        return await asyncio.to_thread(self._section_texts_sync, ids)
+
+    def _section_texts_sync(self, ids: list[int]) -> dict[str, tuple[str, str]]:
+        """Blocking query for section_texts; runs in a worker thread."""
+        with get_db_conn() as conn:
+            # chunk_id is assigned in insertion order, which is document order within
+            # a file; a heading row belongs to one document, so matching on it alone
+            # stays inside the selected chunk's file
+            result = conn.execute(
+                """
+                SELECT sel.chunk_id AS selected, sel.closest_heading AS heading_id,
+                    string_agg(c.content, E'\\n\\n' ORDER BY c.chunk_id) AS section_text
+                FROM document_chunks sel
+                JOIN document_chunks c ON c.closest_heading = sel.closest_heading
+                WHERE sel.chunk_id = ANY(%s)
+                GROUP BY sel.chunk_id, sel.closest_heading;
+                """,
+                [ids],
+            ).fetchall()
+        return {
+            str(entry["selected"]): (str(entry["heading_id"]), entry["section_text"])
+            for entry in result
+        }
+
     # AlarmStore search. Not used on the request path (PostgresAlarmStore in
     # stores/alarms.py is), and its SQL names columns the schema doesn't have
     # (ac.sequence, ac.id); left as-is pending a decision on removing it.

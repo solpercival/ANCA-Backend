@@ -136,11 +136,39 @@ class Settings(BaseSettings):
     rerank_model: str = "Qwen/Qwen3-Reranker-0.6B"
     # pairs per reranker forward pass; bounds GPU activation memory (scores unchanged)
     rerank_batch_size: int = 5
+    # Qwen3 reranker only: tokens per instruction+query+chunk pair; a longer chunk is
+    # cut off and scored on its beginning alone. At 512 a long table was judged by its
+    # header rows: an off-topic 886-token parameter table scored 0.40 for a firmware
+    # alarm and 0.00 once read in full. 2048 covers all but a handful of chunks; lower
+    # it to save GPU memory (about +0.5 GB over 512 when a batch holds a long chunk).
+    rerank_max_length: int = 2048
     # Qwen3 reranker only: drop chunks whose relevance probability is below this
     # (the best chunk is always kept). 0 disables. Off by default: on the sample
     # alarms off-topic chunks scored 0.6-0.95 (same topic, wrong task) while a gold
     # chunk for am.nc.0004 scored <=0.10, so 0.2 dropped the wrong ones.
     rerank_min_score: float = 0.0
+    # Qwen3 reranker only: a cutoff relative to the query's best chunk. Beyond the
+    # first rerank_min_keep chunks, a chunk is kept only if it also scores at least
+    # this fraction of the top score. The absolute floor above cannot separate the
+    # two cases this does: a query whose best chunk is 0.93 and the rest 0.10 or
+    # less (the rest is noise) and one whose chunks all score 0.7-0.96 (all kept).
+    # 0 disables, leaving only rerank_min_score.
+    rerank_relative_min: float = 0.0
+    # Chunks always kept from the top of the ranking, whatever they score (at least
+    # 1). 1 is the behaviour before the relative cutoff existed: only the best chunk
+    # is guaranteed. 2 protects a second gold chunk that scores low in absolute
+    # terms (am.nc.0004's scores about 0.10).
+    rerank_min_keep: int = 1
+    # Resolve context: a selected chunk is passed to the generator as its whole
+    # section (every chunk under the same heading) when the section is at most this
+    # many characters. Ingestion cuts a section into text, list, table and code
+    # pieces, so a procedure's steps end up in different chunks and any one the
+    # reranker cuts is a step lost. Larger sections (long reference tables) stay as
+    # the single chunk. 0 disables.
+    context_section_max_chars: int = 2500
+    # ...and only while the whole context stays within this many characters, so the
+    # prompt fits the generator's context window (about 3.3 characters per token).
+    context_max_chars: int = 8000
     # Relevance floor for a resolve answer: if even the best reranked chunk scores
     # below this P(yes), nothing retrieved is about the alarm, so the answer is "not
     # covered" without calling the generator (it would otherwise build steps out of
@@ -191,6 +219,10 @@ class Settings(BaseSettings):
         "retrieval_k": 50,
         "reranker_n": 8,
         "context_k": 10,
+        # resolve: the reranker reads the first 30 candidates, not 10. The embedding
+        # search is the weaker judge: for am.cfg.0001 the right section sat at rank 25
+        # behind short function-reference entries, so the reranker never saw it.
+        "rerank_k": 30,
         "reranker": "qwen3",
         "num_predict": 180,
         "num_rewrite": 256,

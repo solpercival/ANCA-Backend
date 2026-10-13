@@ -1,8 +1,10 @@
 """Which markdown files ingestion indexes."""
 
+import hashlib
 from pathlib import Path
 
 from ingestion.pipeline import (
+    CHUNKING_VERSION,
     EXCLUDED_DIRS,
     changed_document_hashes,
     collect_markdown,
@@ -10,6 +12,11 @@ from ingestion.pipeline import (
     hash_markdown_files,
     iter_markdown_files,
 )
+
+
+def _digest(data: bytes) -> str:
+    """What hash_file returns for a file holding `data`."""
+    return hashlib.sha256(data + f"|chunking={CHUNKING_VERSION}".encode()).hexdigest()
 
 
 def _touch(root, rel):
@@ -46,11 +53,13 @@ def test_only_directories_are_excluded_not_similarly_named_files(tmp_path):
     assert files == ["docs/alarms.md", "docs/receive-alarms/overview.md"]
 
 
-def test_hash_file_is_sha256_of_raw_bytes(tmp_path):
+def test_hash_file_is_sha256_of_raw_bytes_and_chunking_version(tmp_path):
     path = tmp_path / "guide.md"
     path.write_bytes(b"# title\n")
 
-    assert hash_file(path) == "497c96e612373c14de69c0cbd79e8c6b870cc73ae6da4037f1a1e0c58bcc9315"
+    assert hash_file(path) == _digest(b"# title\n")
+    # not the bare file digest: a chunker change must re-ingest unchanged files
+    assert hash_file(path) != hashlib.sha256(b"# title\n").hexdigest()
     assert hash_file(path) == hash_file(path)
 
 
@@ -61,7 +70,7 @@ def test_hash_file_changes_when_one_byte_changes(tmp_path):
 
     path.write_bytes(b"# title\n ")
 
-    assert hash_file(path) == "e62b7fceab05e0b1b3092f9a214f1f3c836d64126880474f4dfe395c5f32d55a"
+    assert hash_file(path) == _digest(b"# title\n ")
     assert hash_file(path) != original
 
 
@@ -78,7 +87,7 @@ def test_hash_markdown_files_maps_sources_and_skips_excluded_dirs(tmp_path):
     hashes = hash_markdown_files(tmp_path)
 
     assert hashes == {
-        str(kept): "497c96e612373c14de69c0cbd79e8c6b870cc73ae6da4037f1a1e0c58bcc9315",
+        str(kept): _digest(b"# title\n"),
         str(other): hash_file(other),
     }
 

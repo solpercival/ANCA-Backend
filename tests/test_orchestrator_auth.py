@@ -67,6 +67,22 @@ def test_reranker_backend_factory_tolerates_case_and_whitespace(monkeypatch, pro
     assert isinstance(get_reranker_backend(), expected)
 
 
+def test_reranker_backend_reads_whole_chunks_by_default(monkeypatch):
+    """The default must be long enough that a long table is not scored on its
+    header rows alone (512 was not)."""
+    monkeypatch.setenv("RERANK_PROVIDER", "qwen3")
+    monkeypatch.delenv("RERANK_MAX_LENGTH", raising=False)
+
+    assert get_reranker_backend()._max_length == 2048
+
+
+def test_reranker_backend_uses_configured_max_length(monkeypatch):
+    monkeypatch.setenv("RERANK_PROVIDER", "qwen3")
+    monkeypatch.setenv("RERANK_MAX_LENGTH", "1024")
+
+    assert get_reranker_backend()._max_length == 1024
+
+
 @pytest.mark.parametrize("provider", ["qwn3", "qwen", "identity", ""])
 def test_reranker_backend_factory_rejects_unknown_provider(monkeypatch, provider):
     monkeypatch.setenv("RERANK_PROVIDER", provider)

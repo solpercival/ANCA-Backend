@@ -3,9 +3,10 @@
 resolve (alarm code -> guidance):
   1. look the code up in the alarm catalogue (404 if unknown)
   2. build a retrieval query from the alarm's title + message (or the caller's query)
-  3. retrieve candidates, keep the first 20, rerank to rerank_top_n. Retrieval is
+  3. retrieve candidates, keep the first rerank_k, rerank to rerank_top_n. Retrieval is
      limited to the documentation sets the caller's tier may see (operator: Part
-     Programmer's Reference only; auth/tiers.py allowed_doc_audiences)
+     Programmer's Reference only; auth/tiers.py allowed_doc_audiences). Each chunk
+     that survives is widened to its whole section for the prompt (_section_context)
   4. prompt the LLM for a COVERAGE line, action steps (as many as the docs support)
      and (technician+) CAUSE quotes
   5. post-process the answer so only grounded content survives: drop catalogue
@@ -56,6 +57,7 @@ from rag_engine.retrieval.interfaces import (
     Chunk,
     Generator,
     Reranker,
+    SectionStore,
     Where,
 )
 from rag_engine.retrieval.reranker import IdentityReranker, Qwen3Reranker
@@ -111,13 +113,22 @@ _ACTION_VERBS = frozenset(
 # which must never be presented as facts about the caller's machine. Deliberately
 # narrow: plain numbers ("at least 3 control points"), config properties
 # ("opcua.enable = false", "mcode.101.mode = 5") and bracketed UI names are untouched.
+#
+# Device names are the one kind that is left alone when the alarm's own message
+# contains it (_has_example_literal): there it is the caller's device as the machine
+# reported it. Hex values get no such pass: a step that repeats the alarm's 0x04 goes
+# on to say what it means ("If the error register shows 0x04, check for frame
+# response errors"), which the docs do not state.
+_DEVICE_NAME_LITERALS = (
+    re.compile(r"\b[a-z]+_\d+\b", re.I),  # numbered device names: Drive_3
+    # quoted device names: "Drive 3" (no ASCII apostrophe, so possessives can't match)
+    re.compile(r"[\"“‘][a-z][\w -]*\d[\"”’]", re.I),
+)
 _EXAMPLE_LITERALS = (
     # register / station hex: 0x04. Not CoE object addresses (index:subindex, e.g.
     # "error code (0x1001:00)"): those are fixed by the standard, the same on every drive
     re.compile(r"\b0x[0-9a-f]+\b(?!:[0-9a-f]{1,2}\b)", re.I),
-    re.compile(r"\b[a-z]+_\d+\b", re.I),  # numbered device names: Drive_3
-    # quoted device names: "Drive 3" (no ASCII apostrophe, so possessives can't match)
-    re.compile(r"[\"“‘][a-z][\w -]*\d[\"”’]", re.I),
+    *_DEVICE_NAME_LITERALS,
     # numbered lists of devices: "devices 2, 4 and 5", "stations 1 and 3"
     re.compile(
         r"\b(?:devices|drives|stations|slaves|nodes|axes|joints)\s+\d+"
@@ -188,7 +199,7 @@ def get_reranker_backend() -> Reranker:
     if provider == "none":
         return IdentityReranker()
     if provider == "qwen3":
-        return Qwen3Reranker(max_length=512)
+        return Qwen3Reranker(max_length=get_settings().rerank_max_length)
     raise ValueError(f"Unknown RERANK_PROVIDER={provider!r}; expected 'none' or 'qwen3'")
 
 
@@ -286,6 +297,7 @@ class Orchestrator:
         generator: Generator,
         alarm_store: AlarmStore,
         langfuse_client: Langfuse | None = None,
+        section_store: SectionStore | None = None,
     ):
         self._preprocessor = preprocessor
         self._retriever = retriever
@@ -294,6 +306,70 @@ class Orchestrator:
         self._generator = generator
         self._alarms = alarm_store
         self._langfuse = langfuse_client
+        # None: the generator gets the selected chunks as they are
+        self._sections = section_store
+
+    async def _section_context(self, chunks: list[Chunk], code: str) -> list[Chunk]:
+        """The chunks to show the generator: each selected chunk widened to its whole
+        section, in rank order.
+
+        Ingestion cuts a section into text, list, table and code pieces, so the steps
+        of one procedure sit in several chunks ("run this:", the command, the warning
+        after it) and the reranker keeps some and cuts others. A section replaces its
+        chunk when it is at most CONTEXT_SECTION_MAX_CHARS and the context stays
+        within CONTEXT_MAX_CHARS; otherwise the chunk is passed as it is. Later chunks
+        of a section already included are dropped, their text being in it. Ranking,
+        the relevance floor and citations keep using the original chunks.
+        """
+        settings = get_settings()
+        if self._sections is None or settings.context_section_max_chars <= 0 or not chunks:
+            return chunks
+        try:
+            sections = await self._sections.section_texts([c.chunk_id for c in chunks])
+        except Exception:
+            log.warning("section_lookup_failed code=%s (non-fatal)", code, exc_info=True)
+            return chunks
+
+        used = sum(len(c.text or "") for c in chunks)
+        included: set[str] = set()
+        context: list[Chunk] = []
+        for i, chunk in enumerate(chunks):
+            section_id, text = sections.get(chunk.chunk_id, (None, ""))
+            if section_id in included:
+                continue
+            # the section stands in for every remaining chunk that came from it
+            members = [
+                c for c in chunks[i:] if sections.get(c.chunk_id, (None, ""))[0] == section_id
+            ]
+            grown = used + len(text) - sum(len(c.text or "") for c in members)
+            if (
+                section_id is None
+                or len(text) > settings.context_section_max_chars
+                or grown > settings.context_max_chars
+            ):
+                context.append(chunk)
+                continue
+            used = grown
+            included.add(section_id)
+            context.append(
+                Chunk(
+                    chunk_id=chunk.chunk_id,
+                    text=text,
+                    source=chunk.source,
+                    metadata=chunk.metadata,
+                    score=chunk.score,
+                    section=chunk.section,
+                )
+            )
+        log.info(
+            "section_context code=%s chunks=%d sections=%d blocks=%d chars=%d",
+            code,
+            len(chunks),
+            len(included),
+            len(context),
+            used,
+        )
+        return context
 
     @staticmethod
     def _tier_where(tier: Tier) -> Where:
@@ -522,12 +598,25 @@ class Orchestrator:
         return kept
 
     @staticmethod
-    def _has_example_literal(text: str) -> bool:
-        """True if the text contains an example-specific literal (_EXAMPLE_LITERALS)."""
-        return any(p.search(text) for p in _EXAMPLE_LITERALS)
+    def _has_example_literal(text: str, own: str = "") -> bool:
+        """True if the text contains an example-specific literal (_EXAMPLE_LITERALS).
+
+        A device name that also appears in `own` (the alarm's message) does not count:
+        it is the caller's own device as the machine reported it, not a doc example.
+        """
+        own = own.casefold()
+        for pattern in _EXAMPLE_LITERALS:
+            for match in pattern.finditer(text):
+                name = match.group(0).strip('"“”‘’').casefold()
+                if pattern in _DEVICE_NAME_LITERALS and name in own:
+                    continue
+                return True
+        return False
 
     @classmethod
-    def _scrub_example_literals(cls, steps: list[str], code: str) -> list[str]:
+    def _scrub_example_literals(
+        cls, steps: list[str], code: str, alarm_text: str = ""
+    ) -> list[str]:
         """Generalise or drop steps that state a doc example's value as fact.
 
         The docs illustrate with one machine's values (register 0x04, Drive_3,
@@ -536,19 +625,26 @@ class Orchestrator:
         literal -- a parenthetical or a trailing "e.g. ..." clause -- so the rest of
         the sentence is untouched. If a literal is still there, the step is dropped:
         losing an example-bound step is safer than rewriting it into something wrong.
+
+        A device name the alarm message itself reports (`alarm_text`) is left alone:
+        "Run the upload for Drive_3" is what the alarm "device 'Drive_3' is running
+        firmware 1.2.0" asks for, and treating Drive_3 as an example deleted every
+        step of that answer. Other values from the message are still scrubbed.
         """
+
+        def cut_aside(m: re.Match[str]) -> str:
+            return "" if cls._has_example_literal(m.group(0), alarm_text) else m.group(0)
+
         kept = []
         for step in steps:
-            if not cls._has_example_literal(step):
+            if not cls._has_example_literal(step, alarm_text):
                 kept.append(step)
                 continue
             cut = step
             for aside in (_EXAMPLE_ASIDE, _EXAMPLE_CLAUSE):
-                cut = aside.sub(
-                    lambda m: "" if cls._has_example_literal(m.group(0)) else m.group(0), cut
-                )
+                cut = aside.sub(cut_aside, cut)
             cut = re.sub(r"\s+([.,;:!?])", r"\1", " ".join(cut.split())).strip(" ,;:")
-            if cut and not cls._has_example_literal(cut) and cls._norm(cut):
+            if cut and not cls._has_example_literal(cut, alarm_text) and cls._norm(cut):
                 log.info("step_generalised code=%s step=%r", code, step[:120])
                 kept.append(cut)
             else:
@@ -788,7 +884,8 @@ class Orchestrator:
                 duration_ms=int(t_retrieve * 1000),
             )
 
-        trimmed = candidates[: effort_settings.context_k]
+        rerank_k = effort_settings.rerank_k
+        trimmed = candidates[: effort_settings.context_k if rerank_k is None else rerank_k]
 
         t0 = time.perf_counter()
         reranker = self._id_reranker if effort_settings.reranker == "identity" else self._reranker
@@ -805,11 +902,15 @@ class Orchestrator:
             )
 
         t_generate = 0.0
+        # what the generator reads and what its answer is checked against; `top`
+        # stays the ranking, used for the relevance floor and the citations
+        context = top
         if self._has_relevant_context(top, reranker, req.code):
+            context = await self._section_context(top, req.code)
             t0 = time.perf_counter()
             try:
                 answer = await self._generator.generate(
-                    prompt=self._build_prompt(req, alarm, top, tier),
+                    prompt=self._build_prompt(req, alarm, context, tier),
                     tokens=effort_settings.num_predict,
                     thinking=effort_settings.thinking,
                 )
@@ -858,8 +959,8 @@ class Orchestrator:
         doc_coverage, body = self._split_coverage(answer, req.code)
         # always strip CAUSE lines so they never leak into steps, whatever the tier
         cause_claims, body = self._split_causes(body)
-        steps = self._drop_catalogue_echoes(self._split_steps(body), alarm, top)
-        steps = self._scrub_example_literals(steps, req.code)
+        steps = self._drop_catalogue_echoes(self._split_steps(body), alarm, context)
+        steps = self._scrub_example_literals(steps, req.code, alarm.alarm_text)
         steps = self._drop_filler_beside_actions(steps, req.code)
         # after the scrub, which can leave two steps saying the same thing
         steps = self._drop_duplicate_steps(steps, req.code)
@@ -867,7 +968,7 @@ class Orchestrator:
         doc_coverage, steps = self._settle_coverage(doc_coverage, steps, req.code)
         # the route also strips causes per tier; skipping here just avoids the work
         likely_causes = (
-            self._ground_causes(cause_claims, top, req.code)
+            self._ground_causes(cause_claims, context, req.code)
             if doc_coverage != "none" and can_view_likely_causes(tier)
             else []
         )
@@ -1054,4 +1155,5 @@ def get_orchestrator() -> Orchestrator:  # pragma: no cover - wired at runtime
         generator=get_generation_backend(client=client),
         alarm_store=PostgresAlarmStore(),
         langfuse_client=_get_langfuse_client(),
+        section_store=vector_store,
     )

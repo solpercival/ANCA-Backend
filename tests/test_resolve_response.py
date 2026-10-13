@@ -9,7 +9,7 @@ from rag_engine.auth.tiers import Tier
 from rag_engine.auth.tokens import create_access_token
 from rag_engine.config import API_PREFIX
 from rag_engine.orchestrator import Orchestrator
-from rag_engine.retrieval.interfaces import Chunk
+from rag_engine.retrieval.interfaces import Alarm, Chunk
 from rag_engine.retrieval.reranker import IdentityReranker
 from tests.fakes import FB_0002, FakeAlarmStore, FakePreprocessor
 
@@ -513,6 +513,103 @@ def test_coe_object_addresses_are_not_scrubbed_but_values_are():
     resp = _resolve(f"COVERAGE: full\n{record}\nCheck the error register 0x04: overcurrent.")
 
     assert resp.steps == [record]
+
+
+FB_0004 = Alarm(
+    code="am.fb.0004",
+    title="Device firmware mismatch",
+    domain="Fieldbus",
+    severity_score=833,
+    severity_category="error",
+    alarm_text="Fieldbus: device 'Drive_3' is running firmware 1.2.0 but 1.4.0 is expected.",
+    data_fields={},
+)
+
+
+def _resolve_alarm(alarm, answer, chunks=None):
+    orch = Orchestrator(
+        FakePreprocessor(),
+        FakeRetriever(chunks if chunks is not None else _chunks(0.9, 0.5)),
+        FakeReranker(),
+        FakeGenerator(answer),
+        FakeAlarmStore(alarm),
+    )
+    return asyncio.run(orch.resolve(ResolveRequest(code=alarm.code), Tier.technician))
+
+
+def test_value_from_the_alarm_message_is_not_a_doc_example():
+    """The alarm names the caller's own device; a step naming it is not repeating a
+    doc example (bench: every am.fb.0004 step was dropped for saying Drive_3)."""
+    steps = [
+        "Run the device-firmware-upload.exe --auto command to update Drive_3 firmware.",
+        "Check that Drive_3 reports firmware version 1.4.0 after the upload completes.",
+    ]
+
+    resp = _resolve_alarm(FB_0004, "\n".join(["COVERAGE: full", *steps]))
+
+    assert resp.steps == steps
+    assert resp.doc_coverage == "full"
+
+
+def test_other_example_values_are_still_dropped_for_that_alarm():
+    resp = _resolve_alarm(
+        FB_0004,
+        "COVERAGE: full\nUpload the firmware to Drive_3.\nReset Drive_7 at station 0x03.",
+    )
+
+    assert resp.steps == ["Upload the firmware to Drive_3."]
+
+
+def test_hex_value_from_the_alarm_message_is_still_scrubbed():
+    """Only device names get the pass. A step repeating the alarm's hex value goes on
+    to say what it means, which the docs don't state (bench, am.fb.0002)."""
+    emcy = Alarm(
+        code="am.fb.0002",
+        title="Drive emergency (EMCY)",
+        domain="Fieldbus",
+        severity_score=833,
+        severity_category="error",
+        alarm_text=(
+            "Fieldbus: emergency reported by drive 'Drive_3' — error code 0x2350, "
+            "error register 0x04."
+        ),
+        data_fields={},
+    )
+
+    resp = _resolve_alarm(
+        emcy,
+        "COVERAGE: partial\n"
+        "Reinitialise the EtherCAT bus.\n"
+        "If the error register shows 0x04, check for frame response errors.\n"
+        'Restart "Drive_3" if the emergency returns.',
+    )
+
+    assert resp.steps == [
+        "Reinitialise the EtherCAT bus.",
+        'Restart "Drive_3" if the emergency returns.',
+    ]
+
+
+def test_medium_effort_reranks_thirty_candidates():
+    """The embedding search ranked the right section 25th for am.cfg.0001; with only
+    the first 10 passed on, the reranker never saw it."""
+    seen = []
+
+    class RecordingReranker:
+        async def rerank(self, query, chunks, effort):
+            seen.append(len(chunks))
+            return chunks[: effort.reranker_n]
+
+    orch = Orchestrator(
+        FakePreprocessor(),
+        FakeRetriever(_chunks(*[0.5] * 40)),
+        RecordingReranker(),
+        FakeGenerator("COVERAGE: full\nReset the drive."),
+        FakeAlarmStore(),
+    )
+    asyncio.run(orch.resolve(REQ, Tier.technician))
+
+    assert seen == [30]
 
 
 # --- the reference answers survive the pipeline -----------------------------

@@ -25,6 +25,12 @@ if TYPE_CHECKING:
 # and curated gold answers (the catalogue is loaded separately by seed_alarms).
 EXCLUDED_DIRS = frozenset({"mock-api", "alarms"})
 
+# Bump when the chunker or what is embedded per chunk changes. It is part of every
+# file's digest, so the next `make ingest` re-chunks and re-embeds all documents
+# instead of skipping them as unchanged.
+#   2: chunks embedded under their heading path; content-free pieces dropped
+CHUNKING_VERSION = 2
+
 
 def iter_markdown_files(docs_dir: Path) -> list[Path]:
     """Every .md file under docs_dir, sorted, skipping EXCLUDED_DIRS at any depth."""
@@ -36,12 +42,15 @@ def iter_markdown_files(docs_dir: Path) -> list[Path]:
 
 
 def hash_file(path: Path) -> str:
-    """SHA-256 hex digest of the file's raw bytes.
+    """SHA-256 hex digest of the file's raw bytes and CHUNKING_VERSION.
 
     Hashes the bytes on disk, not the chunk text. Ingestion compares this digest
-    with document.hash to decide whether the file needs re-embedding.
+    with document.hash to decide whether the file needs re-embedding; the version
+    makes a change to the chunking count as a change to every file.
     """
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    digest = hashlib.sha256(path.read_bytes())
+    digest.update(f"|chunking={CHUNKING_VERSION}".encode())
+    return digest.hexdigest()
 
 
 def hash_markdown_files(docs_dir: Path) -> dict[str, str]:

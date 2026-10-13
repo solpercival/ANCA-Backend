@@ -46,8 +46,10 @@ async def test_qwen3_orders_by_score_and_truncates() -> None:
     assert result[0].score == 9.0
 
 
-def _scored_reranker(scores: list[float], min_score: float) -> Qwen3Reranker:
-    reranker = Qwen3Reranker(min_score=min_score)
+def _scored_reranker(
+    scores: list[float], min_score: float, relative_min: float = 0.0, min_keep: int = 1
+) -> Qwen3Reranker:
+    reranker = Qwen3Reranker(min_score=min_score, relative_min=relative_min, min_keep=min_keep)
     reranker._ensure_loaded = lambda: None  # type: ignore[method-assign]
     reranker._score = lambda query, texts: scores  # type: ignore[method-assign]
     return reranker
@@ -77,6 +79,75 @@ async def test_qwen3_min_score_zero_disables_cutoff() -> None:
     result = await reranker.rerank("any query", _chunks(3), effort=EffortSettings(reranker_n=3))
 
     assert len(result) == 3
+
+
+async def test_qwen3_relative_cutoff_drops_chunks_far_below_the_best() -> None:
+    """One strong chunk and noise: only the guaranteed chunks survive."""
+    reranker = _scored_reranker([0.93, 0.10, 0.07, 0.05], 0.02, relative_min=0.25, min_keep=2)
+
+    result = await reranker.rerank("any query", _chunks(4), effort=EffortSettings(reranker_n=4))
+
+    # 0.10 is below 0.25 * 0.93 but is the second chunk, which min_keep guarantees
+    assert [c.chunk_id for c in result] == ["0", "1"]
+
+
+async def test_qwen3_relative_cutoff_keeps_chunks_close_to_the_best() -> None:
+    """Every chunk is a fair match for the query, so none is dropped."""
+    reranker = _scored_reranker([0.96, 0.94, 0.83, 0.70], 0.02, relative_min=0.25, min_keep=2)
+
+    result = await reranker.rerank("any query", _chunks(4), effort=EffortSettings(reranker_n=4))
+
+    assert [c.chunk_id for c in result] == ["0", "1", "2", "3"]
+
+
+@pytest.mark.parametrize(
+    ("scores", "min_score"),
+    [
+        ([0.9, 0.05, 0.6, 0.1], 0.2),  # some below the floor
+        ([0.05, 0.1, 0.01], 0.2),  # all below the floor: the best alone is kept
+        ([0.05, 0.1, 0.01], 0.0),  # floor off: everything is kept
+        ([0.93, 0.10, 0.07, 0.05], 0.02),
+        ([0.96, 0.94, 0.83, 0.70], 0.02),
+    ],
+)
+async def test_qwen3_relative_zero_reproduces_the_absolute_cutoff(
+    scores: list[float], min_score: float
+) -> None:
+    """With the relative cutoff off (and the default min_keep of 1) the result is
+    exactly the rule it replaced: chunks at or above min_score, or the best alone."""
+    reranker = _scored_reranker(list(scores), min_score, relative_min=0.0)
+    effort = EffortSettings(reranker_n=len(scores))
+
+    result = await reranker.rerank("any query", _chunks(len(scores)), effort=effort)
+
+    ranked = sorted(scores, reverse=True)
+    expected = [s for s in ranked if s >= min_score] or ranked[:1]
+    assert [c.score for c in result] == expected
+
+
+async def test_qwen3_single_chunk_is_always_kept() -> None:
+    reranker = _scored_reranker([0.001], 0.5, relative_min=0.9, min_keep=2)
+
+    result = await reranker.rerank("any query", _chunks(1), effort=EffortSettings(reranker_n=5))
+
+    assert [c.chunk_id for c in result] == ["0"]
+
+
+async def test_qwen3_min_keep_is_at_least_one() -> None:
+    reranker = _scored_reranker([0.05, 0.1, 0.01], 0.5, relative_min=0.9, min_keep=0)
+
+    result = await reranker.rerank("any query", _chunks(3), effort=EffortSettings(reranker_n=3))
+
+    assert [c.chunk_id for c in result] == ["1"]
+
+
+async def test_qwen3_logs_the_relative_threshold(caplog: pytest.LogCaptureFixture) -> None:
+    reranker = _scored_reranker([0.93, 0.10, 0.07], 0.02, relative_min=0.25, min_keep=2)
+
+    with caplog.at_level("INFO", logger="rag_engine.reranker"):
+        await reranker.rerank("any query", _chunks(3), effort=EffortSettings(reranker_n=3))
+
+    assert "rerank_cutoff min_score=0.02 rel=0.25 kept=2/3 scores=[0.93, 0.1, 0.07]" in caplog.text
 
 
 async def test_qwen3_empty_input_returns_empty() -> None:

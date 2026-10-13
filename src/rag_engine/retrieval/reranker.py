@@ -50,9 +50,14 @@ class Qwen3Reranker:
     stays free of heavy dependencies and CI can run without models.
 
     max_length: tokens per query+chunk pair; longer chunks are truncated (the
-        orchestrator uses 512). batch_size: pairs per forward pass (RERANK_BATCH_SIZE).
+        orchestrator passes RERANK_MAX_LENGTH). batch_size: pairs per forward pass
+        (RERANK_BATCH_SIZE).
     min_score: drop chunks below this P(yes), always keeping the best
         (RERANK_MIN_SCORE; 0 disables).
+    relative_min: also drop chunks below this fraction of the best chunk's score
+        (RERANK_RELATIVE_MIN; 0 disables).
+    min_keep: chunks always kept from the top of the ranking, exempt from both
+        cutoffs (RERANK_MIN_KEEP; at least 1).
     """
 
     # chunk.score is P(yes), the probability (0-1) that the chunk answers the query;
@@ -65,11 +70,17 @@ class Qwen3Reranker:
         max_length: int = 4096,
         batch_size: int | None = None,
         min_score: float | None = None,
+        relative_min: float | None = None,
+        min_keep: int | None = None,
     ):
         self._model_name = model_name or get_settings().rerank_model
         self._max_length = max_length
         self._batch_size = max(1, batch_size or get_settings().rerank_batch_size)
         self._min_score = get_settings().rerank_min_score if min_score is None else min_score
+        self._relative_min = (
+            get_settings().rerank_relative_min if relative_min is None else relative_min
+        )
+        self._min_keep = max(1, get_settings().rerank_min_keep if min_keep is None else min_keep)
         self._model: Any = None
         self._tokenizer: Any = None
         self._yes_id: int = -1
@@ -188,18 +199,29 @@ class Qwen3Reranker:
         # model load (first call) and the forward pass are blocking; keep them off
         # the event loop so other requests and /ready stay responsive
         await asyncio.to_thread(self._ensure_loaded)
-        scores = await asyncio.to_thread(self._score, query, [c.text for c in chunks])
+        # context_text: the chunk under its heading path, so a piece cut out of a
+        # section is judged knowing what it belongs to
+        scores = await asyncio.to_thread(self._score, query, [c.context_text for c in chunks])
         for chunk, score in zip(chunks, scores, strict=True):
             chunk.score = score
         ranked = sorted(chunks, key=lambda c: c.score, reverse=True)[: effort.reranker_n]
         # Scores are P("yes, this document answers the query"). Off-topic chunks that
         # still make the top_n reach the prompt and get used (e.g. a firmware-upgrade
         # page cited for an EtherCAT state alarm), so drop them -- but always keep the
-        # best one, so the generator can still decide coverage itself.
-        kept = [c for c in ranked if c.score >= self._min_score] or ranked[:1]
+        # best ones, so the generator can still decide coverage itself.
+        # The absolute floor alone cannot adapt to the query: 0.10 is noise next to a
+        # 0.93 best chunk but would be a fair match if the best were 0.30. So past the
+        # guaranteed chunks, a chunk must also reach a fraction of the top score.
+        relative_floor = self._relative_min * ranked[0].score
+        kept = [
+            c
+            for i, c in enumerate(ranked)
+            if i < self._min_keep or (c.score >= self._min_score and c.score >= relative_floor)
+        ]
         log.info(
-            "rerank_cutoff min_score=%.2f kept=%d/%d scores=%s",
+            "rerank_cutoff min_score=%.2f rel=%.2f kept=%d/%d scores=%s",
             self._min_score,
+            self._relative_min,
             len(kept),
             len(ranked),
             [round(c.score, 2) for c in ranked],

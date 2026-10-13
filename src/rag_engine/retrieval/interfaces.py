@@ -27,6 +27,16 @@ class Chunk:
     # chunk has none. Reported to clients as the citation's section.
     section: str | None = None
 
+    @property
+    def context_text(self) -> str:
+        """The text under its heading path (metadata.heading_path, written by
+        ingestion), e.g. "Device firmware upgrade > Prerequisites" then the text.
+        A list or table cut out of its section does not say what it belongs to; the
+        reranker judges this instead of `text` so that it can tell. Just `text` for
+        a chunk ingested without a heading path."""
+        path = (self.metadata or {}).get("heading_path")
+        return f"{path}\n{self.text}" if path else self.text
+
     def __str__(self):
         return json.dumps(self.__dict__, default=str)
 
@@ -85,6 +95,14 @@ class LexicalIndex(Protocol):
         self, vector: dict[int, float], top_k: int, where: Where | None = None
     ) -> list[Chunk]:
         """Up to top_k chunks best matching the sparse query `vector`, best first."""
+
+
+class SectionStore(Protocol):
+    """The whole documentation section a chunk was cut from."""
+
+    async def section_texts(self, chunk_ids: list[str]) -> dict[str, tuple[str, str]]:
+        """chunk id -> (section id, the section's full text: every chunk under the
+        same heading, in document order). Chunks with no heading are left out."""
 
 
 class AlarmStore(Protocol):

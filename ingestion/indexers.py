@@ -1,9 +1,9 @@
 """Model-backed embedding plus PostgreSQL/pgvector: the write side of retrieval.
 
 - embed_and_index: embed chunks (Ollama dense, TEI sparse when EMBEDDING_SETUP=dual)
-  and write document / heading / document_chunks rows, replacing each document's
-  previous rows in one transaction. document.hash stores the file's SHA-256 hex
-  digest when the caller supplies one.
+  under their heading path (RawChunk.context_text) and write document / heading /
+  document_chunks rows, replacing each document's previous rows in one transaction.
+  document.hash stores the file's SHA-256 hex digest when the caller supplies one.
   prune deletes documents missing from keep_paths; files skipped
   because their hash matched stay in that list so their chunks are kept.
 - populate_alarms: upsert the alarm catalogue (alarm_module, alarm_code).
@@ -58,7 +58,10 @@ def _dense_embed(chunks: list[RawChunk], client: httpx.Client) -> list[list[floa
         batch = chunks[start : start + batch_size]
         response = client.post(
             f"{settings.ollama_base_url.rstrip('/')}/api/embed",
-            json={"model": settings.embedding_model, "input": [chunk.text for chunk in batch]},
+            json={
+                "model": settings.embedding_model,
+                "input": [chunk.context_text for chunk in batch],
+            },
         )
         response.raise_for_status()
         embeddings.extend(response.json()["embeddings"])
@@ -78,7 +81,7 @@ def _sparse_embed(chunks: list[RawChunk], client: httpx.Client) -> list[dict[str
     sparse_vecs = (
         client.post(
             f"{settings.tei_endpoint.rstrip('/')}/embed_sparse",
-            json={"inputs": [chunk.text for chunk in chunks]},
+            json={"inputs": [chunk.context_text for chunk in chunks]},
         )
         .raise_for_status()
         .json()
@@ -176,7 +179,10 @@ def resolve_immediate_heading(
 
 
 def insert_chunk(cursor, data: dict, doc_id: int, heading_cache: dict[tuple, int]) -> None:
-    """Insert chunks into document_chunks table and insert headings if not exists"""
+    """Insert chunks into document_chunks table and insert headings if not exists.
+
+    content is the chunk's own text; its heading path goes in metadata.heading_path,
+    where the reranker reads it back (rag_engine Chunk.context_text)."""
 
     chunk = data["chunk"]
     dense = data["dense"]
@@ -199,7 +205,7 @@ def insert_chunk(cursor, data: dict, doc_id: int, heading_cache: dict[tuple, int
         """,
         (
             chunk.text,
-            "{}",
+            Jsonb({"heading_path": chunk.heading_path} if chunk.heading_path else {}),
             chunk.kind,
             chunk.source,
             f"{sparse}/30522" if sparse else None,

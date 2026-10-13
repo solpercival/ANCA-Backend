@@ -42,6 +42,10 @@ class EffortSettings(BaseModel):
     # used twice: how many of the retrieved candidates are passed to the reranker
     # (orchestrator), and how many past chat messages go into the rewrite prompt (rewriter)
     context_k: int = 0
+    # resolve only: how many retrieved candidates the reranker reads; None = context_k.
+    # Separate from context_k so widening it does not also lengthen the chat history
+    # in the rewrite prompt.
+    rerank_k: int | None = None
     reranker: str = "identity"  # "identity" keeps the fused order; anything else = Qwen3
     num_predict: int = 0  # output-token cap for the answer
     num_rewrite: int = 0  # output-token cap for the query rewrite
