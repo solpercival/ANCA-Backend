@@ -71,6 +71,8 @@ from rag_engine.stores.search import PostgresDBConnection, RedisConnection
 log = logging.getLogger("rag_engine.orchestrator")
 
 _NOT_COVERED = "The documentation does not cover this alarm."
+# the refusal the chat prompt asks for when the context has no answer
+_CHAT_NOT_COVERED = "The documentation does not cover this."
 # Shown with the answer for safety-related alarms (api/safety.py), whatever the tier
 # and whatever the docs say: the steps come from documentation, not from the machine.
 _SAFETY_NOTE = "Verify the machine's actual state before acting on these steps."
@@ -907,7 +909,7 @@ class Orchestrator:
             "the context, in at most 3 short sentences. No citation markers or brackets, "
             "no preamble.\n"
             "If the answer is not in the context, reply exactly: "
-            '"The documentation does not cover this."\n\n'
+            f'"{_CHAT_NOT_COVERED}"\n\n'
             f"Context:\n{self._format_context(chunks)}\n\nUser: {message}"
         )
 
@@ -1227,10 +1229,13 @@ class Orchestrator:
             )
 
         rag_resolve_total.labels(outcome="ok").inc()
+        reply = self._strip_citations(reply)
+        # a refusal drew on nothing, so it cites nothing (as resolve does)
+        refused = self._norm(reply) == self._norm(_CHAT_NOT_COVERED)
         return ChatResponse(
             conversation_id=req.conversation_id,
-            reply=self._strip_citations(reply),
-            citations=self._citations(top),
+            reply=reply,
+            citations=[] if refused else self._citations(top),
         )
 
 

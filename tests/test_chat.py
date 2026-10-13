@@ -187,6 +187,14 @@ def test_citations_are_the_top_three_reranked_chunks():
     assert [c.path for c in resp.citations] == ["doc0.md", "doc1.md", "doc2.md"]
 
 
+def test_refusal_cites_nothing_even_when_chunks_were_retrieved():
+    gen = RecordingGenerator("The documentation does not cover this.")
+    resp = _chat(_orch(retriever=RecordingRetriever(_chunks(6)), generator=gen))
+
+    assert resp.reply == "The documentation does not cover this."
+    assert resp.citations == []
+
+
 def test_no_chunks_still_generates_with_no_citations():
     gen = RecordingGenerator("The documentation does not cover this.")
     resp = _chat(_orch(retriever=RecordingRetriever([]), generator=gen))
