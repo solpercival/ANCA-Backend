@@ -194,10 +194,12 @@ def test_nc_0005_fix_is_recognised_in_other_words_than_the_gold_answer():
         "Edit the program to ensure only one class 1 preparatory word is used per block."
     ]
     removes = ["Edit the program to remove all but one class 1 preparatory word from the block."]
+    extras = ["Remove any additional class 1 preparatory words from the block"]
     checks_only = ["Check which preparatory words in the block belong to class 1."]
 
     assert score_fix(reworded, groups) == 1.0
     assert score_fix(removes, groups) == 1.0
+    assert score_fix(extras, groups) == 1.0
     assert score_fix(checks_only, groups) == 0.0
 
 
