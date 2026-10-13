@@ -174,12 +174,18 @@ class TEIEmbedder:
         settings = get_settings()
         response = await self._client.post(
             f"{settings.tei_endpoint.rstrip('/')}/embed_sparse",
-            json={"inputs": texts},
+            # truncate: TEI otherwise rejects input longer than the model's 512 tokens
+            json={"inputs": texts, "truncate": True},
         )
         sparse_vecs = response.raise_for_status().json()
 
+        # index 0 is the padding token; a sparsevec has no position 0 (see ingestion)
         return [
-            {int(entry["index"]): float(entry["value"]) for entry in sparse_chunk}
+            {
+                int(entry["index"]): float(entry["value"])
+                for entry in sparse_chunk
+                if int(entry["index"]) > 0
+            }
             for sparse_chunk in sparse_vecs
         ]
 
@@ -262,13 +268,13 @@ class OllamaRewriteGenerator:
             "model": settings.rewrite_model,
             "prompt": prompt,
             "stream": True,
+            "options": {},
         }
 
         if tokens:
             generate_payload["options"]["num_predict"] = tokens
 
         async with self._client.stream(
-            "options": {},
             "POST",
             f"{settings.ollama_base_url.rstrip('/')}/api/generate",
             json=generate_payload,

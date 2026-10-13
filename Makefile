@@ -10,7 +10,7 @@
 # on it, so pending migrations always run before the app or ingestion touch the DB.
 
 .PHONY: help bootstrap install fmt lint test \
-        up up-full down build restart models \
+        up up-full down build restart models sparse \
         migrate migrate-status migrate-down revision db-reset \
         ingest seed-alarms \
         smoke bench eval retest
@@ -64,6 +64,9 @@ models:         ## start Ollama and pull the embedding, generation and rewrite m
 	$(COMPOSE) exec ollama ollama pull qwen3-embedding:0.6b
 	$(COMPOSE) exec ollama ollama pull qwen3:4b-instruct-2507-q4_K_M
 	$(COMPOSE) exec ollama ollama pull qwen3:0.6b
+
+sparse:         ## start the sparse (SPLADE) embedding container, for EMBEDDING_SETUP=dual
+	$(COMPOSE) --profile sparse up -d tei
 
 # --- database migrations (Alembic) -----------------------------------------------
 

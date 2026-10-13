@@ -78,17 +78,26 @@ def _sparse_embed(chunks: list[RawChunk], client: httpx.Client) -> list[dict[str
     if settings.embedding_setup != "dual":
         return []
 
-    sparse_vecs = (
-        client.post(
+    # TEI rejects a request above its client batch size (32 by default) and, unless
+    # asked to truncate, any input longer than the model's 512 tokens
+    batch_size = 32
+    sparse_vecs = []
+    for start in range(0, len(chunks), batch_size):
+        batch = chunks[start : start + batch_size]
+        response = client.post(
             f"{settings.tei_endpoint.rstrip('/')}/embed_sparse",
-            json={"inputs": [chunk.context_text for chunk in chunks]},
+            json={"inputs": [chunk.context_text for chunk in batch], "truncate": True},
         )
-        .raise_for_status()
-        .json()
-    )
+        sparse_vecs.extend(response.raise_for_status().json())
+        print(f"sparse embed: {min(start + batch_size, len(chunks))}/{len(chunks)}", flush=True)
 
+    # index 0 is the padding token; a sparsevec has no position 0 to store it in
     return [
-        {int(entry["index"]): float(entry["value"]) for entry in sparse_chunk}
+        {
+            int(entry["index"]): float(entry["value"])
+            for entry in sparse_chunk
+            if int(entry["index"]) > 0
+        }
         for sparse_chunk in sparse_vecs
     ]
 
