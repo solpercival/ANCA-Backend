@@ -87,6 +87,15 @@ class ResolveRequest(BaseModel):
         max_length=1000,
         description="Optional free-text symptom",
     )
+    conversation_id: str | None = Field(
+        None,
+        min_length=1,
+        max_length=128,
+        description=(
+            "Optional: record this answer under a conversation, so a later /chat "
+            "message with the same id can refer back to it"
+        ),
+    )
 
 
 class Citation(BaseModel):

@@ -287,47 +287,34 @@ class PostgresDBConnection:
     def store_query_result(
         self, conversation_id: str, query: str, response: str, alarm_str: str | None
     ) -> None:
-        """Save one query/response turn, linked to its alarm when alarm_str is given.
-
-        Known issue: the alarm lookup filters alarm_code on `code` and `sequence`,
-        which the schema doesn't have (it has `module` and `alarm_sequence`), so a
-        call with alarm_str raises and /resolve logs store_context_failed.
-        """
+        """Save one query/response turn, linked to its alarm when alarm_str names one
+        in the catalogue ("<origin>.<module>.<sequence>"); otherwise saved unlinked."""
         settings = get_settings()
 
         with get_db_conn() as conn:
-            if alarm_str:
-                # add alarm if exists
+            alarm_id = None
+            parts = alarm_str.split(settings.alarm_delim) if alarm_str else []
+            if len(parts) == 3:
                 result = conn.execute(
                     """
-                    SELECT alarm_code_id AS alarm_id FROM alarm_code
-                    WHERE origin = %s AND code = %s AND sequence = %s;                
+                    SELECT ac.alarm_code_id AS alarm_id FROM alarm_code ac
+                    JOIN alarm_module am ON am.id = ac.module
+                    WHERE ac.origin = %s AND am.code = %s AND ac.alarm_sequence = %s;
                 """,
-                    alarm_str.split(settings.alarm_delim),
+                    parts,
                 ).fetchone()
+                if result:
+                    alarm_id = result["alarm_id"]
 
-                if not result:
-                    return None
-                alarm_id = result["alarm_id"]
-
-                conn.execute(
-                    """
-                    INSERT INTO response
-                    (conversation_id, query, response_body, time_generated, alarm_id) 
-                    VALUES (%s, %s, %s, %s, %s);
-                """,
-                    [conversation_id, query, response, datetime.datetime.now(), alarm_id],
-                )  # user id and feedback currently not collected, option to add later
-            else:
-                # insert without alarm_id and user_id
-                conn.execute(
-                    """
-                    INSERT INTO response
-                    (conversation_id, query, response_body, time_generated) 
-                    VALUES (%s, %s, %s, %s);
-                """,
-                    [conversation_id, query, response, datetime.datetime.now()],
-                )
+            # user id and feedback currently not collected, option to add later
+            conn.execute(
+                """
+                INSERT INTO response
+                (conversation_id, query, response_body, time_generated, alarm_id)
+                VALUES (%s, %s, %s, %s, %s);
+            """,
+                [conversation_id, query, response, datetime.datetime.now(), alarm_id],
+            )
 
             conn.commit()
 

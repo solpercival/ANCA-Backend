@@ -375,6 +375,28 @@ def test_step_the_context_does_not_back_up_is_dropped(monkeypatch):
     assert resp.steps == ["Reset the drive using the HMI."]
 
 
+def test_resolve_turn_is_recorded_under_the_callers_conversation():
+    recorded = []
+
+    class RecordingPreprocessor(FakePreprocessor):
+        def store_context(self, conversation_id, query, response, alarm):
+            recorded.append((conversation_id, response, alarm))
+
+    orch = Orchestrator(
+        RecordingPreprocessor(),
+        FakeRetriever(_chunks(0.9, 0.5)),
+        FakeReranker(),
+        FakeGenerator("Check the cable [1].\nReset the drive [2]."),
+        FakeAlarmStore(),
+    )
+    req = ResolveRequest(code="am.fb.0002", conversation_id="c-1")
+
+    asyncio.run(orch.resolve(req, Tier.technician))
+
+    # the steps as returned, not the raw model output
+    assert recorded == [("c-1", "Check the cable.\nReset the drive.", "am.fb.0002")]
+
+
 # --- step count follows the docs; repeats collapse ---------------------------
 
 

@@ -15,7 +15,8 @@ resolve (alarm code -> guidance):
      restate an earlier step), settle coverage, keep causes only when they match a
      real sentence of the retrieved docs that isn't a worked example (the doc's
      wording is returned)
-  6. record the turn (store_context) and return steps, causes, citations (top 3)
+  6. record the turn (store_context, under the request's conversation_id if it
+     has one) and return steps, causes, citations (top 3)
 chat follows the same retrieve -> rerank -> generate path with a simpler prompt,
 after the query preprocessor rewrites the message using the conversation history,
 and with the same tier restriction on retrieval.
@@ -25,6 +26,7 @@ inject fakes; get_orchestrator wires the real backends. Stage timings go to the
 resolve_timing log line, Prometheus (api/metrics.py) and Langfuse when configured.
 """
 
+import asyncio
 import logging
 import re
 import time
@@ -991,11 +993,6 @@ class Orchestrator:
                 duration_ms=int(t_generate * 1000),
             )
 
-        try:
-            self._preprocessor.store_context("", query, answer, req.code)
-        except Exception:
-            log.warning("store_context_failed code=%s (non-fatal)", req.code, exc_info=True)
-
         log.info(
             "resolve_timing code=%s retrieve=%.4fs rerank=%.4fs generate=%.4fs total=%.4fs",
             req.code,
@@ -1080,6 +1077,19 @@ class Orchestrator:
             trace = self._langfuse.trace(
                 name="chat", input={"conversation_id": req.conversation_id, "message": req.message}
             )
+
+        # recorded under the caller's conversation, if it gave one, so a follow-up
+        # chat message can refer back to these steps; the write is a blocking DB call
+        try:
+            await asyncio.to_thread(
+                self._preprocessor.store_context,
+                req.conversation_id or "",
+                query,
+                "\n".join(steps),
+                req.code,
+            )
+        except Exception:
+            log.warning("store_context_failed code=%s (non-fatal)", req.code, exc_info=True)
 
         where = self._tier_where(tier)
 

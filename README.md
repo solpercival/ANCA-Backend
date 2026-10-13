@@ -263,7 +263,8 @@ Request:
   "code": "am.fb.0002",
   "env": { "versions": { "amcore": "1.4.2" }, "machine_variant": "MX7" },
   "effort": "medium",
-  "query": "happens after a tool change"
+  "query": "happens after a tool change",
+  "conversation_id": "c-7f3a"
 }
 ```
 
@@ -273,6 +274,7 @@ Request:
 | `env` | no | Machine context; narrows the documentation searched. Omit if unknown |
 | `effort` | no | `low`, `medium` (default) or `high`; higher is slower and more thorough |
 | `query` | no | Free-text symptom, up to 1000 characters |
+| `conversation_id` | no | 1-128 characters. Records the answer under that conversation, so a later `/chat` message with the same id can refer back to it |
 
 Response `200`:
 
