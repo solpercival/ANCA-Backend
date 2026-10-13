@@ -12,7 +12,7 @@
 .PHONY: help bootstrap install fmt lint test \
         up up-full down build restart models sparse \
         migrate migrate-status migrate-down revision db-reset \
-        ingest seed-alarms \
+        ingest reingest seed-alarms \
         smoke bench eval retest
 
 .DEFAULT_GOAL := help
@@ -98,6 +98,11 @@ ingest:         ## migrate, pull models, then chunk + embed the docs into pgvect
 	$(MAKE) migrate
 	$(MAKE) models
 	$(COMPOSE) run --rm --build ingestion
+
+reingest:       ## like ingest, but re-embed every document (after switching EMBEDDING_SETUP)
+	$(MAKE) migrate
+	$(MAKE) models
+	$(COMPOSE) run --rm --build -e INGEST_FORCE=1 ingestion
 
 seed-alarms:    ## load alarms.sample.json into the alarm catalogue only (no embedding)
 	$(COMPOSE) run --rm --build ingestion python -m ingestion.seed_alarms

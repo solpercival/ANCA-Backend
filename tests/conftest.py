@@ -86,11 +86,14 @@ def _fake_orchestrator() -> Orchestrator:
 
 
 @pytest.fixture(autouse=True)
-def _step_support_floor_off(monkeypatch):
+def _local_env_does_not_reach_tests(monkeypatch):
     # a developer's .env may turn it on, and the fake answers in these tests are not
     # written against the fake chunks; a test of the floor sets it itself
     monkeypatch.setenv("STEP_SUPPORT_MIN", "0")
     monkeypatch.setattr(get_settings(), "step_support_min", 0.0)
+    # likewise the retrieval setup: a test of dual retrieval selects it itself
+    monkeypatch.setenv("EMBEDDING_SETUP", "unified")
+    monkeypatch.setattr(get_settings(), "embedding_setup", "unified")
 
 
 @pytest.fixture

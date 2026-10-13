@@ -9,11 +9,14 @@ are chunked and embedded, replacing their previous rows. Files with the same
 hash stay as they are, including their chunks. Documents whose files disappeared
 are pruned. keyword_lookup is rebuilt when any file was re-embedded or pruned.
 The tables must already exist: `make ingest` applies the Alembic migrations first.
+INGEST_FORCE=1 (`make reingest`) re-embeds every file whatever its hash: needed after
+switching EMBEDDING_SETUP, which changes what is stored per chunk but not the files.
 """
 
 from __future__ import annotations
 
 import hashlib
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -102,6 +105,8 @@ def run(docs_dir: str = "docs") -> int:  # pragma: no cover - integration
     seed()
     stored = load_document_hashes()
     changed = changed_document_hashes(current_hashes, stored)
+    if os.environ.get("INGEST_FORCE"):
+        changed = dict(current_hashes)
     removed = [path for path in stored if path not in current_hashes]
     chunks = collect_markdown(docs_path, set(changed)) if changed else []
     # keep_paths is every file still on disk, including ones whose hash matched
