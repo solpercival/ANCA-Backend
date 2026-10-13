@@ -211,7 +211,13 @@ class QueryPreprocessor:
 
     def store_context(
         self, conversation_id: str, query: str, response: str, alarm: str | None
-    ) -> None:
-        """Record a finished turn so later messages can refer back to it. Blocking
-        (sync DB write): callers on the async path should run it in a thread."""
-        self._chat_db.store_query_result(conversation_id, query, response, alarm)
+    ) -> int | None:
+        """Record a finished turn so later messages can refer back to it; returns its
+        response_id. Blocking (sync DB write): callers on the async path should run
+        it in a thread."""
+        return self._chat_db.store_query_result(conversation_id, query, response, alarm)
+
+    async def set_feedback(self, conversation_id: str, response_id: int, helpful: bool) -> bool:
+        """Record whether a stored reply helped; the next rewrite of this conversation
+        shows it as [status: success] / [status: failed]. False if the turn isn't found."""
+        return await self._chat_db.set_feedback(conversation_id, response_id, helpful)
