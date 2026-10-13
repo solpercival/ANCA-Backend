@@ -59,13 +59,14 @@ from rag_engine.retrieval.interfaces import (
     Chunk,
     Generator,
     Reranker,
+    ResponseCache,
     SectionStore,
     Where,
 )
 from rag_engine.retrieval.reranker import IdentityReranker, Qwen3Reranker
 from rag_engine.retrieval.rewriter import QueryPreprocessor
 from rag_engine.stores.alarms import PostgresAlarmStore
-from rag_engine.stores.search import PostgresDBConnection
+from rag_engine.stores.search import PostgresDBConnection, RedisConnection
 
 log = logging.getLogger("rag_engine.orchestrator")
 
@@ -300,6 +301,7 @@ class Orchestrator:
         alarm_store: AlarmStore,
         langfuse_client: Langfuse | None = None,
         section_store: SectionStore | None = None,
+        response_cache: ResponseCache | None = None,
     ):
         self._preprocessor = preprocessor
         self._retriever = retriever
@@ -310,6 +312,8 @@ class Orchestrator:
         self._langfuse = langfuse_client
         # None: the generator gets the selected chunks as they are
         self._sections = section_store
+        # None: every resolve answer is generated
+        self._response_cache = response_cache
 
     async def _section_context(self, chunks: list[Chunk], code: str) -> list[Chunk]:
         """The chunks to show the generator: each selected chunk widened to its whole
@@ -387,6 +391,47 @@ class Orchestrator:
         """The prompt's context block: each chunk under its source path, separated by
         rules. No [n] labels: unlabelled context gives the model nothing to cite inline."""
         return "\n\n---\n\n".join(f"({c.source})\n{c.text}" for c in chunks)
+
+    @staticmethod
+    def _generation_cache_key(prompt: str, effort: EffortSettings) -> str:
+        """What a cached answer is stored under: everything that decides the model's
+        output. The prompt holds the instructions, the alarm and the context, so new
+        docs, a different ranking or a reworded prompt never reuse an old answer."""
+        settings = get_settings()
+        models = (settings.llm_model, settings.openai_llm_model, settings.anthropic_llm_model)
+        return "|".join(
+            [
+                settings.llm_provider,
+                *models,
+                str(settings.llm_temperature),
+                str(effort.num_predict),
+                str(effort.thinking),
+                prompt,
+            ]
+        )
+
+    async def _cached_answer(self, key: str, code: str) -> str | None:
+        """The stored answer for this key, or None on a miss, without a cache, or
+        when the cache cannot be reached (the answer is then generated)."""
+        if self._response_cache is None:
+            return None
+        try:
+            answer = await self._response_cache.retrieve_response(key)
+        except Exception:
+            log.warning("response_cache_read_failed code=%s (non-fatal)", code, exc_info=True)
+            return None
+        if answer:
+            log.info("response_cache_hit code=%s", code)
+        return answer or None
+
+    async def _cache_answer(self, key: str, answer: str, code: str) -> None:
+        """Keep a generated answer for reuse; a failed write only costs the reuse."""
+        if self._response_cache is None or not answer:
+            return
+        try:
+            await self._response_cache.add_response(key, answer)
+        except Exception:
+            log.warning("response_cache_write_failed code=%s (non-fatal)", code, exc_info=True)
 
     @staticmethod
     def _chunk_label(chunk: Chunk) -> str:
@@ -967,17 +1012,22 @@ class Orchestrator:
         context = top
         if self._has_relevant_context(top, reranker, req.code):
             context = await self._section_context(top, req.code)
+            prompt = self._build_prompt(req, alarm, context, tier)
+            cache_key = self._generation_cache_key(prompt, effort_settings)
             t0 = time.perf_counter()
-            try:
-                answer = await self._generator.generate(
-                    prompt=self._build_prompt(req, alarm, context, tier),
-                    tokens=effort_settings.num_predict,
-                    thinking=effort_settings.thinking,
-                )
-            except Exception as exc:
-                log.exception("generation_error code=%s", req.code)
-                rag_resolve_total.labels(outcome="error").inc()
-                raise ModelUnavailable() from exc
+            answer = await self._cached_answer(cache_key, req.code)
+            if answer is None:
+                try:
+                    answer = await self._generator.generate(
+                        prompt=prompt,
+                        tokens=effort_settings.num_predict,
+                        thinking=effort_settings.thinking,
+                    )
+                except Exception as exc:
+                    log.exception("generation_error code=%s", req.code)
+                    rag_resolve_total.labels(outcome="error").inc()
+                    raise ModelUnavailable() from exc
+                await self._cache_answer(cache_key, answer, req.code)
             t_generate = time.perf_counter() - t0
             rag_stage_seconds.labels(stage="generate").observe(t_generate)
         else:
@@ -1028,6 +1078,19 @@ class Orchestrator:
             if doc_coverage != "none" and can_view_likely_causes(tier)
             else []
         )
+        # recorded under the caller's conversation, if it gave one, so a follow-up
+        # chat message can refer back to these steps; the write is a blocking DB call
+        try:
+            await asyncio.to_thread(
+                self._preprocessor.store_context,
+                req.conversation_id or "",
+                query,
+                "\n".join(steps),
+                req.code,
+            )
+        except Exception:
+            log.warning("store_context_failed code=%s (non-fatal)", req.code, exc_info=True)
+
         log.info(
             "resolve_coverage code=%s doc_coverage=%s causes=%d/%d",
             req.code,
@@ -1077,19 +1140,6 @@ class Orchestrator:
             trace = self._langfuse.trace(
                 name="chat", input={"conversation_id": req.conversation_id, "message": req.message}
             )
-
-        # recorded under the caller's conversation, if it gave one, so a follow-up
-        # chat message can refer back to these steps; the write is a blocking DB call
-        try:
-            await asyncio.to_thread(
-                self._preprocessor.store_context,
-                req.conversation_id or "",
-                query,
-                "\n".join(steps),
-                req.code,
-            )
-        except Exception:
-            log.warning("store_context_failed code=%s (non-fatal)", req.code, exc_info=True)
 
         where = self._tier_where(tier)
 
@@ -1225,4 +1275,5 @@ def get_orchestrator() -> Orchestrator:  # pragma: no cover - wired at runtime
         alarm_store=PostgresAlarmStore(),
         langfuse_client=_get_langfuse_client(),
         section_store=vector_store,
+        response_cache=RedisConnection() if get_settings().response_cache_enabled else None,
     )

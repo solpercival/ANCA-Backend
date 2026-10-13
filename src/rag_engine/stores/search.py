@@ -2,9 +2,9 @@
 
 PostgresDBConnection implements VectorStore (semantic/lexical search), the keyword
 lookup and the chat store (conversation context read/write) from
-rag_engine.retrieval.interfaces. The connection pool is synchronous psycopg, so
-every async method runs its query in a worker thread through a `_*_sync` helper
-(see the PostgresDBConnection docstring).
+rag_engine.retrieval.interfaces; RedisConnection implements ResponseCache. The
+connection pool is synchronous psycopg, so every async method runs its query in a
+worker thread through a `_*_sync` helper (see the PostgresDBConnection docstring).
 """
 
 import asyncio
@@ -320,74 +320,39 @@ class PostgresDBConnection:
 
 
 class RedisConnection:
-    """Chunk/response cache in Redis. Nothing in src/ uses it yet.
+    """Generated-answer cache in Redis (ResponseCache). Off unless
+    RESPONSE_CACHE_ENABLED is set; see Orchestrator._generation_cache_key for what
+    an entry is keyed on.
 
-    The client from get_cache_conn is synchronous, so these async methods block the
-    event loop; before putting them on a request path, give them the same
-    asyncio.to_thread split as PostgresDBConnection.
+    The client from get_cache_conn is synchronous, so each async method runs its
+    command in a worker thread through a `_*_sync` helper, like PostgresDBConnection.
     """
 
     def _create_key(self, text: str) -> str:
-        """Redis key for `text`: its SHA-256 hex digest, so keys have a fixed length
-        whatever the query or chunk id contains."""
-        return hashlib.sha256(text.encode()).hexdigest()
-
-    async def add_chunk(self, chunk: Chunk) -> None:
-        """Cache a chunk under its id for CHUNKS_TTL seconds. No-op without Redis."""
-        with get_cache_conn() as client:
-            if not client:
-                return
-            settings = get_settings()
-            client.set(
-                self._create_key(f"{settings.chunks_prefix}{chunk.chunk_id}"),
-                str(chunk),
-                ex=settings.chunks_ttl,
-            )
-
-    async def retrieve_chunk(self, chunk_id: str) -> Chunk | None:
-        """The cached chunk, or None if it was never cached, expired, or Redis is down."""
-        with get_cache_conn() as client:
-            if not client:
-                return None
-
-            settings = get_settings()
-            result = client.get(self._create_key(f"{settings.chunks_prefix}{chunk_id}"))
-            if not result:
-                return
-
-            json_result = json.loads(result)
-            return Chunk(
-                chunk_id=json_result["chunk_id"],
-                text=json_result["text"],
-                source=json_result["source"],
-                metadata=json_result["metadata"],
-                score=json_result["score"],
-                section=json_result.get("section"),
-            )
+        """Redis key for `text`: RESPONSE_PREFIX and its SHA-256 hex digest, so keys
+        have a fixed length whatever the text contains."""
+        digest = hashlib.sha256(text.encode()).hexdigest()
+        return f"{get_settings().response_prefix}{digest}"
 
     async def add_response(self, query: str, response: str) -> None:
-        """Cache the response to an exact query string for RESPONSE_TTL seconds.
-        No-op without Redis."""
+        """Cache `response` under `query` for RESPONSE_TTL seconds. No-op without Redis."""
+        await asyncio.to_thread(self._add_response_sync, query, response)
+
+    def _add_response_sync(self, query: str, response: str) -> None:
+        """Blocking write for add_response; runs in a worker thread."""
         with get_cache_conn() as client:
             if not client:
                 return
-            settings = get_settings()
-            client.set(
-                self._create_key(f"{settings.response_prefix}{query}"),
-                json.dumps({"response": response}, default=str),
-                ex=settings.response_ttl,
-            )
+            client.set(self._create_key(query), response, ex=get_settings().response_ttl)
 
     async def retrieve_response(self, query: str) -> str | None:
-        """The cached entry for this exact query, or None on a miss. Note it returns
-        the stored object, {"response": ...}, not the bare response string."""
+        """The response cached under this exact `query`, or None on a miss or
+        without Redis."""
+        return await asyncio.to_thread(self._retrieve_response_sync, query)
+
+    def _retrieve_response_sync(self, query: str) -> str | None:
+        """Blocking read for retrieve_response; runs in a worker thread."""
         with get_cache_conn() as client:
             if not client:
                 return None
-
-            settings = get_settings()
-            result = client.get(self._create_key(f"{settings.response_prefix}{query}"))
-            if not result:
-                return
-
-            return json.loads(result)
+            return client.get(self._create_key(query)) or None

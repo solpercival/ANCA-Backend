@@ -105,6 +105,16 @@ class SectionStore(Protocol):
         same heading, in document order). Chunks with no heading are left out."""
 
 
+class ResponseCache(Protocol):
+    """Generated answers kept for reuse, looked up by the exact text that produced them."""
+
+    async def retrieve_response(self, query: str) -> str | None:
+        """The answer stored under `query`, or None when there is none."""
+
+    async def add_response(self, query: str, response: str) -> None:
+        """Store `response` under `query`."""
+
+
 class AlarmStore(Protocol):
     """Alarm catalogue lookup; None for an unknown code."""
 

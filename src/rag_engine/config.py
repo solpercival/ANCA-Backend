@@ -57,14 +57,17 @@ class Settings(BaseSettings):
     postgres_user: str = "rag"
     postgres_password: str = "rag"
 
-    # redis (sessions, rate limits; the chunk/response cache keys below are for
-    # RedisConnection in stores/search.py, which nothing uses yet)
+    # redis (sessions, rate limits, and the generated-answer cache below)
     redis_host: str = "redis"
     redis_port: int = 6379
-    chunks_prefix: str = "chunks:"
-    chunks_ttl: int = 3600
+    # Reuse a generated resolve answer when the same prompt is sent to the same
+    # model again (RedisConnection in stores/search.py). The key covers the whole
+    # prompt, so a change to the docs, the retrieval, the alarm or the instructions
+    # is a different entry; retrieval and reranking still run on every request. Off
+    # by default: it hides the run-to-run variation the eval measures.
+    response_cache_enabled: bool = False
     response_prefix: str = "response:"
-    response_ttl: int = 86400
+    response_ttl: int = 86400  # seconds an answer is kept
 
     # rate limiting: requests per window, per client IP and per account tier
     rate_limit_window_seconds: int = 60
@@ -130,9 +133,9 @@ class Settings(BaseSettings):
     hf_token: str = ""
 
     # retrieval
+    # both apply to the default (medium) effort; low and high have fixed presets below
     retrieval_top_k: int = 50  # candidates fetched per search before reranking
     rerank_top_n: int = 8  # chunks kept after reranking and put in the prompt
-    # both apply to the default (medium) effort; low and high have fixed presets below
     rerank_provider: str = "none"  # none = keep fused order; anything else = Qwen3 reranker
     rerank_model: str = "Qwen/Qwen3-Reranker-0.6B"
     # pairs per reranker forward pass; bounds GPU activation memory (scores unchanged)
@@ -250,8 +253,6 @@ class Settings(BaseSettings):
     }
 
     @model_validator(mode="after")
-    def _require_explicit_allowed_hosts_outside_local(self) -> Self:
-    @model_validator(mode="after")
     def _medium_effort_follows_settings(self) -> Self:
         """Medium is the default effort, so the documented knobs are its values."""
         self.MID_CONFIG = {
@@ -263,6 +264,8 @@ class Settings(BaseSettings):
         }
         return self
 
+    @model_validator(mode="after")
+    def _require_explicit_allowed_hosts_outside_local(self) -> Self:
         """A deployment that accepts any Host can be used to forge links back to itself."""
         if self.app_env != "local" and "*" in self.allowed_hosts:
             raise ValueError(

@@ -375,6 +375,41 @@ def test_step_the_context_does_not_back_up_is_dropped(monkeypatch):
     assert resp.steps == ["Reset the drive using the HMI."]
 
 
+def test_cached_answer_is_reused_for_the_same_prompt():
+    class CountingGenerator(FakeGenerator):
+        calls = 0
+
+        async def generate(self, prompt, tokens=None, thinking=False):
+            self.calls += 1
+            return self._answer
+
+    class MemoryCache:
+        def __init__(self):
+            self.entries = {}
+
+        async def retrieve_response(self, query):
+            return self.entries.get(query)
+
+        async def add_response(self, query, response):
+            self.entries[query] = response
+
+    generator = CountingGenerator("Reset the drive.")
+    orch = Orchestrator(
+        FakePreprocessor(),
+        FakeRetriever(_chunks(0.9, 0.5)),
+        FakeReranker(),
+        generator,
+        FakeAlarmStore(),
+        response_cache=MemoryCache(),
+    )
+
+    first = asyncio.run(orch.resolve(REQ, Tier.technician))
+    second = asyncio.run(orch.resolve(REQ, Tier.technician))
+
+    assert generator.calls == 1
+    assert second.steps == first.steps == ["Reset the drive."]
+
+
 def test_resolve_turn_is_recorded_under_the_callers_conversation():
     recorded = []
 
