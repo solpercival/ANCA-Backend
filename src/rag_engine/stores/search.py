@@ -272,8 +272,9 @@ class PostgresDBConnection:
 
     def store_query_result(
         self, conversation_id: str, query: str, response: str, alarm_str: str | None
-    ) -> None:
+    ) -> int | None:
         """Save one query/response turn, linked to its alarm when alarm_str is given.
+        Returns the new row's response_id (None if the alarm wasn't found).
 
         Known issue: the alarm lookup filters alarm_code on `code` and `sequence`,
         which the schema doesn't have (it has `module` and `alarm_sequence`), so a
@@ -296,26 +297,53 @@ class PostgresDBConnection:
                     return None
                 alarm_id = result["alarm_id"]
 
-                conn.execute(
+                row = conn.execute(
                     """
                     INSERT INTO response
-                    (conversation_id, query, response_body, time_generated, alarm_id) 
-                    VALUES (%s, %s, %s, %s, %s);
+                    (conversation_id, query, response_body, time_generated, alarm_id)
+                    VALUES (%s, %s, %s, %s, %s)
+                    RETURNING response_id;
                 """,
                     [conversation_id, query, response, datetime.datetime.now(), alarm_id],
-                )  # user id and feedback currently not collected, option to add later
+                ).fetchone()  # user id currently not collected, option to add later
             else:
                 # insert without alarm_id and user_id
-                conn.execute(
+                row = conn.execute(
                     """
                     INSERT INTO response
-                    (conversation_id, query, response_body, time_generated) 
-                    VALUES (%s, %s, %s, %s);
+                    (conversation_id, query, response_body, time_generated)
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING response_id;
                 """,
                     [conversation_id, query, response, datetime.datetime.now()],
-                )
+                ).fetchone()
 
             conn.commit()
+
+        return row["response_id"]
+
+    async def set_feedback(self, conversation_id: str, response_id: int, helpful: bool) -> bool:
+        """Set user_feedback on one turn. Matching on conversation_id as well as
+        response_id means an id from another conversation is not found. Returns
+        whether a row was updated."""
+        return await asyncio.to_thread(
+            self._set_feedback_sync, conversation_id, response_id, helpful
+        )
+
+    def _set_feedback_sync(self, conversation_id: str, response_id: int, helpful: bool) -> bool:
+        """Blocking update for set_feedback; runs in a worker thread."""
+        with get_db_conn() as conn:
+            row = conn.execute(
+                """
+                UPDATE response SET user_feedback = %s
+                WHERE response_id = %s AND conversation_id = %s
+                RETURNING response_id;
+            """,
+                [helpful, response_id, conversation_id],
+            ).fetchone()
+            conn.commit()
+
+        return row is not None
 
 
 class RedisConnection:

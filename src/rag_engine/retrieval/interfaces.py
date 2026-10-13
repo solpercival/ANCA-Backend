@@ -113,8 +113,13 @@ class ChatStore(Protocol):
 
     def store_query_result(
         self, conversation_id: str, query: str, response: str, alarm_str: str | None
-    ) -> None:
+    ) -> int | None:
         """Record one finished turn; alarm_str is the alarm code it was about, if any.
+        Returns the stored turn's response_id, or None if nothing was stored.
 
         Sync (blocking): run it in a thread if you call it from async code.
         """
+
+    async def set_feedback(self, conversation_id: str, response_id: int, helpful: bool) -> bool:
+        """Record whether the reply in turn response_id helped. False when no turn
+        with that id exists in the conversation."""
