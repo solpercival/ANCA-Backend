@@ -63,9 +63,17 @@ Only `am.nc.0001`, `am.nc.0005` and `am.fb.0002` varied between passes; the othe
 3. **Unsupported-step rule (awaiting a decision).** Drop a step when fewer than half of its key words appear in the context it was generated from. Offline, on the 73 saved steps, this removed 10 of 45 non-matching steps (the invented ones) and 1 of 28 matching ones. It would bring 73 steps to about 62, so it does not reach the target alone.
 4. **Latency.** Find the smallest `rerank_k` that still passes the gold chunks to the reranker (30 was chosen from one alarm); try `RERANK_MAX_LENGTH=1024`; check why generation speed fell from about 45 to about 17 tokens/s within a bench run on the laptop.
 5. **Missing half-fixes.** `am.nc.0003`, `am.cfg.0001`, `am.lic.0001`, `am.fb.0002`, `am.fb.0003` and `am.nc.0005` still lack part of the fix. Classify each as "not retrieved" or "retrieved but not used" before choosing a fix.
+   Classified on 2026-10-14 with `qwen3:8b` (from the `resolve_candidates` / `resolve_ranked` log lines):
+   - `am.cfg.0001`, `am.lic.0001`: solved by `qwen3:8b`.
+   - `am.nc.0005`: scoring gap. The answer gives the fix as "only one class 1 preparatory word per block"; `eval/fix_terms.json` accepts only "split", "separate block" or "remove duplicate class 1".
+   - `am.fb.0002`: retrieved but not used. "Emergency Error" fills the top of the ranking; the answer omits the manufacturer error data.
+   - `am.fb.0003`: "Frame Response Error" is retrieved and ranked first, but the log paths are in the page's "Log Files" section, which was candidate 23 of 30 and cut by the reranker.
+   - `am.nc.0003`: the search-hierarchy page is ranked 4th and used in the answer, but not cited, because citations are the first three chunks and all three come from `run-part-programs.md` (hence `hit: False`). The "M-Code Modes" section, which holds the PLC half of the fix, is not among the 40 candidates retrieval returns at all, so a larger `rerank_k` would not help.
 6. **Later checklist:** a guideline for ANCA on writing alarm descriptions (ANCA will change descriptions only, not the docs or the alarm structure); feeding the alarm description to the generator as a citable source.
 
 If steps 2 and 3 do not reach the targets, the 4B generator is the limit and the next step is testing a stronger model.
+
+Steps 2 and 3 did not reach the targets, and `qwen3:8b` was tested (results in the table below). The repo default stays the 4B build, because the code is tuned for a 6 GB card and ANCA may use Claude as the generator instead of Ollama (`LLM_PROVIDER=anthropic`); `.env.example` documents `qwen3:8b` for machines with 12 GB or more. Not yet done: an eval run with Claude as the generator.
 
 ## What was tried and what it showed
 
@@ -78,6 +86,9 @@ If steps 2 and 3 do not reach the targets, the 4B generator is the limit and the
 | Qwen3-Reranker-4B (4-bit) | Ranked gold chunks higher on 3 of 4 alarms, but 4.1 GB and 7.4 s per call on the laptop; not usable there |
 | Heading paths, section context, 30 reranked candidates | `fix_present` 0.636 to 0.682, `fix_solved` 4 to 5; citation precision 0.803 to 0.712, recall 0.864 to 0.773; answers twice the gold length |
 | Removing the "Include each check the context gives" prompt sentence (3 passes) | `length_ratio` 1.855 to 1.602 (1.592-1.623); `step_precision` 0.491 to 0.519 (0.513-0.522); `step_recall` 0.499 to 0.482; `fix_present` 0.682 and `fix_solved` 5 unchanged; kept. The precision gain comes almost entirely from `am.nc.0002` (0.57 to 1.0); `am.fb.0003` fell from 0.2 to 0.0 and `am.fb.0001` from 0.33 to 0.2 |
+| Unsupported-step filter, `STEP_SUPPORT_MIN=0.5` (3 passes, on top of the row above) | Fired on one alarm only: dropped 3 generic steps from `am.fb.0003` (connection, cabling, interference; the gold notes say cabling advice is not in the doc). `length_ratio` 1.602 to 1.534 (1.524-1.555); `step_precision` 0.519 unchanged; `fix_present` 0.682 and `fix_solved` 5 unchanged. Removes invented steps but does not move precision |
+| Generator `qwen3:8b` instead of the 4B instruct build (3 passes, RTX 4070 12 GB, filter on) | `fix_present` 0.682 to 0.773, `fix_solved` 5 to 7 (`am.cfg.0001` and `am.lic.0001` now complete); `coverage_match` 0.545 to 0.818; `length_ratio` 1.534 to 1.321 (1.311-1.326); `step_precision` 0.519 to 0.482 (0.477-0.484), partly a wording artefact (`am.lic.0001` gives both gold fixes but scores 0.33). `think: false` is honoured. Answers took 1.5 to 2.8 s in total (generation 0.9 to 2.1 s, rerank 0.4 to 1.1 s) |
+| Generator `granite3.3:8b` (3 passes, same setup) | Worse on every answer measure: `fix_present` 0.394 (0.364-0.455), `fix_solved` 3 to 4, `step_precision` 0.374, `length_ratio` 0.765. It never writes the COVERAGE line (`coverage_match` 0.0) and told `am.lic.0001` to set `opcua.enable` to `true`, the opposite of the fix. 1.6 to 4.0 s per answer; dropped |
 | Extra model call that selects which steps to keep | Failed offline: lost the fix on two alarms in each of two prompt variants; not built |
 
 Other findings worth keeping:
