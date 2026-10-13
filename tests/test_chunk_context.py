@@ -86,8 +86,12 @@ def test_label_stays_with_the_block_it_introduces():
     chunks = chunk_markdown(page, "mcodes.md")
 
     assert [c.kind for c in chunks] == ["list", "list"]
-    assert chunks[0].text.startswith("## M-Code Modes\n\nA mode 4 M-Code calls a subprogram.\n\n1.")
-    assert chunks[1].text == "**Rules:**\n\n1. Only one mode 4 M-Code per block.\n"
+    # compared word by word: the header splitter rewrites the blank lines between blocks
+    assert chunks[0].text.split() == (
+        "## M-Code Modes A mode 4 M-Code calls a subprogram. "
+        "1. Lookahead is broken by mode 4 M-Codes."
+    ).split()
+    assert chunks[1].text.split() == "**Rules:** 1. Only one mode 4 M-Code per block.".split()
     assert not any("---" in c.text for c in chunks)
 
 
