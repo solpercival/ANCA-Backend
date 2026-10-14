@@ -210,12 +210,20 @@ class OllamaGenerator:
     def __init__(self, client: httpx.AsyncClient):
         self._client = client
 
-    async def generate(self, prompt: str, tokens: int | None = None, thinking: bool = False) -> str:
+    async def generate(
+        self,
+        prompt: str,
+        tokens: int | None = None,
+        thinking: bool = False,
+        deterministic: bool = False,
+    ) -> str:
         """The model's answer to `prompt`, with any reasoning trace removed.
 
         tokens: cap on output tokens (num_predict); None or 0 leaves Ollama's default.
         thinking: let the model reason before answering; slower, and the reasoning
             counts against `tokens`.
+        deterministic: use temperature 0 and a fixed seed, so the same prompt
+            gives the same answer.
         """
         settings = get_settings()
         # stream so the connection stays alive between tokens (avoids ReadTimeout on
@@ -233,6 +241,10 @@ class OllamaGenerator:
 
         if tokens:
             generate_payload["options"]["num_predict"] = tokens
+
+        if deterministic:
+            generate_payload["options"]["temperature"] = settings.deterministic_temperature
+            generate_payload["options"]["seed"] = settings.deterministic_seed
 
         async with self._client.stream(
             "POST",
@@ -260,11 +272,18 @@ class OllamaRewriteGenerator:
     def __init__(self, client: httpx.AsyncClient):
         self._client = client
 
-    async def generate(self, prompt: str, tokens: int | None = None, thinking: bool = False) -> str:
+    async def generate(
+        self,
+        prompt: str,
+        tokens: int | None = None,
+        thinking: bool = False,
+        deterministic: bool = False,
+    ) -> str:
         """The rewritten query for a rewrite `prompt`, returned as the model wrote it.
 
         tokens: cap on output tokens (num_predict).
         thinking: accepted to match the Generator interface; not sent to the model.
+        deterministic: accepted to match the Generator interface; not used yet.
         """
         settings = get_settings()
 
@@ -302,11 +321,18 @@ class OpenAIGenerator:
     def __init__(self, client: httpx.AsyncClient):
         self._client = client
 
-    async def generate(self, prompt: str, tokens: int | None = None, thinking: bool = False) -> str:
+    async def generate(
+        self,
+        prompt: str,
+        tokens: int | None = None,
+        thinking: bool = False,
+        deterministic: bool = False,
+    ) -> str:
         """The model's answer to `prompt`, sent as a single user message.
 
         tokens: cap on output tokens (max_completion_tokens); None leaves it unset.
         thinking: request reasoning_effort=high.
+        deterministic: accepted to match the Generator interface; not used yet.
         Raises ValueError when OPENAI_API_KEY is unset.
         """
         settings = get_settings()
@@ -341,12 +367,19 @@ class AnthropicGenerator:
     def __init__(self, client: httpx.AsyncClient):
         self._client = client
 
-    async def generate(self, prompt: str, tokens: int | None = None, thinking: bool = False) -> str:
+    async def generate(
+        self,
+        prompt: str,
+        tokens: int | None = None,
+        thinking: bool = False,
+        deterministic: bool = False,
+    ) -> str:
         """The model's answer to `prompt`, sent as a single user message.
 
         tokens: cap on output tokens (max_tokens). The Messages API requires it, so
             a call without it is rejected by Anthropic.
         thinking: enable extended thinking with a 1024-token budget.
+        deterministic: accepted to match the Generator interface; not used yet.
         Raises ValueError when ANTHROPIC_API_KEY is unset.
         """
         settings = get_settings()

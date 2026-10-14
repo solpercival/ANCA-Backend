@@ -92,10 +92,17 @@ class Reranker(Protocol):
 class Generator(Protocol):
     """Prompt -> completion text from the LLM."""
 
-    async def generate(self, prompt: str, tokens: int | None = None, thinking: bool = False) -> str:
+    async def generate(
+        self,
+        prompt: str,
+        tokens: int | None = None,
+        thinking: bool = False,
+        deterministic: bool = False,
+    ) -> str:
         """Complete `prompt`. `tokens` caps the output length (None: provider default);
-        `thinking` lets the model reason first where the provider supports it."""
-
+        `thinking` lets the model reason first where the provider supports it;
+        `deterministic` asks for repeatable output (temperature 0 + fixed seed)
+        where the provider supports it."""
 
 class KeywordStore(Protocol):
     """Domain keywords (from the ingested docs) that match a query."""
