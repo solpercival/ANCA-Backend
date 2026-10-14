@@ -556,6 +556,8 @@ class Orchestrator:
                 prompt=self._build_prompt(req, alarm, top, tier),
                 tokens=effort_settings.num_predict,
                 thinking=effort_settings.thinking,
+                deterministic=get_settings().resolve_deterministic,
+
             )
         except Exception as exc:
             log.exception("generation_error code=%s", req.code)
@@ -701,6 +703,7 @@ class Orchestrator:
                 prompt=self._build_chat_prompt(req.message, top),
                 tokens=effort_settings.num_predict,
                 thinking=effort_settings.thinking,
+                deterministic=get_settings().chat_deterministic,
             )
         except Exception as exc:
             log.exception("generation_error conversation_id=%s", req.conversation_id)
