@@ -58,13 +58,14 @@ class FakeReranker:
 
 
 class FakeGenerator:
-    async def generate(self, prompt, tokens=None, thinking=False):
+    async def generate(self, prompt, tokens=None, thinking=False, deterministic=False):       
         # uncited CAUSE: the fake can't know chunk order, so it's matched against all
         return (
             "COVERAGE: partial\n"
             "Try step 1, then step 2.\n"
             "CAUSE: A loose EtherCAT cable causes the drive to fault."
         )
+    
 
 
 class FakePreprocessor:

@@ -104,7 +104,7 @@ def test_orchestrator_resolve_uses_query_and_returns_top_results():
         prompt = None
         calls = 0
 
-        async def generate(self, prompt, tokens=None, thinking=False):
+        async def generate(self, prompt, tokens=None, thinking=False, deterministic=False):
             self.calls += 1
             self.prompt = prompt
             return "answer"
@@ -156,7 +156,7 @@ def test_orchestrator_chat_returns_retrieved_citations():
         prompt = None
         calls = 0
 
-        async def generate(self, prompt, tokens=None, thinking=False):
+        async def generate(self, prompt, tokens=None, thinking=False, deterministic=False):
             self.calls += 1
             self.prompt = prompt
             return "final reply"
