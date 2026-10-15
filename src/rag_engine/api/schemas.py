@@ -186,3 +186,23 @@ class ChatResponse(BaseModel):
     conversation_id: str
     reply: str
     citations: list[Citation] = Field(default_factory=list)
+    response_id: int | None = Field(
+        None,
+        description=(
+            "Id of the stored turn, for POST <API_PREFIX>/feedback; "
+            "None when the turn was not stored (e.g. an empty reply)"
+        ),
+    )
+
+
+
+class FeedbackRequest(BaseModel):
+    """Body of POST <API_PREFIX>/feedback: whether a chat reply helped.
+
+    The rewriter shows helpful=false to the query rewrite model as [status: failed]
+    on the conversation's next turn (and true as [status: success]).
+    """
+
+    conversation_id: str = Field(..., min_length=1, max_length=128)
+    response_id: int = Field(..., ge=1)
+    helpful: bool

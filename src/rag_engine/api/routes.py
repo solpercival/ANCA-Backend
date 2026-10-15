@@ -1,5 +1,5 @@
 """HTTP surface under API_PREFIX (/api/<version>): health/readiness probes,
-resolve-by-code, and chat.
+resolve-by-code, chat, and feedback on chat replies.
 
 Every business endpoint authenticates (current_principal / require), is rate
 limited per IP and per tier, and gets the shared Orchestrator from
@@ -10,14 +10,15 @@ orchestrator returns, so access never depends on what generation produced.
 import asyncio
 
 import httpx
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import JSONResponse
 
-from rag_engine.api.errors import RetrievalUnavailable
+from rag_engine.api.errors import NotFound, RetrievalUnavailable
 from rag_engine.api.rate_limit import rate_limit_dependency
 from rag_engine.api.schemas import (
     ChatRequest,
     ChatResponse,
+    FeedbackRequest,
     ResolveRequest,
     ResolveResponse,
 )
@@ -36,6 +37,9 @@ router = APIRouter(prefix=API_PREFIX, tags=["api"])
 settings = get_settings()
 resolve_rate_limit = rate_limit_dependency(
     "resolve", "resolve_rate_limit_per_ip", "resolve_rate_limit_per_tier"
+)
+feedback_rate_limit = rate_limit_dependency(
+    "feedback", "feedback_rate_limit_per_ip", "feedback_rate_limit_per_tier"
 )
 chat_rate_limit = rate_limit_dependency(
     "chat", "chat_rate_limit_per_ip", "chat_rate_limit_per_tier"
@@ -168,3 +172,20 @@ async def chat(
 ) -> ChatResponse:
     """Free-text follow-up question within a conversation (tiers allowed by can_use_chat)."""
     return await orch.chat(req, tier=principal.tier)
+
+
+@router.post("/feedback", status_code=status.HTTP_204_NO_CONTENT, tags=["chat"])
+async def feedback(
+    req: FeedbackRequest,
+    principal: Principal = Depends(require(can_use_chat)),
+    _: None = Depends(feedback_rate_limit),
+    orch: Orchestrator = Depends(get_orchestrator),
+) -> None:
+    """Mark a chat reply (by the response_id /chat returned) as having helped or not.
+
+    Sending it again overwrites the earlier value. The next chat turn in the
+    conversation passes it to the query rewriter.
+    Errors: 404 not_found (no such reply in the conversation), 429 rate_limited.
+    """
+    if not await orch.record_feedback(req.conversation_id, req.response_id, req.helpful):
+        raise NotFound("No such response in this conversation")

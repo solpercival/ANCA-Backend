@@ -75,6 +75,8 @@ class Settings(BaseSettings):
     resolve_rate_limit_per_tier: int = 120
     chat_rate_limit_per_ip: int = 10
     chat_rate_limit_per_tier: int = 60
+    feedback_rate_limit_per_ip: int = 30
+    feedback_rate_limit_per_tier: int = 120
     max_request_body_bytes: int = 64 * 1024
 
     # provider selection: which backend implements each interface (see providers.py

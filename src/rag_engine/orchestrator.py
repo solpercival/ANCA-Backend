@@ -1136,7 +1136,9 @@ class Orchestrator:
                 req.message, req.conversation_id, effort_settings
             )
             if not rewritten_prompt:
-                return ChatResponse(conversation_id=req.conversation_id, reply="", citations=[])
+                return ChatResponse(
+                    conversation_id=req.conversation_id, reply="", citations=[], response_id=None
+                )
             # the query retrieval runs on: the message as sent, or its rewrite
             log.info(
                 "chat_query conversation_id=%s message=%r query=%r",
@@ -1219,7 +1221,9 @@ class Orchestrator:
                 duration_ms=int(t_generate * 1000),
             )
 
-        self._preprocessor.store_context(req.conversation_id, req.message, reply, None)
+        response_id = await asyncio.to_thread(
+            self._preprocessor.store_context, req.conversation_id, req.message, reply, None
+        )
 
         if self._langfuse and trace:
             trace.update(
@@ -1238,7 +1242,19 @@ class Orchestrator:
             conversation_id=req.conversation_id,
             reply=reply,
             citations=[] if refused else self._citations(top),
+            response_id=response_id,
         )
+
+    async def record_feedback(self, conversation_id: str, response_id: int, helpful: bool) -> bool:
+        """Mark a chat reply as having helped or not. False when the conversation has
+        no turn with that response_id. Raises RetrievalUnavailable if the store fails."""
+        try:
+            return await self._preprocessor.set_feedback(conversation_id, response_id, helpful)
+        except Exception as exc:
+            log.exception(
+                "feedback_error conversation_id=%s response_id=%s", conversation_id, response_id
+            )
+            raise RetrievalUnavailable() from exc
 
 
 @lru_cache(maxsize=1)
