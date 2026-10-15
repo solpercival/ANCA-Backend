@@ -31,6 +31,7 @@ class PostgresAlarmStore:
             severity_score=row["severity_score"],
             severity_category=row["severity_category"],
             alarm_text=row["alarm_text"],
+            description=row.get("description") or "",
             data_fields=row["data_fields"] or {},  # JSONB is decoded by psycopg
         )
 
@@ -45,7 +46,7 @@ class PostgresAlarmStore:
             return conn.execute(
                 """
                 SELECT ac.title, ac.severity_score, ac.severity_category,
-                       ac.alarm_text, ac.data_fields, am.title AS domain
+                       ac.alarm_text, ac.description, ac.data_fields, am.title AS domain
                 FROM alarm_code ac
                 JOIN alarm_module am ON am.id = ac.module
                 WHERE ac.origin = %s AND am.code = %s AND ac.alarm_sequence = %s

@@ -22,8 +22,14 @@ from rag_engine.api.schemas import (
     ResolveRequest,
     ResolveResponse,
 )
+from rag_engine.api.safety import is_safety_alarm
 from rag_engine.auth.dependencies import current_principal, require
-from rag_engine.auth.tiers import Principal, can_use_chat, can_view_likely_causes
+from rag_engine.auth.tiers import (
+    Principal,
+    can_use_chat,
+    can_view_likely_causes,
+    should_escalate_when_unsure,
+)
 from rag_engine.config import API_PREFIX, get_settings
 from rag_engine.orchestrator import Orchestrator, get_orchestrator
 
@@ -38,6 +44,12 @@ feedback_rate_limit = rate_limit_dependency(
 chat_rate_limit = rate_limit_dependency(
     "chat", "chat_rate_limit_per_ip", "chat_rate_limit_per_tier"
 )
+
+# Shown to operators with escalation_suggested; kept out of `steps`, which hold
+# only doc-grounded guidance.
+ESCALATION_NOTE = "If you are unsure, stop and escalate to a technician before acting."
+# doc_coverage values that leave an operator without a complete, documented fix
+_ESCALATE_COVERAGE = frozenset({"none", "partial"})
 
 
 def get_orchestrator_from_request(request: Request):
@@ -141,6 +153,13 @@ async def resolve(
     if not can_view_likely_causes(principal.tier):
         resp.likely_causes = []
     resp.ai_chat_available = can_use_chat(principal.tier)
+    # Operators are told to escalate instead of acting alone on an alarm that is
+    # safety-related or that the docs don't fully cover. Decided from the alarm's
+    # severity and the coverage, never from what the orchestrator put in the notes.
+    resp.escalation_suggested = should_escalate_when_unsure(principal.tier) and (
+        is_safety_alarm(resp.severity_category) or resp.doc_coverage in _ESCALATE_COVERAGE
+    )
+    resp.escalation_note = ESCALATION_NOTE if resp.escalation_suggested else None
     return resp
 
 

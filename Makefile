@@ -10,9 +10,9 @@
 # on it, so pending migrations always run before the app or ingestion touch the DB.
 
 .PHONY: help bootstrap install fmt lint test \
-        up up-full down build restart models \
+        up up-full down build restart models sparse \
         migrate migrate-status migrate-down revision db-reset \
-        ingest seed-alarms \
+        ingest reingest seed-alarms \
         smoke bench eval retest
 
 .DEFAULT_GOAL := help
@@ -64,6 +64,9 @@ models:         ## start Ollama and pull the embedding + generation models
 	$(COMPOSE) exec ollama ollama pull qwen3-embedding:0.6b
 	$(COMPOSE) exec ollama ollama pull qwen3:4b-instruct-2507-q4_K_M
 
+sparse:         ## start the sparse (SPLADE) embedding container, for EMBEDDING_SETUP=dual
+	$(COMPOSE) --profile sparse up -d tei
+
 # --- database migrations (Alembic) -----------------------------------------------
 
 migrate:        ## apply pending migrations (alembic upgrade head)
@@ -94,6 +97,11 @@ ingest:         ## migrate, pull models, then chunk + embed the docs into pgvect
 	$(MAKE) migrate
 	$(MAKE) models
 	$(COMPOSE) run --rm --build ingestion
+
+reingest:       ## like ingest, but re-embed every document (after switching EMBEDDING_SETUP)
+	$(MAKE) migrate
+	$(MAKE) models
+	$(COMPOSE) run --rm --build -e INGEST_FORCE=1 ingestion
 
 seed-alarms:    ## load alarms.sample.json into the alarm catalogue only (no embedding)
 	$(COMPOSE) run --rm --build ingestion python -m ingestion.seed_alarms

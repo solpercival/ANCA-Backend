@@ -21,12 +21,17 @@ Scores (per code, then averaged; failed calls count as zero):
                      single answer to "does it solve the alarm".
     step_recall      word overlap with the gold steps; falls as answers get
                      shorter, so read it alongside fix_present
+    step_precision   share of our steps that match a gold step. step_recall
+                     rewards a longer answer; this is the score padding lowers
+    length_ratio     our step count / the gold step count (1.0 = same length)
     actionable       share of steps starting with an action verb
     coverage_match   our doc_coverage equals the gold label. The gold labels
                      come from engineering knowledge beyond the docs, so this is
                      agreement, not a quality score.
 The answer scores are lexical heuristics, not an LLM judge. The model is not fully
-deterministic, so compare averages, not single codes.
+deterministic, so compare averages, not single codes. `--runs N` (EVAL_RUNS=N make
+eval) repeats the whole pass N times and reports each score's mean and its min-max
+over the passes: a difference smaller than that range is noise.
 """
 
 from __future__ import annotations
@@ -35,6 +40,7 @@ import argparse
 import json
 import os
 import re
+import sys
 from pathlib import Path
 
 import httpx
@@ -77,7 +83,7 @@ def score_code(citations, gold_entry):
     for citation in citations:
         is_correct = False
         for gold_path in gold_paths:
-            if same_doc(citation["source"], gold_path):
+            if same_doc(citation["path"], gold_path):
                 is_correct = True
         correct.append(is_correct)
 
@@ -85,7 +91,7 @@ def score_code(citations, gold_entry):
     found = []
     for gold_path in gold_paths:
         for citation in citations:
-            if same_doc(citation["source"], gold_path):
+            if same_doc(citation["path"], gold_path):
                 found.append(gold_path)
                 break
 
@@ -151,6 +157,12 @@ STOPWORDS = {
     "again",
     "if",
 }
+
+# "If/When/Once/Unless <condition>, <main clause>": the gold answers branch like this
+# ("If PLC: configure ..."); same pattern as the engine's _CONDITIONAL_STEP
+CONDITIONAL_STEP = re.compile(
+    r"^\s*(?:if|when|once|unless)\b[^,:;]*[,:;]\s*(?:(?:then|just)\s+)?(.*)$", re.I
+)
 
 # Verbs a resolution step should start with ("Restart the system", "Check ...")
 ACTION_VERBS = {
@@ -232,6 +244,8 @@ ACTION_VERBS = {
     "re-initialize",
     "re-run",
     "rerun",
+    "decide",
+    "choose",
     "recover",
     "place",
     "insert",
@@ -264,11 +278,19 @@ def content_stems(text):
     return {w[:5] for w in words if len(w) >= 3 and w not in STOPWORDS}
 
 
+# A generated step matches a gold step when at least this share of its key words
+# are in that one gold step
+STEP_MATCH = 0.5
+
+
 def score_answer(answer, gold_entry):
     """Score the generated steps against the gold resolution steps
 
     step_recall: for each gold step, the share of its key words found anywhere
         in the generated steps, averaged over the gold steps
+    step_precision: share of the generated steps that match a gold step
+        (STEP_MATCH). Repeats, restated checks and tangents lower it
+    length_ratio: number of generated steps / number of gold steps
     actionable: share of generated steps that start with an action verb
         (a step that just restates the alarm fails this)
     coverage_match: 1 if our doc_coverage equals the gold doc_coverage
@@ -285,9 +307,21 @@ def score_answer(answer, gold_entry):
             recalls.append(len(gold_stems & answer_stems) / len(gold_stems))
     step_recall = sum(recalls) / len(recalls) if recalls else 0.0
 
+    gold_steps = gold_entry.get("resolution_steps", [])
+    gold_stem_sets = [content_stems(gold_step) for gold_step in gold_steps]
+    matched = 0
+    for step in steps:
+        stems = content_stems(step)
+        if stems and any(len(stems & gold) / len(stems) >= STEP_MATCH for gold in gold_stem_sets):
+            matched += 1
+    step_precision = matched / len(steps) if steps else 0.0
+    length_ratio = len(steps) / len(gold_steps) if gold_steps else 0.0
+
     action_steps = 0
     for step in steps:
-        words = step.split()
+        # "If <condition>, <verb> ..." counts by its main clause, as in the engine
+        conditional = CONDITIONAL_STEP.match(step)
+        words = (conditional.group(1) if conditional else step).split()
         if words and words[0].lower().strip(".,:;") in ACTION_VERBS:
             action_steps += 1
     actionable = action_steps / len(steps) if steps else 0.0
@@ -296,6 +330,8 @@ def score_answer(answer, gold_entry):
 
     return {
         "step_recall": step_recall,
+        "step_precision": step_precision,
+        "length_ratio": length_ratio,
         "actionable": actionable,
         "coverage_match": float(coverage_match),
     }
@@ -337,6 +373,9 @@ def fetch_answer(code, api_url=API_URL, token=None):
         headers["Authorization"] = f"Bearer {token}"
 
     body = {"code": code, "env": {"versions": {}, "locale": "en-US"}}
+    # EVAL_EFFORT=low|high scores another effort level; unset = the API default (medium)
+    if os.environ.get("EVAL_EFFORT"):
+        body["effort"] = os.environ["EVAL_EFFORT"]
 
     response = httpx.post(f"{api_url}/resolve", json=body, headers=headers, timeout=120)
     response.raise_for_status()
@@ -391,6 +430,8 @@ def summarize(results):
         "recall": 0,
         "reciprocal_rank": 0,
         "step_recall": 0,
+        "step_precision": 0,
+        "length_ratio": 0,
         "actionable": 0,
         "coverage_match": 0,
     }
@@ -417,14 +458,67 @@ def summarize(results):
     return summary
 
 
-def run_live_eval(gold_path):
-    """Run the real eval against the API and save the scores"""
+def average_results(passes):
+    """Per-code scores averaged over several eval passes (see --runs).
+
+    Each numeric score is the mean over the passes whose call succeeded. The saved
+    steps and doc_coverage are the first successful pass's, as one example to read.
+    """
+    merged = []
+    for entries in zip(*passes, strict=True):
+        ok = [entry for entry in entries if "error" not in entry]
+        if not ok:
+            merged.append(entries[0])
+            continue
+        row = {"code": ok[0]["code"]}
+        for name, value in ok[0].items():
+            if isinstance(value, (bool, int, float)):
+                values = [float(entry[name]) for entry in ok if name in entry]
+                row[name] = round(sum(values) / len(values), 3)
+        row["steps"] = ok[0]["steps"]
+        row["doc_coverage"] = ok[0]["doc_coverage"]
+        if len(ok) < len(entries):
+            row["failed_runs"] = len(entries) - len(ok)
+        merged.append(row)
+    return merged
+
+
+def summarize_runs(passes):
+    """Summary over several eval passes: each score's mean across the passes, plus
+    `range`, its [min, max]. A difference between two builds that is smaller than
+    that range is noise. One pass gives the plain summary."""
+    summaries = [summarize(results) for results in passes]
+    if len(summaries) == 1:
+        return summaries[0]
+    summary = {}
+    spread = {}
+    for name in summaries[0]:
+        values = [s[name] for s in summaries if name in s]
+        if name == "codes":
+            summary[name] = values[0]
+        elif name == "errors":
+            summary[name] = sum(values)
+        else:
+            summary[name] = round(sum(values) / len(values), 3)
+            spread[name] = [min(values), max(values)]
+    summary["runs"] = len(summaries)
+    summary["range"] = spread
+    return summary
+
+
+def run_live_eval(gold_path, runs=1):
+    """Run the real eval against the API (`runs` passes) and save the scores"""
     username = os.environ["EVAL_USERNAME"]
     password = os.environ["EVAL_PASSWORD"]
     api_url = os.environ.get("EVAL_API_URL", API_URL)
 
-    results = run_eval(username, password, api_url, gold_path)
-    summary = summarize(results)
+    passes = []
+    for number in range(1, runs + 1):
+        if runs > 1:
+            print(f"--- pass {number}/{runs} ---")
+        passes.append(run_eval(username, password, api_url, gold_path))
+    results = passes[0] if runs == 1 else average_results(passes)
+    summary = summarize_runs(passes)
 
     output_path = Path("eval/results/retrieval.json")
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -432,8 +526,27 @@ def run_live_eval(gold_path):
         json.dumps({"summary": summary, "results": results}, indent=2),
         encoding="utf-8",
     )
+    spread = summary.pop("range", None)
     print(summary)
+    if spread:
+        print(f"min-max over {runs} passes:", {k: f"{lo}-{hi}" for k, (lo, hi) in spread.items()})
     print(f"wrote {output_path}")
+    return summary
+
+
+def below_minimums(summary, spec):
+    """Scores in `summary` under their minimum, as (name, score, minimum) tuples
+
+    spec is EVAL_MIN: comma-separated name=value pairs, e.g.
+    "fix_present=0.68,hit=0.9". A name the summary lacks counts as failing
+    """
+    failed = []
+    for pair in filter(None, (part.strip() for part in (spec or "").split(","))):
+        name, _, minimum = pair.partition("=")
+        score = summary.get(name.strip())
+        if score is None or score < float(minimum):
+            failed.append((name.strip(), score, float(minimum)))
+    return failed
 
 
 def normalize_result(payload: dict) -> dict:
@@ -445,7 +558,7 @@ def normalize_result(payload: dict) -> dict:
     return {
         "query": payload.get("query", ""),
         "code": payload.get("code", ""),
-        "citation_ids": [c["chunk_id"] for c in payload.get("citations", [])],
+        "citation_paths": [c["path"] for c in payload.get("citations", [])],
         "step_count": len(payload.get("steps", [])),
         "confidence": round(float(payload.get("confidence", 0.0)), 3),
         "status": payload.get("status", "ok"),
@@ -480,8 +593,8 @@ def run_local_eval() -> dict:
             "Verify the control board status",
         ],
         "citations": [
-            {"source": "manual.md", "chunk_id": "c1"},
-            {"source": "faq.md", "chunk_id": "c9"},
+            {"doc": "Documentation", "path": "manual.md", "section": "Drive"},
+            {"doc": "Documentation", "path": "faq.md", "section": None},
         ],
         "confidence": 0.891234,
         "status": "ok",
@@ -493,10 +606,21 @@ def main() -> None:
     """CLI: live eval with --gold, otherwise the offline snapshot (see module docstring)."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--gold", help="gold answers file; runs the live eval against the API")
+    parser.add_argument(
+        "--runs",
+        type=int,
+        default=int(os.environ.get("EVAL_RUNS") or 1),
+        help="live eval: passes over the gold set to average (default 1, or EVAL_RUNS)",
+    )
     args = parser.parse_args()
 
     if args.gold:
-        run_live_eval(args.gold)
+        summary = run_live_eval(args.gold, runs=max(1, args.runs))
+        failed = below_minimums(summary, os.environ.get("EVAL_MIN"))
+        for name, score, minimum in failed:
+            print(f"EVAL_MIN not met: {name} is {score}, minimum {minimum}")
+        if failed:
+            sys.exit(1)
         return
 
     # When there is no --gold. Snapshot check used by the rag-eval and rag-snapshot CI workflows

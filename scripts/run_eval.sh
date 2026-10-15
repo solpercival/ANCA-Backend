@@ -12,6 +12,8 @@
 #   bash scripts/run_eval.sh [gold_file]
 #
 # Override defaults by exporting: EVAL_USERNAME, EVAL_PASSWORD, EVAL_GOLD.
+# EVAL_RUNS=3 repeats the eval three times and reports each score's mean and min-max,
+# which is what to compare two builds on: a single run varies by a few points.
 set -e
 cd "$(dirname "$0")/.."
 
@@ -86,4 +88,4 @@ echo "--- RUN EVAL (gold: $EVAL_GOLD) ---"
 EVAL_USERNAME="$EVAL_USERNAME" \
 EVAL_PASSWORD="$EVAL_PASSWORD" \
 EVAL_API_URL="$BASE" \
-.venv/bin/python -m eval.run_eval --gold "$EVAL_GOLD"
+.venv/bin/python -m eval.run_eval --gold "$EVAL_GOLD" --runs "${EVAL_RUNS:-1}"

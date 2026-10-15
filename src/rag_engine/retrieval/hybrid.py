@@ -16,6 +16,7 @@ from rag_engine.retrieval.interfaces import (
     LexicalIndex,
     SparseEmbedder,
     VectorStore,
+    Where,
 )
 
 log = logging.getLogger("rag_engine.retrieval.hybrid")
@@ -61,11 +62,10 @@ class HybridRetriever:
         self._lex = lexical
         self._rrf_k = rrf_k
 
-    async def retrieve(
-        self, query: str, top_k: int, where: dict[str, str] | None = None
-    ) -> list[Chunk]:
+    async def retrieve(self, query: str, top_k: int, where: Where | None = None) -> list[Chunk]:
         """Up to top_k chunks per search (dual mode can return up to 2 * top_k after
-        fusion). Logs embed/search timings as retrieve_timing."""
+        fusion). `where` (incl. the tier's doc_audiences) goes to both searches
+        unchanged. Logs embed/search timings as retrieve_timing."""
         t0 = time.perf_counter()
         dense_vector = (await self._dense_embedder.dense_embed([query]))[0]
         t_embed = time.perf_counter() - t0

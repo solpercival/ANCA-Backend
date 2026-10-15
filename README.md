@@ -241,11 +241,15 @@ PY
 
 ### Tiers
 
-| Tier | `/resolve` | `likely_causes` | `/chat` |
-|------|-----------|-----------------|---------|
-| `operator` | yes | always `[]` | `403 forbidden` |
-| `technician` | yes | shown | yes |
-| `partner` | yes | shown | yes |
+| Tier | `/resolve` | `likely_causes` | `/chat` | Answers drawn from |
+|------|-----------|-----------------|---------|--------------------|
+| `operator` | yes | always `[]` | `403 forbidden` | Part Programmer's Reference only |
+| `technician` | yes | shown | yes | all docs (incl. User Guide) |
+| `partner` | yes | shown | yes | all docs (incl. User Guide) |
+
+The documentation restriction is a query-time filter on the document path
+(`auth/tiers.py` `allowed_doc_audiences`), so an operator resolve for an alarm
+documented only in the User Guide returns `doc_coverage: "none"` and no citations.
 
 Use `ai_chat_available` from the resolve response (or `tier` from `/auth/me`)
 to decide whether to show the chat entry point, rather than hard-coding tier
@@ -260,7 +264,8 @@ Request:
   "code": "am.fb.0002",
   "env": { "versions": { "amcore": "1.4.2" }, "machine_variant": "MX7" },
   "effort": "medium",
-  "query": "happens after a tool change"
+  "query": "happens after a tool change",
+  "conversation_id": "c-7f3a"
 }
 ```
 
@@ -270,6 +275,7 @@ Request:
 | `env` | no | Machine context; narrows the documentation searched. Omit if unknown |
 | `effort` | no | `low`, `medium` (default) or `high`; higher is slower and more thorough |
 | `query` | no | Free-text symptom, up to 1000 characters |
+| `conversation_id` | no | 1-128 characters. Records the answer under that conversation, so a later `/chat` message with the same id can refer back to it |
 
 Response `200`:
 
@@ -284,10 +290,17 @@ Response `200`:
   "doc_coverage": "partial",
   "likely_causes": ["A device sends an emergency message when it detects an internal error."],
   "citations": [
-    { "source": "docs/user-guide/troubleshoot/coe-device-errors.md", "chunk_id": "1234" }
+    {
+      "doc": "AMCore User Guide",
+      "path": "user-guide/troubleshoot/coe-device-errors.md",
+      "section": "Emergency Error"
+    }
   ],
   "tier": "technician",
   "ai_chat_available": true,
+  "safety_note": null,
+  "escalation_suggested": false,
+  "escalation_note": null,
   "confidence": 0.5
 }
 ```
@@ -298,8 +311,10 @@ Response `200`:
 | `steps` | The guidance, one point per element, already cleaned of numbering. Render as a list |
 | `doc_coverage` | `full`: the docs give explicit steps. `partial`: the docs explain the alarm but give no complete fix. `none`: the docs don't cover it |
 | `likely_causes` | Up to 3 sentences taken from the documentation; often empty |
-| `citations` | Up to 3 source documents. `source` is a path inside the docs repo |
+| `citations` | Up to 3 documentation sections the answer drew on. `doc` is the document's display name, `path` is relative to the documentation root (link to it), `section` is the heading the text sits under, or `null` if it has none |
 | `confidence` | Derived from `doc_coverage` (0.9, 0.5, 0.0). Use `doc_coverage` for UI decisions |
+| `safety_note` | A verify-before-acting caution, set for safety-related alarms (`severity_category` `Fatal` by default; `SAFETY_SEVERITY_CATEGORIES`) for every tier, otherwise `null`. Show it prominently with the steps |
+| `escalation_suggested`, `escalation_note` | `true` with a message for an operator when the alarm is safety-related or `doc_coverage` is `none`/`partial`: prompt them to escalate. Always `false`/`null` for technician and partner |
 
 When `doc_coverage` is `none`, `steps` holds the single line "The documentation
 does not cover this alarm." and `likely_causes` is empty. Show that state
@@ -326,8 +341,13 @@ Response `200`:
 {
   "conversation_id": "c-7f3a",
   "reply": "Check the device's EMCY code in the diagnostics view ...",
-  "citations": [{ "source": "docs/user-guide/troubleshoot/coe-device-errors.md", "chunk_id": "1234" }],
-  "response_id": 4821
+  "citations": [
+    {
+      "doc": "AMCore User Guide",
+      "path": "user-guide/troubleshoot/coe-device-errors.md",
+      "section": "Emergency Error"
+    }
+  ]
 }
 ```
 
