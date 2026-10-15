@@ -94,6 +94,15 @@ def _local_env_does_not_reach_tests(monkeypatch):
     # likewise the retrieval setup: a test of dual retrieval selects it itself
     monkeypatch.setenv("EMBEDDING_SETUP", "unified")
     monkeypatch.setattr(get_settings(), "embedding_setup", "unified")
+    # and the resolve experiment switches (eval prompt ladder)
+    for name, default in (
+        ("RESOLVE_PROMPT", "full"),
+        ("RESOLVE_EVIDENCE_FIRST", False),
+        ("RESOLVE_SENTENCE_SELECT", 0),
+        ("RESOLVE_DEBUG_PROMPT", False),
+    ):
+        monkeypatch.setenv(name, str(default).lower())
+        monkeypatch.setattr(get_settings(), name.lower(), default)
 
 
 @pytest.fixture

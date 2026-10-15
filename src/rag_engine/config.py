@@ -180,6 +180,22 @@ class Settings(BaseSettings):
     # ...and only while the whole context stays within this many characters, so the
     # prompt fits the generator's context window (about 3.3 characters per token).
     context_max_chars: int = 8000
+    # Resolve experiments (eval/README.md, the prompt ladder). The defaults are the
+    # shipped behaviour; each switch changes one thing so a run can be reproduced.
+    # full = the long rule list; short = five rules, two examples from another
+    # domain, the context right before the question
+    resolve_prompt: str = "full"
+    # ask for EVIDENCE lines (the opening words of the context sentences the steps
+    # rest on) before the steps; drop steps no evidence backs, order the rest by
+    # where their evidence sits in the context
+    resolve_evidence_first: bool = False
+    # >0: before generation, keep only this many context sentences / table rows /
+    # code blocks, chosen by the reranker against the alarm (relevance-scoring
+    # reranker only)
+    resolve_sentence_select: int = 0
+    # keep each resolve's final prompt and context in Redis for a day
+    # (debug:prompt:<code>, debug:context:<code>), read by eval/diagnose_gaps.py
+    resolve_debug_prompt: bool = False
     # Relevance floor for a resolve answer: if even the best reranked chunk scores
     # below this P(yes), nothing retrieved is about the alarm, so the answer is "not
     # covered" without calling the generator (it would otherwise build steps out of
