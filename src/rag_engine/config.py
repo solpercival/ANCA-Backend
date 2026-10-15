@@ -142,7 +142,9 @@ class Settings(BaseSettings):
     # retrieval
     # both apply to the default (medium) effort; low and high have fixed presets below
     retrieval_top_k: int = 50  # candidates fetched per search before reranking
-    rerank_top_n: int = 8  # chunks kept after reranking and put in the prompt
+    # chunks kept after reranking and put in the prompt. 4, not 8: on the eval
+    # ladder (2026-10-15) fewer, sharper chunks kept every fix and shortened answers
+    rerank_top_n: int = 4
     rerank_provider: str = "none"  # none = keep fused order; anything else = Qwen3 reranker
     rerank_model: str = "Qwen/Qwen3-Reranker-0.6B"
     # pairs per reranker forward pass; bounds GPU activation memory (scores unchanged)
@@ -179,7 +181,8 @@ class Settings(BaseSettings):
     context_section_max_chars: int = 2500
     # ...and only while the whole context stays within this many characters, so the
     # prompt fits the generator's context window (about 3.3 characters per token).
-    context_max_chars: int = 8000
+    # 4000, not 8000: less competing text for the generator (same ladder run)
+    context_max_chars: int = 4000
     # Resolve experiments (eval/README.md, the prompt ladder). The defaults are the
     # shipped behaviour; each switch changes one thing so a run can be reproduced.
     # full = the long rule list; short = five rules, two examples from another
@@ -252,7 +255,7 @@ class Settings(BaseSettings):
     # _medium_effort_follows_settings), so those settings tune the default effort
     MID_CONFIG: dict = {
         "retrieval_k": 50,
-        "reranker_n": 8,
+        "reranker_n": 4,
         "context_k": 10,
         # resolve: the reranker reads the first 30 candidates, not 10. The embedding
         # search is the weaker judge: for am.cfg.0001 the right section sat at rank 25
