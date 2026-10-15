@@ -1,9 +1,9 @@
 """
 API router for login, token refresh, logout, and the current account.
 
-Mounted under /api/v2/auth. Login returns the access token in the response body and
-sets the refresh token as an HttpOnly cookie scoped to /api/v2/auth, so the browser only
-sends it to these endpoints. The refresh and logout endpoints authenticate with
+Mounted under <API_PREFIX>/auth. Login returns the access token in the response body
+and sets the refresh token as an HttpOnly cookie scoped to that same path, so the
+browser only sends it to these endpoints. The refresh and logout endpoints authenticate with
 that cookie and therefore run the check_origin CSRF guard.
 
 The handlers only translate between HTTP and AuthService; the logic lives there.
@@ -12,7 +12,6 @@ The handlers only translate between HTTP and AuthService; the logic lives there.
 from fastapi import APIRouter, Cookie, Depends, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 
-from rag_engine.api.errors import Forbidden
 from rag_engine.auth.dependencies import (
     check_origin,
     current_principal,
@@ -20,18 +19,19 @@ from rag_engine.auth.dependencies import (
     get_auth_service,
 )
 from rag_engine.auth.interfaces import User
-from rag_engine.auth.tiers import Principal
 from rag_engine.auth.schemas import (
     TokenResponse,
     UserOut,
 )
 from rag_engine.auth.service import AuthService, TokenPair
-from rag_engine.config import get_settings
+from rag_engine.auth.tiers import Principal
+from rag_engine.config import API_PREFIX, get_settings
 
-router = APIRouter(prefix="/api/v2/auth", tags=["auth"])
+AUTH_PREFIX = f"{API_PREFIX}/auth"
+router = APIRouter(prefix=AUTH_PREFIX, tags=["auth"])
 
 REFRESH_COOKIE = "refresh_token"
-REFRESH_COOKIE_PATH = "/api/v2/auth"
+REFRESH_COOKIE_PATH = AUTH_PREFIX
 
 
 def _token_response(response: Response, pair: TokenPair) -> TokenResponse:

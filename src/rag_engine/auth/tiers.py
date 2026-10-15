@@ -41,6 +41,43 @@ class Principal:
     tier: Tier
 
 
+class DocAudience(StrEnum):
+    """
+    A documentation set with its own audience, named by its folder in the docs tree.
+
+    A chunk belongs to an audience when its document path (document_source)
+    contains `path_fragment`, e.g. .../docs/user-guide/troubleshoot/x.md.
+    """
+
+    user_guide = "user-guide"
+    part_programmers_reference = "part-programmers-reference"
+
+    @property
+    def path_fragment(self) -> str:
+        """The folder as it appears inside a document path."""
+        return f"/{self.value}/"
+
+
+# Client rule: the User Guide is for technician and partner only; the Part
+# Programmer's Reference is for every tier. None = unrestricted (every document,
+# including any outside the audience folders).
+_DOC_AUDIENCES: dict[Tier, frozenset[DocAudience] | None] = {
+    Tier.operator: frozenset({DocAudience.part_programmers_reference}),
+    Tier.technician: None,
+    Tier.partner: None,
+}
+
+
+def allowed_doc_audiences(tier: Tier) -> frozenset[DocAudience] | None:
+    """
+    Return the documentation sets the tier's answers may draw on.
+
+    None means unrestricted. Otherwise retrieval must only return chunks whose
+    document lies in one of the returned audiences' folders.
+    """
+    return _DOC_AUDIENCES[tier]
+
+
 def can_use_chat(tier: Tier) -> bool:
     """Return whether the tier may use the chat endpoint."""
     return (tier is Tier.technician) or (tier is Tier.partner)
@@ -54,3 +91,9 @@ def can_be_offered_escalation(tier: Tier) -> bool:
 def can_view_likely_causes(tier: Tier) -> bool:
     """Return whether the tier may see the likely causes behind an alarm."""
     return (tier is Tier.technician) or (tier is Tier.partner)
+
+
+def should_escalate_when_unsure(tier: Tier) -> bool:
+    """Return whether the tier is told to escalate rather than act on an alarm that
+    is safety-related or not fully covered by the documentation (operators only)."""
+    return tier is Tier.operator

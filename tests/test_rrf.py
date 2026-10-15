@@ -1,5 +1,5 @@
-"""Reciprocal rank fusion rewards agreement between rankings and de-duplicates.
-"""
+"""Reciprocal rank fusion rewards agreement between rankings and de-duplicates."""
+
 from rag_engine.retrieval.hybrid import reciprocal_rank_fusion
 from rag_engine.retrieval.interfaces import Chunk
 

@@ -7,15 +7,19 @@ Two clients share the same settings:
   Redis directly (the rate limiter, the readiness check).
 Both return None / yield None before init_cache_pool, so callers can degrade.
 """
+
+from contextlib import contextmanager
+
 from redis import ConnectionPool, Redis
 from redis.asyncio import Redis as AsyncRedis
-from contextlib import contextmanager
+
 from rag_engine.config import get_settings
 
 # sync pool for the blocking callers (session store, search cache);
 # async client for request-path callers (rate limiter, health check)
 _cache_pool: ConnectionPool | None = None
 _async_client: AsyncRedis | None = None
+
 
 def init_cache_pool() -> None:
     """Create both clients from settings. Called once at app startup; connects lazily."""
@@ -28,7 +32,7 @@ def init_cache_pool() -> None:
         max_connections=100,
         decode_responses=True,
         socket_timeout=5,
-        socket_connect_timeout=5
+        socket_connect_timeout=5,
     )
     _async_client = AsyncRedis(
         host=settings.redis_host,
@@ -37,12 +41,14 @@ def init_cache_pool() -> None:
         max_connections=100,
         decode_responses=True,
         socket_timeout=5,
-        socket_connect_timeout=5
+        socket_connect_timeout=5,
     )
+
 
 def get_cache_client() -> AsyncRedis | None:
     """The async client, or None before init_cache_pool."""
     return _async_client
+
 
 async def close_cache_pool() -> None:
     """Close both clients at shutdown."""
@@ -52,6 +58,7 @@ async def close_cache_pool() -> None:
         _async_client = None
     if _cache_pool:
         _cache_pool.disconnect()
+
 
 @contextmanager
 def get_cache_conn():

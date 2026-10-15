@@ -7,17 +7,22 @@ it into a standalone query. That rewrite prompt includes recent turns and domain
 keywords from the ingested docs, so product terms are kept verbatim. Resolve-by-code
 calls pass no conversation id and skip the rewrite entirely.
 """
+
 import re
-import json
-from rag_engine.config import get_settings
-from rag_engine.retrieval.interfaces import KeywordStore, Generator, ChatStore, AlarmStore
+
+from rag_engine.api.schemas import EffortSettings
+from rag_engine.retrieval.interfaces import ChatStore, Generator, KeywordStore
 
 # a pronoun means the message probably refers back to earlier turns
-PRONOUN_RE = re.compile(r"\b(my|i|it|its|that|this|those|these|they|them|their|he|she|same)\b", re.IGNORECASE)
+PRONOUN_RE = re.compile(
+    r"\b(my|i|it|its|that|this|those|these|they|them|their|he|she|same)\b", re.IGNORECASE
+)
 # leading filler ("can you tell me about ...", "i want to know ...") that adds nothing to retrieval
 CONVERSATIONAL_RE = re.compile(
     r"^(?:please\s+)?(?:can|could|would)\s+you\s+(?:tell|show|explain|help)\s+(?:me\s+)?(?:about\s+|what\s+|how\s+)?|"
-    r"^(?:i\s+want\s+to\s+know|i'm\s+looking\s+for|search\s+for)\s+", re.IGNORECASE )
+    r"^(?:i\s+want\s+to\s+know|i'm\s+looking\s+for|search\s+for)\s+",
+    re.IGNORECASE,
+)
 PUNCTUATION_RE = r"[?!.]+$"
 
 # System part of the rewrite prompt; process_prompt appends the glossary, context
@@ -38,10 +43,16 @@ QUERY_REWRITE_PROMPT = """
     * <context> is structured as {"user": ... } for a user's query followed by {"assist": ... } for the assistant's response. Each entry is separated by a \n delimiter.
     * If a response was tried and worked, it will be indicated with [status: success]. If a response was tried and failed, it will be indicated with [status: failed].
     </rules>
-"""
+"""  # noqa: E501 -- prompt text is sent to the model verbatim; re-wrapping would change it
+
 
 class Query:
-    # Query class used to store all relevant data for query preprocessing
+    """A query being preprocessed: its current text and the conversation it belongs to.
+
+    context is the chat history as (message, feedback) pairs, oldest first; see
+    ChatStore.context_search.
+    """
+
     resolved_query: str = ""
     context: list[tuple[str, bool | None]]
 
@@ -49,70 +60,90 @@ class Query:
         self.resolved_query = query
         self.context = context
 
+
 class QueryPreprocessor:
     """Normalises queries, rewrites context-dependent chat messages, and records
     each finished turn in the chat store (store_context)."""
 
-    def __init__(self, chat_db: ChatStore, keyword_db: KeywordStore, rewrite_model: Generator, keywd_k: int=1, context_k: int=1):
-        self._keywd_k = keywd_k # top k keywords selected
-        self._context_k = context_k # recent k context used
+    def __init__(
+        self,
+        chat_db: ChatStore,
+        keyword_db: KeywordStore,
+        rewrite_model: Generator,
+        keywd_k: int = 1,
+    ):
+        self._keywd_k = keywd_k  # top k keywords selected
         self._chat_db = chat_db
         self._keyword_db = keyword_db
         self._rewrite_model = rewrite_model
 
     async def _retrieve_context(self, conversation_id: str) -> list[tuple[str, bool | None]]:
+        """The conversation's history from the chat store, oldest message first."""
         return await self._chat_db.context_search(conversation_id)
 
     def _normalize_query(self, text: str) -> str:
+        """Lowercase, put on one line, and drop leading conversational filler and
+        trailing punctuation. May return ""."""
         query = text.strip().lower().replace("\n", " ")
         query = CONVERSATIONAL_RE.sub("", query).strip()
         query = re.sub(PUNCTUATION_RE, "", query).strip()
         return query
 
     def _create_query(self, text: str, context: list[tuple[str, bool | None]]) -> Query:
-        # creates Query class for storing context and query data
+        """Bundle the normalised text with its conversation history."""
         return Query(text, context)
 
     def _req_coref_rewrite(self, query: Query) -> bool:
-        # determines if there are any recognized pronouns that need resolution or if query is too short
+        """Whether the query needs the LLM rewrite: there is history, and the query
+        has a pronoun or is five words or fewer."""
         if not query.context:
             return False
 
         if PRONOUN_RE.search(query.resolved_query) or len(query.resolved_query.split()) <= 5:
             return True
 
-        return False # prefer not to process
+        return False  # prefer not to process
 
-    async def _collect_keywords(self, query: Query, context: list[tuple[str, bool | None]]) -> str:
-        # collects keywords from exact and fuzzy search to enforce preservation of domain specific terms/acronyms/labels
-        # Known issue: keyword_search returns None when nothing matches, and the
-        # join below then raises TypeError; guard with `or []` when fixing.
+    async def _collect_keywords(
+        self, query: Query, context: list[tuple[str, bool | None]], effort_settings: EffortSettings
+    ) -> str:
+        """The <domain-glossary> section of the rewrite prompt: keywords matching the
+        query and the conversation, so the model keeps domain terms, acronyms and
+        labels verbatim. effort_settings is not used yet."""
         terms = [entry[0] for entry in context]
         terms.append(query.resolved_query)
         context_query = " ".join(terms)
 
-        matched_kws = await self._keyword_db.keyword_search(query.resolved_query, top_k=self._keywd_k)
-        context_kws = await self._keyword_db.keyword_search(context_query, top_k=self._context_k)
+        # keyword_search returns None when nothing matches
+        matched_kws = (
+            await self._keyword_db.keyword_search(query.resolved_query, top_k=self._keywd_k) or []
+        )
+        context_kws = (
+            await self._keyword_db.keyword_search(context_query, top_k=self._keywd_k) or []
+        )
 
-        glossary_str = f'{"|".join(matched_kws)}|{"|".join(context_kws)}'
+        glossary_str = f"{'|'.join(matched_kws)}|{'|'.join(context_kws)}"
         return f"<domain-glossary>{glossary_str}</domain-glossary>"
 
-    def _process_context(self, context: list[tuple[str, bool | None]], prev_k: int = 3) -> str:
-        # context is expected in the format (context string, status).
-        # status can be True indicating success, False indicating failure or None indicating no recorded reaction
+    def _process_context(self, context: list[tuple[str, bool | None]], prev_k: int) -> str:
+        """The <context> section of the rewrite prompt: the last prev_k messages, one
+        per line, labelled [user]/[assist] and tagged with the user's feedback.
 
-        # formats past context in order and amount requested
+        context holds (message, status) pairs; status is True (the reply worked),
+        False (it didn't) or None (no feedback recorded). "" when there is no history.
+        """
         if not context:
             return ""
 
         # assume the first message is from the user
-        # context is assumed to be populated from oldest to latest in order (0 is the first message, -1 is the latest)
+        # context is assumed to be populated from oldest to latest in order
+        # (0 is the first message, -1 is the latest)
         preserved_context = context[-prev_k:]
         lines = []
         start_with_user = len(context) % 2 == 0
 
         for i, (msg, status) in enumerate(preserved_context):
-            role = 'user' if (i % 2 == 0) == start_with_user else 'assist'
+            role = "user" if (i % 2 == 0) == start_with_user else "assist"
 
             status_indicator = ""
             if status is True:
@@ -126,11 +157,17 @@ class QueryPreprocessor:
         return f"<context>{formatted}</context>"
 
     def _format_query(self, query: Query) -> str:
+        """The <user-query> section of the rewrite prompt."""
         return f"<user-query>{query.resolved_query}</user-query>"
 
-    async def process_prompt(self, raw_query: str, conversation_id: str) -> str:
+    async def process_prompt(
+        self, raw_query: str, conversation_id: str, effort: EffortSettings
+    ) -> str:
         """The query to retrieve with: normalised, and rewritten with the
         conversation's context when it needs it. "" for an empty message."""
+        if not effort.rewrite:
+            return raw_query
+
         # normalize query, remove filler words/content
         norm_query = self._normalize_query(raw_query)
         if not norm_query:
@@ -155,22 +192,33 @@ class QueryPreprocessor:
             return norm_query
 
         # search DB for relevant keywords used in domain glossary
-        keyword_str = await self._collect_keywords(query, prev_context)
+        keyword_str = await self._collect_keywords(query, prev_context, effort)
 
         # create the context string
-        context_str = self._process_context(prev_context, self._context_k)
+        context_str = self._process_context(prev_context, effort.context_k)
 
         query_str = self._format_query(query)
 
-        # The final query is structured as """<instruction> \n <rules> \n <domain-glossary> \n <context> \n <user-query>"""
+        # The final query is structured as:
+        # <instruction> \n <rules> \n <domain-glossary> \n <context> \n <user-query>
         formatted_query = f"{QUERY_REWRITE_PROMPT}\n{keyword_str}\n{context_str}\n{query_str}"
 
-        rewritten_query = await self._rewrite_model.generate(formatted_query)
+        rewritten_query = await self._rewrite_model.generate(
+            prompt=formatted_query, tokens=effort.num_rewrite
+        )
 
         # fall back to the normalized query if the model returns nothing usable
         return (rewritten_query or "").strip() or norm_query
 
-    def store_context(self, conversation_id: str, query: str, response: str, alarm: str | None) -> None:
-        """Record a finished turn so later messages can refer back to it. Blocking
-        (sync DB write): callers on the async path should run it in a thread."""
-        self._chat_db.store_query_result(conversation_id, query, response, alarm)
+    def store_context(
+        self, conversation_id: str, query: str, response: str, alarm: str | None
+    ) -> int | None:
+        """Record a finished turn so later messages can refer back to it; returns its
+        response_id. Blocking (sync DB write): callers on the async path should run
+        it in a thread."""
+        return self._chat_db.store_query_result(conversation_id, query, response, alarm)
+
+    async def set_feedback(self, conversation_id: str, response_id: int, helpful: bool) -> bool:
+        """Record whether a stored reply helped; the next rewrite of this conversation
+        shows it as [status: success] / [status: failed]. False if the turn isn't found."""
+        return await self._chat_db.set_feedback(conversation_id, response_id, helpful)

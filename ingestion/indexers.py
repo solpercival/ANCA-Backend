@@ -1,8 +1,11 @@
 """Model-backed embedding plus PostgreSQL/pgvector: the write side of retrieval.
 
 - embed_and_index: embed chunks (Ollama dense, TEI sparse when EMBEDDING_SETUP=dual)
-  and write document / heading / document_chunks rows, replacing each document's
-  previous rows in one transaction.
+  under their heading path (RawChunk.context_text) and write document / heading /
+  document_chunks rows, replacing each document's previous rows in one transaction.
+  document.hash stores the file's SHA-256 hex digest when the caller supplies one.
+  prune deletes documents missing from keep_paths; files skipped
+  because their hash matched stay in that list so their chunks are kept.
 - populate_alarms: upsert the alarm catalogue (alarm_module, alarm_code).
 - populate_keyword_table: rebuild keyword_lookup, the domain-term index used by
   query rewriting.
@@ -10,35 +13,38 @@
 Each function opens its own connection (not the app's pool): this module runs in
 the offline ingestion job. Tables must already exist (Alembic migrations).
 """
-import json
-from pathlib import Path
-from collections import defaultdict
+
+import math
 
 # ingestion/indexers.py
-from rag_engine.providers import get_lexical_backend
-
 import re
-import math
 from collections import defaultdict
-from wordfreq import word_frequency
+
 import httpx
 import psycopg
 from pgvector.psycopg import register_vector
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
+from wordfreq import word_frequency
 
 from ingestion.chunker import RawChunk
 from rag_engine.config import get_settings
+
 
 class InvalidInputError(Exception):
     """An alarms file entry is malformed; names the offending fields."""
 
     def __init__(self, invalid_fields: list):
-        self.message = f"Input has invalid fields or in an invalid format. Invalid fields: {", ".join(invalid_fields)}."
+        self.message = (
+            "Input has invalid fields or in an invalid format. "
+            f"Invalid fields: {', '.join(invalid_fields)}."
+        )
         super().__init__(self.message)
 
+
 # must match the SEVERITY enum in migration 0001
-VALID_SEVERITY: tuple[str] = ('debug', 'info', 'warning', 'error', 'fatal')
+VALID_SEVERITY: tuple[str] = ("debug", "info", "warning", "error", "fatal")
+
 
 def _dense_embed(chunks: list[RawChunk], client: httpx.Client) -> list[list[float]]:
     """
@@ -49,17 +55,21 @@ def _dense_embed(chunks: list[RawChunk], client: httpx.Client) -> list[list[floa
     batch_size = 32
     embeddings = []
     for start in range(0, len(chunks), batch_size):
-        batch = chunks[start:start + batch_size]
+        batch = chunks[start : start + batch_size]
         response = client.post(
             f"{settings.ollama_base_url.rstrip('/')}/api/embed",
-            json={"model": settings.embedding_model, "input": [chunk.text for chunk in batch]},
+            json={
+                "model": settings.embedding_model,
+                "input": [chunk.context_text for chunk in batch],
+            },
         )
         response.raise_for_status()
         embeddings.extend(response.json()["embeddings"])
         print(f"dense embed: {min(start + batch_size, len(chunks))}/{len(chunks)}", flush=True)
     return embeddings
 
-def _sparse_embed(chunks: list[RawChunk], client: httpx.Client) -> list[dict[str,float]]:
+
+def _sparse_embed(chunks: list[RawChunk], client: httpx.Client) -> list[dict[str, float]]:
     """
     Function for generating sparse vector embeddings using tei container. Returns a
     list of dictionaries representing embeddings corresponding to input chunks.
@@ -68,12 +78,54 @@ def _sparse_embed(chunks: list[RawChunk], client: httpx.Client) -> list[dict[str
     if settings.embedding_setup != "dual":
         return []
 
-    sparse_vecs = client.post(
-        f"{settings.tei_endpoint.rstrip('/')}/embed_sparse",
-        json={"inputs": [chunk.text for chunk in chunks]},
-    ).raise_for_status().json()
-    
-    return [{int(entry["index"]): float(entry["value"]) for entry in sparse_chunk} for sparse_chunk in sparse_vecs]
+    # TEI rejects a request above its client batch size (32 by default) and, unless
+    # asked to truncate, any input longer than the model's 512 tokens
+    batch_size = 32
+    sparse_vecs = []
+    for start in range(0, len(chunks), batch_size):
+        batch = chunks[start : start + batch_size]
+        response = client.post(
+            f"{settings.tei_endpoint.rstrip('/')}/embed_sparse",
+            json={"inputs": [chunk.context_text for chunk in batch], "truncate": True},
+        )
+        sparse_vecs.extend(response.raise_for_status().json())
+        print(f"sparse embed: {min(start + batch_size, len(chunks))}/{len(chunks)}", flush=True)
+
+    # index 0 is the padding token; a sparsevec has no position 0 to store it in
+    return [
+        {
+            int(entry["index"]): float(entry["value"])
+            for entry in sparse_chunk
+            if int(entry["index"]) > 0
+        }
+        for sparse_chunk in sparse_vecs
+    ]
+
+
+def _document_hash_text(value: object) -> str:
+    """Decode document.hash to the hex digest string, or "" when it is empty."""
+    if isinstance(value, memoryview):
+        value = value.tobytes()
+    if isinstance(value, bytearray):
+        value = bytes(value)
+    if isinstance(value, bytes):
+        try:
+            return value.decode("utf-8")
+        except UnicodeDecodeError:
+            return ""
+    if value is None:
+        return ""
+    return str(value)
+
+
+def load_document_hashes() -> dict[str, str]:
+    """file_path -> document.hash, decoded the same way ingestion compares it."""
+    settings = get_settings()
+    with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
+        with connection.cursor() as cursor:
+            rows = cursor.execute("SELECT file_path, hash FROM document").fetchall()
+    return {row["file_path"]: _document_hash_text(row["hash"]) for row in rows}
+
 
 def insert_document(cursor, version: str, hash: str, file_path: str) -> int:
     """Upsert a document row by file_path and return its doc_id."""
@@ -85,13 +137,15 @@ def insert_document(cursor, version: str, hash: str, file_path: str) -> int:
         DO UPDATE SET current_version = EXCLUDED.current_version, hash = EXCLUDED.hash
         RETURNING doc_id
         """,
-        (version, hash, file_path)
+        (version, hash, file_path),
     ).fetchone()
 
     return res["doc_id"]
 
-def resolve_immediate_heading(cursor, chunk: RawChunk, doc_id: int,
-                               heading_cache: dict[tuple, int]) -> int | None:
+
+def resolve_immediate_heading(
+    cursor, chunk: RawChunk, doc_id: int, heading_cache: dict[tuple, int]
+) -> int | None:
     """
     Walk the chunk's header cascade top-down (h1 -> h2 -> h3 ...), creating any
     heading rows that don't exist yet and chaining each one to its parent via
@@ -122,7 +176,7 @@ def resolve_immediate_heading(cursor, chunk: RawChunk, doc_id: int,
                     SET heading_order = EXCLUDED.heading_order
                 RETURNING heading_id
                 """,
-                (text, level, doc_id, parent_id)
+                (text, level, doc_id, parent_id),
             )
             heading_cache[cache_key] = cursor.fetchone()["heading_id"]
 
@@ -134,7 +188,10 @@ def resolve_immediate_heading(cursor, chunk: RawChunk, doc_id: int,
 
 
 def insert_chunk(cursor, data: dict, doc_id: int, heading_cache: dict[tuple, int]) -> None:
-    """Insert chunks into document_chunks table and insert headings if not exists"""
+    """Insert chunks into document_chunks table and insert headings if not exists.
+
+    content is the chunk's own text; its heading path goes in metadata.heading_path,
+    where the reranker reads it back (rag_engine Chunk.context_text)."""
 
     chunk = data["chunk"]
     dense = data["dense"]
@@ -147,14 +204,25 @@ def insert_chunk(cursor, data: dict, doc_id: int, heading_cache: dict[tuple, int
     cursor.execute(
         """
         INSERT INTO document_chunks
-            (content, metadata, dc_type, document_source, lexical_embedding, semantic_embedding, closest_heading)
+            (content, metadata, dc_type, document_source,
+             lexical_embedding, semantic_embedding, closest_heading)
         VALUES (%s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (content, metadata, dc_type, document_source, closest_heading) DO UPDATE
-            SET lexical_embedding = EXCLUDED.lexical_embedding, semantic_embedding = EXCLUDED.semantic_embedding
+            SET lexical_embedding = EXCLUDED.lexical_embedding,
+                semantic_embedding = EXCLUDED.semantic_embedding
         RETURNING chunk_id
         """,
-        (chunk.text, "{}", chunk.kind, chunk.source, f"{sparse}/30522" if sparse else None, dense, heading_id)
+        (
+            chunk.text,
+            Jsonb({"heading_path": chunk.heading_path} if chunk.heading_path else {}),
+            chunk.kind,
+            chunk.source,
+            f"{sparse}/30522" if sparse else None,
+            dense,
+            heading_id,
+        ),
     )
+
 
 def _clear_sources(cursor, sources: list[str], keep: bool) -> None:
     """Delete indexed chunks/headings/documents for `sources` (keep=False) or for
@@ -175,23 +243,53 @@ def _clear_sources(cursor, sources: list[str], keep: bool) -> None:
         )
     cursor.execute(f"DELETE FROM document_chunks WHERE document_source {match}", (sources,))
     cursor.execute(
-        f"DELETE FROM heading WHERE document_id IN (SELECT doc_id FROM document WHERE file_path {match})",
+        f"""
+        DELETE FROM heading WHERE document_id IN
+            (SELECT doc_id FROM document WHERE file_path {match})
+        """,
         (sources,),
     )
     if keep:
         cursor.execute(f"DELETE FROM document WHERE file_path {match}", (sources,))
 
-def _write_embeddings(chunks: list[RawChunk], dense_embeddings: list[list[float]], sparse_embeddings: list[dict[str,float]], prune: bool = False) -> None:
+
+def prune_documents(keep_paths: list[str]) -> None:
+    """Delete indexed documents whose file_path is not in keep_paths.
+
+    keep_paths is every markdown file still on disk. Unchanged files belong in
+    that list so their document, heading, and chunk rows stay.
+    """
+    settings = get_settings()
+    with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
+        with connection.cursor() as cursor:
+            _clear_sources(cursor, keep_paths, keep=True)
+            connection.commit()
+
+
+def _write_embeddings(
+    chunks: list[RawChunk],
+    dense_embeddings: list[list[float]],
+    sparse_embeddings: list[dict[str, float]],
+    prune: bool = False,
+    document_hashes: dict[str, str] | None = None,
+    keep_paths: list[str] | None = None,
+) -> None:
     """Write chunks, replacing each written document's previous rows.
 
-    prune=True also deletes every indexed document that is not in `chunks`; only
-    a full-corpus run (the pipeline) may ask for that, or it would wipe the index.
+    prune=True deletes indexed documents whose file_path is outside keep_paths.
+    keep_paths defaults to the documents being written. A full-corpus run passes
+    every file still on disk, including files skipped because their hash matched,
+    so those rows and chunks are kept. Only a full-corpus run may prune.
+    document_hashes maps each written source path to the file's SHA-256 hex digest,
+    stored on document.hash. Callers that omit it leave the hash empty.
     """
-    doc_chunks: dict[str, list[dict[str,list|RawChunk]]] = defaultdict(list)
+    doc_chunks: dict[str, list[dict[str, list | RawChunk]]] = defaultdict(list)
 
     # Group chunks, dense and sparse embeddings together using source document as key
     for i in range(len(chunks)):
-        doc_chunks[chunks[i].source].append({"chunk": chunks[i], "dense": dense_embeddings[i], "sparse": sparse_embeddings[i]})
+        doc_chunks[chunks[i].source].append(
+            {"chunk": chunks[i], "dense": dense_embeddings[i], "sparse": sparse_embeddings[i]}
+        )
 
     settings = get_settings()
     with psycopg.connect(settings.postgres_dsn, row_factory=dict_row) as connection:
@@ -204,22 +302,34 @@ def _write_embeddings(chunks: list[RawChunk], dense_embeddings: list[list[float]
             # newly excluded dirs), then replace each written document's chunks/headings
             sources = list(doc_chunks)
             if prune:
-                _clear_sources(cursor, sources, keep=True)
+                # files still on disk, not merely the files being rewritten
+                retained = sources if keep_paths is None else keep_paths
+                _clear_sources(cursor, retained, keep=True)
             _clear_sources(cursor, sources, keep=False)
 
             # insert document into table
             for doc in doc_chunks:
-                doc_id = insert_document(cursor=cursor, version=1, hash=b"", file_path=doc)
+                digest = document_hashes[doc] if document_hashes is not None else b""
+                doc_id = insert_document(cursor=cursor, version=1, hash=digest, file_path=doc)
                 for chunk_group in doc_chunks[doc]:
-                    insert_chunk(cursor=cursor, data=chunk_group, doc_id=doc_id, heading_cache=heading_cache)
+                    insert_chunk(
+                        cursor=cursor, data=chunk_group, doc_id=doc_id, heading_cache=heading_cache
+                    )
 
-            connection.commit()                                
+            connection.commit()
 
-def embed_and_index(chunks: list[RawChunk], prune: bool = False) -> None:  # pragma: no cover - integration
+
+def embed_and_index(
+    chunks: list[RawChunk],
+    prune: bool = False,
+    document_hashes: dict[str, str] | None = None,
+    keep_paths: list[str] | None = None,
+) -> None:  # pragma: no cover - integration
     """Embed `chunks` and write them, replacing their documents' existing rows.
 
-    prune=True also deletes every document not present in `chunks`; only a
-    full-corpus run (ingestion.pipeline) may pass it.
+    prune=True deletes documents missing from keep_paths. The pipeline passes
+    every file still on disk so unchanged documents are kept. document_hashes,
+    when given, is stored on each written document row as its SHA-256 hex digest.
     """
     if not chunks:
         return
@@ -232,8 +342,16 @@ def embed_and_index(chunks: list[RawChunk], prune: bool = False) -> None:  # pra
             if settings.embedding_setup == "dual"
             else [{} for _ in chunks]
         )
-    
-    _write_embeddings(chunks=chunks, dense_embeddings=dense_embeddings, sparse_embeddings=sparse_embeddings, prune=prune)
+
+    _write_embeddings(
+        chunks=chunks,
+        dense_embeddings=dense_embeddings,
+        sparse_embeddings=sparse_embeddings,
+        prune=prune,
+        document_hashes=document_hashes,
+        keep_paths=keep_paths,
+    )
+
 
 def populate_alarms(alarms_json: dict) -> None:
     """Upsert the alarm catalogue from an alarms file (see ingestion/seed_alarms.py).
@@ -265,20 +383,23 @@ def populate_alarms(alarms_json: dict) -> None:
                     raise InvalidInputError(["code"])
 
                 invalid_fields = []
-                
+
                 alarm_data = {
                     # alarm_code data
                     "origin": code_sections[0],
                     "sequence": code_sections[2],
                     "title": alarm["title"],
-                    "severity_score": alarm["severity"], # added separate severity score (int)
-                    "severity_category": alarm["severity_category"].lower(), # severity category (enum)
+                    "severity_score": alarm["severity"],  # added separate severity score (int)
+                    "severity_category": alarm[
+                        "severity_category"
+                    ].lower(),  # severity category (enum)
                     "alarm_text": alarm["alarm_text"],
+                    # optional: older alarm files have none
+                    "description": alarm.get("description") or "",
                     "data_fields": alarm["data_fields"],
-
                     # alarm_module data
                     "code": code_sections[1],
-                    "module_title": alarm["domain"]
+                    "module_title": alarm["domain"],
                 }
 
                 # Validate inputs
@@ -317,21 +438,32 @@ def populate_alarms(alarms_json: dict) -> None:
                 cursor.execute(
                     """
                     INSERT INTO alarm_code
-                    (origin, alarm_sequence, title, severity_score, severity_category, alarm_text, data_fields, module)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    (origin, alarm_sequence, title, severity_score, severity_category,
+                     alarm_text, description, data_fields, module)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (origin, alarm_sequence, module) DO UPDATE 
                         SET title = EXCLUDED.title,
                             severity_score = EXCLUDED.severity_score,
                             severity_category = EXCLUDED.severity_category,
                             alarm_text = EXCLUDED.alarm_text,
+                            description = EXCLUDED.description,
                             data_fields = EXCLUDED.data_fields; 
                     """,
-                    (alarm_data["origin"], alarm_data["sequence"], alarm_data["title"],
-                     alarm_data["severity_score"], alarm_data["severity_category"], 
-                     alarm_data["alarm_text"], Jsonb(alarm_data["data_fields"]), module_res["id"]),
+                    (
+                        alarm_data["origin"],
+                        alarm_data["sequence"],
+                        alarm_data["title"],
+                        alarm_data["severity_score"],
+                        alarm_data["severity_category"],
+                        alarm_data["alarm_text"],
+                        alarm_data["description"],
+                        Jsonb(alarm_data["data_fields"]),
+                        module_res["id"],
+                    ),
                 )
 
             connection.commit()
+
 
 def populate_keyword_table(specificity_threshold: float = 25.0) -> None:
     """Rebuild keyword_lookup: domain terms -> the chunks that mention them + IDF.
@@ -342,9 +474,9 @@ def populate_keyword_table(specificity_threshold: float = 25.0) -> None:
     English (wordfreq); terms in over 25% of chunks are too common and skipped.
     """
     TOKEN_RE = re.compile(
-        r"`([^`\n]{2,40})`"                       # .md inline code ` `
-        r"|(\b[A-Z]{2,}[A-Z0-9_-]*\b)"            # ALL_CAPS acronyms/codes
-        r"|(\b[A-Za-z]{3,35}\b)"                  # Standard words
+        r"`([^`\n]{2,40})`"  # .md inline code ` `
+        r"|(\b[A-Z]{2,}[A-Z0-9_-]*\b)"  # ALL_CAPS acronyms/codes
+        r"|(\b[A-Za-z]{3,35}\b)"  # Standard words
     )
 
     settings = get_settings()
@@ -382,9 +514,9 @@ def populate_keyword_table(specificity_threshold: float = 25.0) -> None:
                 if doc_freq > max(5, int(total_chunks * 0.25)):
                     continue
 
-                # calculate domain specificity 
+                # calculate domain specificity
                 corpus_prob = doc_freq / max(1, total_tokens)
-                english_prob = word_frequency(term, 'en', minimum=1e-9)
+                english_prob = word_frequency(term, "en", minimum=1e-9)
                 specificity = corpus_prob / english_prob
 
                 # keep if it's a structural/code identifier OR high domain specificity
@@ -396,13 +528,16 @@ def populate_keyword_table(specificity_threshold: float = 25.0) -> None:
             # insert all entries. psycopg 3 has no psycopg2-style `VALUES %s` bulk
             # expansion (it saw 1 placeholder vs thousands of params); executemany
             # batches the rows in a pipeline instead
-            cursor.executemany("""
+            cursor.executemany(
+                """
                 INSERT INTO keyword_lookup (keyword, related_chunks, idf_weight)
                 VALUES (%s, %s, %s)
                 ON CONFLICT (keyword) DO UPDATE
                 SET related_chunks = EXCLUDED.related_chunks,
                     idf_weight = EXCLUDED.idf_weight;
-            """, payload)
+            """,
+                payload,
+            )
 
             # re-ingest replaces chunks (new chunk_ids), so terms that weren't
             # re-emitted would keep pointing at chunks that no longer exist
@@ -412,4 +547,3 @@ def populate_keyword_table(specificity_threshold: float = 25.0) -> None:
             )
 
             connection.commit()
-            

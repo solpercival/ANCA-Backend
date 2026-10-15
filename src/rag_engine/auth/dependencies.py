@@ -23,8 +23,8 @@ from fastapi.security import OAuth2PasswordBearer
 
 from rag_engine.api.errors import AuthUnavailable, Forbidden, Unauthorized
 from rag_engine.auth.interfaces import SessionStore, User, UserRepository
-from rag_engine.auth.tiers import Principal, Tier
 from rag_engine.auth.service import AuthService
+from rag_engine.auth.tiers import Principal, Tier
 from rag_engine.auth.tokens import decode_access_token
 from rag_engine.config import get_settings
 

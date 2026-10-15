@@ -1,6 +1,7 @@
 """Redis session store against a fake Redis client: one-time refresh tokens,
 rotation records, session families, revocation and failed-login counters.
 """
+
 from contextlib import contextmanager
 
 import pytest

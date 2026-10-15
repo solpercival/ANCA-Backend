@@ -1,6 +1,7 @@
 """Error handlers keep an HTTPException's headers (e.g. WWW-Authenticate)
 when rendering the standard error body.
 """
+
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 

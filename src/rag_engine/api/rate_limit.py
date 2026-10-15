@@ -4,6 +4,7 @@ Each limited route counts requests in two buckets per window: one per client IP
 and one per account tier. The window's counter lives in Redis (one atomic Lua
 call per request), so limits hold across orchestrator replicas.
 """
+
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -11,10 +12,10 @@ import redis.exceptions
 from fastapi import Depends, HTTPException, Request
 from redis.asyncio import Redis
 
-from rag_engine.auth.dependencies import current_principal
 from rag_engine.api.errors import RateLimitUnavailable
-from rag_engine.config import get_settings
+from rag_engine.auth.dependencies import current_principal
 from rag_engine.auth.tiers import Principal
+from rag_engine.config import get_settings
 
 
 @dataclass(frozen=True)
@@ -30,6 +31,8 @@ class RateLimitBackendError(RuntimeError):
 
 
 class RateLimitBackend(Protocol):
+    """Shared counter storage for rate-limit buckets (Redis in production, a fake in tests)."""
+
     async def increment(self, key: str, window_seconds: int) -> tuple[int, int]:
         """Atomically increment a bucket and return its count and TTL."""
 
@@ -74,6 +77,9 @@ return {current, ttl}
         self._redis = redis
 
     async def increment(self, key: str, window_seconds: int) -> tuple[int, int]:
+        """Add one to `key` and return (count, seconds until the window resets). The
+        first request in a window starts its expiry. Raises RateLimitBackendError if
+        Redis fails."""
         try:
             result = await self._redis.eval(
                 self._INCREMENT_SCRIPT,
@@ -96,6 +102,7 @@ def rate_limit_dependency(route_name: str, ip_limit_setting: str, tier_limit_set
     over a limit -> 429 with Retry-After; Redis errors -> 503 rate_limit_unavailable
     (fails closed rather than letting unlimited traffic through).
     """
+
     async def enforce_rate_limit(
         request: Request,
         principal: Principal = Depends(current_principal),

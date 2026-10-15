@@ -4,6 +4,7 @@ The URL comes from the app's own settings (POSTGRES_* env vars / .env), so there
 is one source of truth for where the database lives. There is no SQLAlchemy
 model layer, so migrations are hand-written (no autogenerate).
 """
+
 from logging.config import fileConfig
 
 from alembic import context

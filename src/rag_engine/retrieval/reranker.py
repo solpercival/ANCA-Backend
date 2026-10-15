@@ -3,6 +3,7 @@
 IdentityReranker returns candidates unchanged and serves as the baseline.
 Qwen3Reranker scores each query/chunk pair with a cross-encoder.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -11,6 +12,7 @@ import threading
 import time
 from typing import Any
 
+from rag_engine.api.schemas import EffortSettings
 from rag_engine.config import get_settings
 from rag_engine.retrieval.interfaces import Chunk
 
@@ -18,11 +20,11 @@ from rag_engine.retrieval.interfaces import Chunk
 # "does this document meet the query?", and the score is P(yes). Changing PREFIX or
 # SUFFIX breaks the model's calibration; INSTRUCTION is the task-specific part.
 PREFIX = (
-    '<|im_start|>system\nJudge whether the Document meets the requirements '
-    'based on the Query and the Instruct provided. Note that the answer can '
+    "<|im_start|>system\nJudge whether the Document meets the requirements "
+    "based on the Query and the Instruct provided. Note that the answer can "
     'only be "yes" or "no".<|im_end|>\n<|im_start|>user\n'
 )
-SUFFIX = '<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n'
+SUFFIX = "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
 INSTRUCTION = "Given a CNC documentation query, judge whether the document answers it"
 
 log = logging.getLogger("rag_engine.reranker")
@@ -31,12 +33,14 @@ log = logging.getLogger("rag_engine.reranker")
 class IdentityReranker:
     """No-op reranker: preserves incoming order, truncates to top_n."""
 
-    async def rerank(
-        self, query: str, chunks: list[Chunk], top_n: int
-    ) -> list[Chunk]:
+    # chunk.score is left as the retriever set it (an RRF score or 0), so it says
+    # nothing about relevance and must not be compared with a relevance threshold
+    scores_relevance = False
+
+    async def rerank(self, query: str, chunks: list[Chunk], effort: EffortSettings) -> list[Chunk]:
         """Return the first top_n chunks unchanged."""
         del query  # unused: ordering is left to the caller
-        return list(chunks[:top_n])
+        return list(chunks[: effort.reranker_n])
 
 
 class Qwen3Reranker:
@@ -46,10 +50,19 @@ class Qwen3Reranker:
     stays free of heavy dependencies and CI can run without models.
 
     max_length: tokens per query+chunk pair; longer chunks are truncated (the
-        orchestrator uses 512). batch_size: pairs per forward pass (RERANK_BATCH_SIZE).
+        orchestrator passes RERANK_MAX_LENGTH). batch_size: pairs per forward pass
+        (RERANK_BATCH_SIZE).
     min_score: drop chunks below this P(yes), always keeping the best
         (RERANK_MIN_SCORE; 0 disables).
+    relative_min: also drop chunks below this fraction of the best chunk's score
+        (RERANK_RELATIVE_MIN; 0 disables).
+    min_keep: chunks always kept from the top of the ranking, exempt from both
+        cutoffs (RERANK_MIN_KEEP; at least 1).
     """
+
+    # chunk.score is P(yes), the probability (0-1) that the chunk answers the query;
+    # the orchestrator's relevance floor (RESOLVE_MIN_RELEVANCE) relies on this
+    scores_relevance = True
 
     def __init__(
         self,
@@ -57,11 +70,17 @@ class Qwen3Reranker:
         max_length: int = 4096,
         batch_size: int | None = None,
         min_score: float | None = None,
+        relative_min: float | None = None,
+        min_keep: int | None = None,
     ):
         self._model_name = model_name or get_settings().rerank_model
         self._max_length = max_length
         self._batch_size = max(1, batch_size or get_settings().rerank_batch_size)
         self._min_score = get_settings().rerank_min_score if min_score is None else min_score
+        self._relative_min = (
+            get_settings().rerank_relative_min if relative_min is None else relative_min
+        )
+        self._min_keep = max(1, get_settings().rerank_min_keep if min_keep is None else min_keep)
         self._model: Any = None
         self._tokenizer: Any = None
         self._yes_id: int = -1
@@ -70,7 +89,7 @@ class Qwen3Reranker:
         self._load_lock = threading.Lock()
 
     def _ensure_loaded(self) -> None:
-        # Import is intentionally kept here, inside the backend implementation.
+        """Load the model on first use; later calls return immediately."""
         if self._model is not None:
             return
         with self._load_lock:  # concurrent first requests must not load it twice
@@ -78,6 +97,9 @@ class Qwen3Reranker:
                 self._load()
 
     def _load(self) -> None:
+        """Download (or read from the HF cache) the tokenizer and model, and move the
+        model to the GPU when one is visible. torch/transformers are imported here,
+        not at module level, so the module imports without them."""
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -85,9 +107,7 @@ class Qwen3Reranker:
         # fp16 halves VRAM on GPU; CPU kernels need fp32
         dtype = torch.float16 if self._device == "cuda" else torch.float32
 
-        self._tokenizer = AutoTokenizer.from_pretrained(
-            self._model_name, padding_side="left"
-        )
+        self._tokenizer = AutoTokenizer.from_pretrained(self._model_name, padding_side="left")
         self._model = (
             AutoModelForCausalLM.from_pretrained(self._model_name, torch_dtype=dtype)
             .to(self._device)
@@ -105,16 +125,18 @@ class Qwen3Reranker:
         else:
             log.info(
                 "reranker_loaded model=%s device=cuda gpu=%s dtype=fp16",
-                self._model_name, torch.cuda.get_device_name(0),
+                self._model_name,
+                torch.cuda.get_device_name(0),
             )
 
     def _score(self, query: str, texts: list[str]) -> list[float]:
+        """Relevance of each text to the query, in input order: the model's
+        probability (0-1) of answering "yes" to "does this document answer the
+        query?". Blocking; the model must already be loaded."""
         import torch
 
         prompts = [
-            PREFIX
-            + f"<Instruct>: {INSTRUCTION}\n<Query>: {query}\n<Document>: {text}"
-            + SUFFIX
+            PREFIX + f"<Instruct>: {INSTRUCTION}\n<Query>: {query}\n<Document>: {text}" + SUFFIX
             for text in texts
         ]
         t0 = time.perf_counter()
@@ -127,7 +149,7 @@ class Qwen3Reranker:
         max_seq = 0
         for start in range(0, len(prompts), self._batch_size):
             inputs = self._tokenizer(
-                prompts[start:start + self._batch_size],
+                prompts[start : start + self._batch_size],
                 padding=True,
                 truncation=True,
                 max_length=self._max_length,
@@ -139,9 +161,14 @@ class Qwen3Reranker:
             scores.extend(torch.softmax(pair.float(), dim=1)[:, 1].tolist())  # syncs the GPU
         if self._device == "cuda":
             log.info(
-                "rerank_forward pairs=%d batch=%d seq_len=%d secs=%.3f torch_peak_mib=%d torch_reserved_mib=%d",
-                len(texts), self._batch_size, max_seq, time.perf_counter() - t0,
-                torch.cuda.max_memory_allocated() // 2**20, torch.cuda.memory_reserved() // 2**20,
+                "rerank_forward pairs=%d batch=%d seq_len=%d secs=%.3f "
+                "torch_peak_mib=%d torch_reserved_mib=%d",
+                len(texts),
+                self._batch_size,
+                max_seq,
+                time.perf_counter() - t0,
+                torch.cuda.max_memory_allocated() // 2**20,
+                torch.cuda.memory_reserved() // 2**20,
             )
         return scores
 
@@ -165,26 +192,38 @@ class Qwen3Reranker:
             pair = pair + head.bias[rows]
         return pair
 
-    async def rerank(
-        self, query: str, chunks: list[Chunk], top_n: int
-    ) -> list[Chunk]:
+    async def rerank(self, query: str, chunks: list[Chunk], effort: EffortSettings) -> list[Chunk]:
         """Score each chunk against the query and return the top_n by relevance."""
         if not chunks:
             return []
         # model load (first call) and the forward pass are blocking; keep them off
         # the event loop so other requests and /ready stay responsive
         await asyncio.to_thread(self._ensure_loaded)
-        scores = await asyncio.to_thread(self._score, query, [c.text for c in chunks])
+        # context_text: the chunk under its heading path, so a piece cut out of a
+        # section is judged knowing what it belongs to
+        scores = await asyncio.to_thread(self._score, query, [c.context_text for c in chunks])
         for chunk, score in zip(chunks, scores, strict=True):
             chunk.score = score
-        ranked = sorted(chunks, key=lambda c: c.score, reverse=True)[:top_n]
+        ranked = sorted(chunks, key=lambda c: c.score, reverse=True)[: effort.reranker_n]
         # Scores are P("yes, this document answers the query"). Off-topic chunks that
         # still make the top_n reach the prompt and get used (e.g. a firmware-upgrade
         # page cited for an EtherCAT state alarm), so drop them -- but always keep the
-        # best one, so the generator can still decide coverage itself.
-        kept = [c for c in ranked if c.score >= self._min_score] or ranked[:1]
+        # best ones, so the generator can still decide coverage itself.
+        # The absolute floor alone cannot adapt to the query: 0.10 is noise next to a
+        # 0.93 best chunk but would be a fair match if the best were 0.30. So past the
+        # guaranteed chunks, a chunk must also reach a fraction of the top score.
+        relative_floor = self._relative_min * ranked[0].score
+        kept = [
+            c
+            for i, c in enumerate(ranked)
+            if i < self._min_keep or (c.score >= self._min_score and c.score >= relative_floor)
+        ]
         log.info(
-            "rerank_cutoff min_score=%.2f kept=%d/%d scores=%s",
-            self._min_score, len(kept), len(ranked), [round(c.score, 2) for c in ranked],
+            "rerank_cutoff min_score=%.2f rel=%.2f kept=%d/%d scores=%s",
+            self._min_score,
+            self._relative_min,
+            len(kept),
+            len(ranked),
+            [round(c.score, 2) for c in ranked],
         )
         return kept

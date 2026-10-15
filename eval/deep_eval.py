@@ -26,6 +26,8 @@ DEFAULT_THRESHOLDS = {
 
 
 def _maybe_langfuse():
+    """A Langfuse client when LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY are set and
+    the package is installed; otherwise None, and tracing is skipped."""
     public_key = os.getenv("LANGFUSE_PUBLIC_KEY")
     secret_key = os.getenv("LANGFUSE_SECRET_KEY")
     if not public_key or not secret_key:
@@ -57,7 +59,7 @@ def score_snapshot(result: dict[str, Any]) -> dict[str, float]:
     full model-side evaluator. Replace this with DeepEval metrics once the live
     RAG dataset is wired in.
     """
-    citation_count = len(result.get("citation_ids", []))
+    citation_count = len(result.get("citation_paths", []))
     step_count = int(result.get("step_count", 0))
     confidence = float(result.get("confidence", 0.0))
 
@@ -109,6 +111,8 @@ def run_quality_gate(path: str | Path | None = None) -> dict[str, float]:
 
 
 def main() -> None:
+    """CLI entry point: run the quality gate on the default snapshot and print the
+    scores as JSON. Exits with an AssertionError if a threshold is missed."""
     scores = run_quality_gate()
     print(json.dumps(scores, indent=2))
 

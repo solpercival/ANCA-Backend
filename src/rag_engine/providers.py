@@ -15,6 +15,7 @@ The Ollama path is the one exercised end to end by `make bench` / `make eval`;
 the OpenAI and Anthropic adapters are not run there. All adapters share
 the app's httpx client, whose timeouts are set in main.lifespan.
 """
+
 from __future__ import annotations
 
 import json
@@ -39,6 +40,7 @@ def _log_generate_stats(final: dict) -> None:
     The last streamed message carries token counts and nanosecond durations;
     low output tok/s points at GPU placement, a big prompt_secs at context size.
     """
+
     def secs(key: str) -> float:
         return (final.get(key) or 0) / 1e9
 
@@ -50,14 +52,20 @@ def _log_generate_stats(final: dict) -> None:
         "generate_stats prompt_tokens=%s prompt_secs=%.2f prompt_tok_s=%.0f "
         "output_tokens=%s output_secs=%.2f output_tok_s=%.1f load_secs=%.2f "
         "total_secs=%.2f done_reason=%s",
-        final.get("prompt_eval_count"), secs("prompt_eval_duration"),
+        final.get("prompt_eval_count"),
+        secs("prompt_eval_duration"),
         rate("prompt_eval_count", "prompt_eval_duration"),
-        final.get("eval_count"), secs("eval_duration"), rate("eval_count", "eval_duration"),
-        secs("load_duration"), secs("total_duration"), final.get("done_reason"),
+        final.get("eval_count"),
+        secs("eval_duration"),
+        rate("eval_count", "eval_duration"),
+        secs("load_duration"),
+        secs("total_duration"),
+        final.get("done_reason"),
     )
 
 
 # --- storage backends --------------------------------------------------------------
+
 
 def get_lexical_backend() -> Any:
     """LexicalIndex for sparse search (only used when EMBEDDING_SETUP=dual)."""
@@ -66,8 +74,9 @@ def get_lexical_backend() -> Any:
 
     if provider == "postgres":
         return PostgresDBConnection()
-    
+
     raise ValueError(f"Unsupported lexical provider: {provider}")
+
 
 def get_chat_store_backend() -> Any:
     """ChatStore holding conversation history for query rewriting."""
@@ -78,20 +87,10 @@ def get_chat_store_backend() -> Any:
         return PostgresDBConnection()
 
     raise ValueError(f"Unsupported chat store provider: {provider}")
-    
-def get_alarm_store_backend() -> Any:
-    """Unused: get_orchestrator builds stores.alarms.PostgresAlarmStore directly.
-    Note this returns PostgresDBConnection, which has no get_alarm method, so it
-    does not satisfy AlarmStore."""
-    settings = get_settings()
-    provider = settings.alarm_store_provider.lower()
 
-    if provider == "postgres":
-        return PostgresDBConnection()
-    
-    raise ValueError(f"Unsupported alarm store provider: {provider}")
-    
+
 # --- embedders ---------------------------------------------------------------------
+
 
 class OllamaEmbedder:
     """DenseEmbedder via Ollama's /api/embed (EMBEDDING_MODEL)."""
@@ -100,6 +99,8 @@ class OllamaEmbedder:
         self._client = client
 
     async def dense_embed(self, texts: list[str]) -> list[list[float]]:
+        """One vector per input text, in input order. Raises httpx.HTTPStatusError
+        if Ollama answers with an error status."""
         settings = get_settings()
         response = await self._client.post(
             f"{settings.ollama_base_url.rstrip('/')}/api/embed",
@@ -129,8 +130,10 @@ class OpenAIEmbedder:
 
     def __init__(self, client: httpx.AsyncClient):
         self._client = client
-        
+
     async def dense_embed(self, texts: list[str]) -> list[list[float]]:
+        """One vector per input text, in input order. Raises ValueError when
+        OPENAI_API_KEY is unset and httpx.HTTPStatusError on an error status."""
         settings = get_settings()
         if not settings.openai_api_key:
             raise ValueError("OPENAI_API_KEY is required when embedding_provider=openai")
@@ -138,7 +141,7 @@ class OpenAIEmbedder:
         response = await self._client.post(
             f"{base_url}/embeddings",
             headers={"Authorization": f"Bearer {settings.openai_api_key}"},
-            json={"model": settings.openai_embedding_model, "input": texts}
+            json={"model": settings.openai_embedding_model, "input": texts},
         )
         response.raise_for_status()
         payload = response.json()
@@ -152,7 +155,11 @@ class AnthropicEmbedder:
         self._client = client
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
-        raise NotImplementedError("Anthropic does not expose embeddings in the current provider layer.")
+        """Always raises NotImplementedError."""
+        raise NotImplementedError(
+            "Anthropic does not expose embeddings in the current provider layer."
+        )
+
 
 class TEIEmbedder:
     """SparseEmbedder via Hugging Face Text Embeddings Inference /embed_sparse
@@ -162,16 +169,29 @@ class TEIEmbedder:
         self._client = client
 
     async def sparse_embed(self, texts: list[str]) -> list[dict[int, float]]:
+        """One {vocab index: weight} dict per input text, in input order. Raises
+        httpx.HTTPStatusError if TEI answers with an error status."""
         settings = get_settings()
         response = await self._client.post(
             f"{settings.tei_endpoint.rstrip('/')}/embed_sparse",
-            json={"inputs": texts},
+            # truncate: TEI otherwise rejects input longer than the model's 512 tokens
+            json={"inputs": texts, "truncate": True},
         )
         sparse_vecs = response.raise_for_status().json()
 
-        return [{int(entry["index"]): float(entry["value"]) for entry in sparse_chunk} for sparse_chunk in sparse_vecs]
-    
+        # index 0 is the padding token; a sparsevec has no position 0 (see ingestion)
+        return [
+            {
+                int(entry["index"]): float(entry["value"])
+                for entry in sparse_chunk
+                if int(entry["index"]) > 0
+            }
+            for sparse_chunk in sparse_vecs
+        ]
+
+
 # --- generators ----------------------------------------------------------------------
+
 
 class OllamaGenerator:
     """Generator for answers via Ollama /api/generate (LLM_MODEL), streamed.
@@ -183,23 +203,35 @@ class OllamaGenerator:
     def __init__(self, client: httpx.AsyncClient):
         self._client = client
 
-    async def generate(self, prompt: str) -> str:
+    async def generate(self, prompt: str, tokens: int | None = None, thinking: bool = False) -> str:
+        """The model's answer to `prompt`, with any reasoning trace removed.
+
+        tokens: cap on output tokens (num_predict); None or 0 leaves Ollama's default.
+        thinking: let the model reason before answering; slower, and the reasoning
+            counts against `tokens`.
+        """
         settings = get_settings()
         # stream so the connection stays alive between tokens (avoids ReadTimeout on
         # slow CPU generations) and cap num_predict, the biggest CPU-side latency lever
         chunks: list[str] = []
+        generate_payload = {
+            "model": settings.llm_model,
+            "prompt": prompt,
+            "stream": True,
+            # skip qwen3's hidden reasoning trace, which otherwise burns num_predict
+            # tokens before any answer text is produced
+            "think": thinking,
+            # LLM_TEMPERATURE (default 0: repeatable answers); see config.py
+            "options": {"temperature": settings.llm_temperature},
+        }
+
+        if tokens:
+            generate_payload["options"]["num_predict"] = tokens
+
         async with self._client.stream(
             "POST",
             f"{settings.ollama_base_url.rstrip('/')}/api/generate",
-            json={
-                "model": settings.llm_model,
-                "prompt": prompt,
-                "stream": True,
-                # skip qwen3's hidden reasoning trace, which otherwise burns num_predict
-                # tokens before any answer text is produced
-                "think": False,
-                "options": {"num_predict": settings.llm_num_predict},
-            },
+            json=generate_payload,
         ) as response:
             response.raise_for_status()
             async for line in response.aiter_lines():
@@ -214,27 +246,41 @@ class OllamaGenerator:
         # an unclosed span left when num_predict cuts generation off mid-thought
         return _THINK_SPAN.sub("", "".join(chunks)).strip()
 
+
 class OllamaRewriteGenerator:
-    """Generator for query rewriting (retrieval/rewriter.py) with the small
-    REWRITE_MODEL and its own REWRITE_NUM_PREDICT cap."""
+    """Generator for query rewriting (retrieval/rewriter.py): REWRITE_MODEL, or
+    LLM_MODEL when that is not set, with its own REWRITE_NUM_PREDICT cap."""
 
     def __init__(self, client: httpx.AsyncClient):
-            self._client = client
-    
-    async def generate(self, prompt: str) -> str:
+        self._client = client
+
+    async def generate(self, prompt: str, tokens: int | None = None, thinking: bool = False) -> str:
+        """The rewritten query for a rewrite `prompt`, with any reasoning trace removed.
+
+        tokens: cap on output tokens (num_predict).
+        thinking: accepted to match the Generator interface; the rewrite never reasons.
+        """
         settings = get_settings()
 
         # similar to OllamaGenerator, slight modifications to account for longer prompt sizes.
         chunks: list[str] = []
+        generate_payload = {
+            "model": settings.rewrite_model or settings.llm_model,
+            "prompt": prompt,
+            "stream": True,
+            # qwen3 reasons by default, which spends num_predict before any query
+            # text is written and leaves the rewrite empty
+            "think": False,
+            "options": {},
+        }
+
+        if tokens:
+            generate_payload["options"]["num_predict"] = tokens
+
         async with self._client.stream(
             "POST",
             f"{settings.ollama_base_url.rstrip('/')}/api/generate",
-            json={
-                "model": settings.rewrite_model,
-                "prompt": prompt,
-                "stream": True,
-                "options": {"num_predict": settings.rewrite_num_predict},
-            },
+            json=generate_payload,
         ) as response:
             response.raise_for_status()
             async for line in response.aiter_lines():
@@ -244,28 +290,44 @@ class OllamaRewriteGenerator:
                 chunks.append(payload.get("response", ""))
                 if payload.get("done"):
                     break
-        return "".join(chunks)
+        # older Ollama versions ignore "think" and inline the trace; drop it
+        return _THINK_SPAN.sub("", "".join(chunks)).strip()
+
 
 class OpenAIGenerator:
     """Generator via an OpenAI-compatible /chat/completions endpoint (OpenAI,
-    OpenRouter, LiteLLM...). Non-streaming; no output-token cap is set."""
+    OpenRouter, LiteLLM...). Non-streaming."""
 
     def __init__(self, client: httpx.AsyncClient):
         self._client = client
 
-    async def generate(self, prompt: str) -> str:
+    async def generate(self, prompt: str, tokens: int | None = None, thinking: bool = False) -> str:
+        """The model's answer to `prompt`, sent as a single user message.
+
+        tokens: cap on output tokens (max_completion_tokens); None leaves it unset.
+        thinking: request reasoning_effort=high.
+        Raises ValueError when OPENAI_API_KEY is unset.
+        """
         settings = get_settings()
         if not settings.openai_api_key:
             raise ValueError("OPENAI_API_KEY is required when llm_provider=openai")
         base_url = (settings.openai_base_url or "https://api.openai.com/v1").rstrip("/")
 
+        generate_payload = {
+            "model": settings.openai_llm_model,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+
+        if tokens:
+            generate_payload["max_completion_tokens"] = tokens
+
+        if thinking:
+            generate_payload["reasoning_effort"] = "high"
+
         response = await self._client.post(
             f"{base_url}/chat/completions",
             headers={"Authorization": f"Bearer {settings.openai_api_key}"},
-            json={
-                "model": settings.openai_llm_model, 
-                "messages": [{"role": "user", "content": prompt}],
-                },
+            json=generate_payload,
         )
         response.raise_for_status()
         payload = response.json()
@@ -273,16 +335,35 @@ class OpenAIGenerator:
 
 
 class AnthropicGenerator:
-    """Generator via the Anthropic Messages API (ANTHROPIC_LLM_MODEL), non-streaming,
-    max_tokens 1024."""
+    """Generator via the Anthropic Messages API (ANTHROPIC_LLM_MODEL), non-streaming."""
 
     def __init__(self, client: httpx.AsyncClient):
         self._client = client
 
-    async def generate(self, prompt: str) -> str:
+    async def generate(self, prompt: str, tokens: int | None = None, thinking: bool = False) -> str:
+        """The model's answer to `prompt`, sent as a single user message.
+
+        tokens: cap on output tokens (max_tokens). The Messages API requires it, so
+            a call without it is rejected by Anthropic.
+        thinking: enable extended thinking with a 1024-token budget.
+        Raises ValueError when ANTHROPIC_API_KEY is unset.
+        """
         settings = get_settings()
         if not settings.anthropic_api_key:
             raise ValueError("ANTHROPIC_API_KEY is required when llm_provider=anthropic")
+
+        generate_payload = {
+            "model": settings.anthropic_llm_model,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+
+        if tokens:
+            generate_payload["max_tokens"] = tokens
+
+        if thinking:
+            generate_payload["thinking"] = {"type": "enabled", "budget_tokens": 1024}
+        else:
+            generate_payload["thinking"] = {"type": "disabled"}
 
         response = await self._client.post(
             f"{settings.anthropic_base_url.rstrip('/')}/v1/messages",
@@ -291,18 +372,16 @@ class AnthropicGenerator:
                 "anthropic-version": "2023-06-01",
                 "Content-Type": "application/json",
             },
-            json={
-                "model": settings.anthropic_llm_model,
-                "max_tokens": 1024,
-                "messages": [{"role": "user", "content": prompt}]
-            }
+            json=generate_payload,
         )
-        
+
         response.raise_for_status()
         payload = response.json()
         return payload["content"][0]["text"]
 
+
 # --- factories (selected by the *_PROVIDER settings) ---------------------------------
+
 
 def get_dense_embedding_backend(client: httpx.AsyncClient) -> Any:
     """DenseEmbedder for DENSE_EMBEDDING_PROVIDER; ValueError for an unknown name."""
@@ -320,8 +399,9 @@ def get_dense_embedding_backend(client: httpx.AsyncClient) -> Any:
             "Anthropic does not provide embeddings; choose 'ollama' or 'openai' "
             "for DENSE_EMBEDDING_PROVIDER"
         )
-    
+
     raise ValueError(f"Unsupported embedding provider: {provider}")
+
 
 def get_sparse_embedding_backend(client: httpx.AsyncClient) -> Any:
     """SparseEmbedder for SPARSE_EMBEDDING_PROVIDER; ValueError for an unknown name."""
@@ -332,6 +412,7 @@ def get_sparse_embedding_backend(client: httpx.AsyncClient) -> Any:
         return TEIEmbedder(client)
 
     raise ValueError(f"Unsupported embedding provider: {provider}")
+
 
 def get_generation_backend(client: httpx.AsyncClient) -> Any:
     """Answer Generator for LLM_PROVIDER; ValueError for an unknown name."""
@@ -345,6 +426,7 @@ def get_generation_backend(client: httpx.AsyncClient) -> Any:
         return AnthropicGenerator(client)
     raise ValueError(f"Unsupported LLM provider: {provider}")
 
+
 def get_rewrite_backend(client: httpx.AsyncClient) -> Any:
     """Query-rewrite Generator. Only Ollama is supported, so LLM_PROVIDER=openai or
     anthropic currently makes get_orchestrator fail here."""
@@ -354,7 +436,8 @@ def get_rewrite_backend(client: httpx.AsyncClient) -> Any:
         return OllamaRewriteGenerator(client)
     raise ValueError(f"Unsupported LLM provider: {provider}")
 
+
 async def generate_text(prompt: str, client: httpx.AsyncClient) -> str:
     """One-off generation with the configured provider (not used by the app itself)."""
     backend = get_generation_backend(client)
-    return await backend.generate(prompt)
+    return await backend.generate(prompt, None, False)

@@ -1,25 +1,78 @@
 """Request/response contracts for the resolve + chat API."""
+
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
 from rag_engine.auth.tiers import Tier
+from rag_engine.config import get_settings
 
 DocCoverage = Literal["full", "partial", "none"]
 
 # TODO: confirm exact alarm-code format with the docs team; starter-kit data
-# regex should match the known examples 
+# regex should match the known examples
 ALARM_CODE_PATTERN = r"^[a-z]{2,4}\.[a-z]{2,6}\.\d{4}$"
 
 
 class Env(BaseModel):
     """The caller's machine context; narrows retrieval to matching documentation."""
+
     versions: dict[str, str] = Field(default_factory=dict)  # component -> version
     machine_variant: str | None = None
 
 
+class EffortLevel(StrEnum):
+    """How much work a request asks for: higher levels retrieve and rerank more and
+    allow longer answers, at the cost of latency. See get_effort_settings."""
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+class EffortSettings(BaseModel):
+    """Retrieval, reranking, rewriting and generation settings for the selected effort.
+
+    The values per level are LOW_CONFIG / MID_CONFIG / HIGH_CONFIG in config.py.
+    """
+
+    retrieval_k: int = 0  # candidates fetched per search
+    reranker_n: int = 0  # chunks kept after reranking and put in the prompt
+    # used twice: how many of the retrieved candidates are passed to the reranker
+    # (orchestrator), and how many past chat messages go into the rewrite prompt (rewriter)
+    context_k: int = 0
+    # resolve only: how many retrieved candidates the reranker reads; None = context_k.
+    # Separate from context_k so widening it does not also lengthen the chat history
+    # in the rewrite prompt.
+    rerank_k: int | None = None
+    reranker: str = "identity"  # "identity" keeps the fused order; anything else = Qwen3
+    num_predict: int = 0  # output-token cap for the answer
+    num_rewrite: int = 0  # output-token cap for the query rewrite
+    rewrite: bool = False  # run query preprocessing/rewriting before retrieval
+    thinking: bool = False  # let the answer model reason before it answers
+
+
+def get_effort_settings(level: EffortLevel | None) -> EffortSettings:
+    """The settings for an effort level; None (not specified) means medium."""
+    # collect data based on config
+    match level:
+        case EffortLevel.LOW:
+            config = get_settings().LOW_CONFIG
+        case EffortLevel.MEDIUM:
+            config = get_settings().MID_CONFIG
+        case EffortLevel.HIGH:
+            config = get_settings().HIGH_CONFIG
+        case _:
+            # defaults to medium config
+            config = get_settings().MID_CONFIG
+
+    return EffortSettings(**config)
+
+
 class ResolveRequest(BaseModel):
-    """Body of POST /api/v2/resolve."""
+    """Body of POST <API_PREFIX>/resolve."""
+
     code: str = Field(
         ...,
         min_length=1,
@@ -28,21 +81,43 @@ class ResolveRequest(BaseModel):
         examples=["am.fb.0002"],
     )
     env: Env = Field(default_factory=Env)
+    effort: EffortLevel = EffortLevel.MEDIUM
     query: str | None = Field(
         None,
         max_length=1000,
         description="Optional free-text symptom",
     )
+    conversation_id: str | None = Field(
+        None,
+        min_length=1,
+        max_length=128,
+        description=(
+            "Optional: record this answer under a conversation, so a later /chat "
+            "message with the same id can refer back to it"
+        ),
+    )
 
 
 class Citation(BaseModel):
-    """A documentation chunk the answer was built from."""
-    source: str  # document path
-    chunk_id: str
+    """A documentation section the answer was built from, in the shape of
+    reference-answers.json doc_refs (see retrieval/doc_refs.py)."""
+
+    doc: str = Field(..., examples=["Part Programmer's Reference"])
+    path: str = Field(
+        ...,
+        description="Document path relative to the documentation root",
+        examples=["part-programmers-reference/05-functions.md"],
+    )
+    section: str | None = Field(
+        None,
+        description="Heading the cited text sits under; null if it has none",
+        examples=["electronic_cam"],
+    )
 
 
 class ResolveResponse(BaseModel):
     """Guidance for one alarm. Tier rules are already applied (see api/routes.py)."""
+
     code: str
     # alarm header, rendered from the alarm catalogue (identifies the alarm only;
     # never a source of guidance -- that comes from the docs via steps/causes)
@@ -67,10 +142,24 @@ class ResolveResponse(BaseModel):
     )
     citations: list[Citation] = Field(default_factory=list)
     tier: Tier
-    ai_chat_available: bool = False  # whether the caller may use /api/v2/chat
+    ai_chat_available: bool = False  # whether the caller may use the chat endpoint
+    safety_note: str | None = Field(
+        None,
+        description=(
+            "Verify-before-acting caution, set for safety-related alarms (Fatal by "
+            "default) for every tier; null otherwise. Show it with the steps"
+        ),
+    )
     escalation_suggested: bool = Field(
         False,
-        description="Whether the caller should be offered escalation to a technician",
+        description=(
+            "True when the caller is an operator and the alarm is safety-related or "
+            "the docs don't fully cover it (doc_coverage none/partial): prompt them "
+            "to escalate. Always false for technician and partner"
+        ),
+    )
+    escalation_note: str | None = Field(
+        None, description="Operator-facing escalation message; set iff escalation_suggested"
     )
     confidence: float = Field(
         0.0,
@@ -84,13 +173,36 @@ class ResolveResponse(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    """Body of POST /api/v2/chat. Reuse conversation_id to continue a conversation."""
+    """Body of POST <API_PREFIX>/chat. Reuse conversation_id to continue a conversation."""
+
     conversation_id: str = Field(..., min_length=1, max_length=128)
+    effort: EffortLevel = EffortLevel.MEDIUM
     message: str = Field(..., min_length=1, max_length=4096)
 
 
 class ChatResponse(BaseModel):
     """The assistant's reply and the documentation it drew on."""
+
     conversation_id: str
     reply: str
     citations: list[Citation] = Field(default_factory=list)
+    response_id: int | None = Field(
+        None,
+        description=(
+            "Id of the stored turn, for POST <API_PREFIX>/feedback; "
+            "None when the turn was not stored (e.g. an empty reply)"
+        ),
+    )
+
+
+
+class FeedbackRequest(BaseModel):
+    """Body of POST <API_PREFIX>/feedback: whether a chat reply helped.
+
+    The rewriter shows helpful=false to the query rewrite model as [status: failed]
+    on the conversation's next turn (and true as [status: success]).
+    """
+
+    conversation_id: str = Field(..., min_length=1, max_length=128)
+    response_id: int = Field(..., ge=1)
+    helpful: bool

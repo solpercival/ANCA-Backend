@@ -1,41 +1,56 @@
-"""HTTP surface under /api/v2: health/readiness probes, resolve-by-code, and chat.
+"""HTTP surface under API_PREFIX (/api/<version>): health/readiness probes,
+resolve-by-code, chat, and feedback on chat replies.
 
 Every business endpoint authenticates (current_principal / require), is rate
 limited per IP and per tier, and gets the shared Orchestrator from
 get_orchestrator. Tier-based visibility rules are applied here, after the
 orchestrator returns, so access never depends on what generation produced.
 """
+
 import asyncio
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request, status
+from fastapi.responses import JSONResponse
 
-from rag_engine.api.errors import RetrievalUnavailable
+from rag_engine.api.errors import NotFound, RetrievalUnavailable
 from rag_engine.api.rate_limit import rate_limit_dependency
 from rag_engine.api.schemas import (
     ChatRequest,
     ChatResponse,
+    FeedbackRequest,
     ResolveRequest,
     ResolveResponse,
 )
+from rag_engine.api.safety import is_safety_alarm
 from rag_engine.auth.dependencies import current_principal, require
 from rag_engine.auth.tiers import (
     Principal,
-    can_be_offered_escalation,
     can_use_chat,
     can_view_likely_causes,
+    should_escalate_when_unsure,
 )
-from rag_engine.config import get_settings
+from rag_engine.config import API_PREFIX, get_settings
 from rag_engine.orchestrator import Orchestrator, get_orchestrator
 
-router = APIRouter(prefix="/api/v2", tags=["api"])
+router = APIRouter(prefix=API_PREFIX, tags=["api"])
 settings = get_settings()
 resolve_rate_limit = rate_limit_dependency(
     "resolve", "resolve_rate_limit_per_ip", "resolve_rate_limit_per_tier"
 )
+feedback_rate_limit = rate_limit_dependency(
+    "feedback", "feedback_rate_limit_per_ip", "feedback_rate_limit_per_tier"
+)
 chat_rate_limit = rate_limit_dependency(
     "chat", "chat_rate_limit_per_ip", "chat_rate_limit_per_tier"
 )
+
+# Shown to operators with escalation_suggested; kept out of `steps`, which hold
+# only doc-grounded guidance.
+ESCALATION_NOTE = "If you are unsure, stop and escalate to a technician before acting."
+# doc_coverage values that leave an operator without a complete, documented fix
+_ESCALATE_COVERAGE = frozenset({"none", "partial"})
+
 
 def get_orchestrator_from_request(request: Request):
     """Orchestrator cached on app.state, built on first use.
@@ -50,13 +65,16 @@ def get_orchestrator_from_request(request: Request):
             request.app.state.orchestrator = orch
         except Exception as exc:  # placeholder runtime: DB/provider wiring still pending
             raise RetrievalUnavailable(
-                "Orchestrator is not available yet; DB and retrieval backends are still being wired in."
+                "Orchestrator is not available yet; "
+                "DB and retrieval backends are still being wired in."
             ) from exc
     return orch
 
 
 def _ping_postgres(pool) -> bool:
-    # bounded wait so an exhausted pool or unreachable DB fails the check instead of hanging
+    """Whether Postgres answers a trivial query (blocking). The wait for a connection
+    is bounded, so an exhausted pool or unreachable DB fails the check instead of
+    hanging."""
     with pool.connection(timeout=3.0) as conn:
         return conn.execute("SELECT 1").fetchone() is not None
 
@@ -67,12 +85,17 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@router.get("/ready", tags=["ops"])
-async def ready(request: Request) -> dict[str, object]:
+# response_model=None: FastAPI can't build a response model from a return type that
+# includes a Response class, and raises at import time (the app would not start)
+@router.get("/ready", tags=["ops"], response_model=None)
+async def ready(request: Request) -> dict[str, object] | JSONResponse:
     """Readiness: Postgres, Redis and the model server all answer.
 
     200 with the per-dependency checks when all pass, otherwise 503 with the same
-    checks so the failing one is visible. Each probe has a short timeout.
+    checks so the failing one is visible.
+    Each probe has a short timeout.
+    The 503 is a JSONResponse so the
+    error handler does not stringify the checks body.
     """
     checks = {
         "postgres": False,
@@ -107,9 +130,9 @@ async def ready(request: Request) -> dict[str, object]:
     if all(checks.values()):
         return {"status": "ok", "checks": checks}
 
-    raise HTTPException(
+    return JSONResponse(
         status_code=503,
-        detail={"status": "not_ready", "checks": checks},
+        content={"status": "not_ready", "checks": checks},
     )
 
 
@@ -130,11 +153,13 @@ async def resolve(
     if not can_view_likely_causes(principal.tier):
         resp.likely_causes = []
     resp.ai_chat_available = can_use_chat(principal.tier)
-    resp.escalation_suggested = (
-        settings.escalation_suggestion_enabled
-        and can_be_offered_escalation(principal.tier)
-        and resp.doc_coverage != "full"
+    # Operators are told to escalate instead of acting alone on an alarm that is
+    # safety-related or that the docs don't fully cover. Decided from the alarm's
+    # severity and the coverage, never from what the orchestrator put in the notes.
+    resp.escalation_suggested = should_escalate_when_unsure(principal.tier) and (
+        is_safety_alarm(resp.severity_category) or resp.doc_coverage in _ESCALATE_COVERAGE
     )
+    resp.escalation_note = ESCALATION_NOTE if resp.escalation_suggested else None
     return resp
 
 
@@ -147,3 +172,20 @@ async def chat(
 ) -> ChatResponse:
     """Free-text follow-up question within a conversation (tiers allowed by can_use_chat)."""
     return await orch.chat(req, tier=principal.tier)
+
+
+@router.post("/feedback", status_code=status.HTTP_204_NO_CONTENT, tags=["chat"])
+async def feedback(
+    req: FeedbackRequest,
+    principal: Principal = Depends(require(can_use_chat)),
+    _: None = Depends(feedback_rate_limit),
+    orch: Orchestrator = Depends(get_orchestrator),
+) -> None:
+    """Mark a chat reply (by the response_id /chat returned) as having helped or not.
+
+    Sending it again overwrites the earlier value. The next chat turn in the
+    conversation passes it to the query rewriter.
+    Errors: 404 not_found (no such reply in the conversation), 429 rate_limited.
+    """
+    if not await orch.record_feedback(req.conversation_id, req.response_id, req.helpful):
+        raise NotFound("No such response in this conversation")

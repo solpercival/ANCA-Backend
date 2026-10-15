@@ -1,4 +1,5 @@
 """Alarm catalogue lookup: retrieval runs on the alarm's text; unknown codes 404."""
+
 import asyncio
 from contextlib import contextmanager
 
@@ -7,8 +8,9 @@ import pytest
 from rag_engine.api.errors import RetrievalUnavailable, UnknownAlarmCode
 from rag_engine.api.schemas import ResolveRequest
 from rag_engine.auth.tiers import Tier
+from rag_engine.config import API_PREFIX
 from rag_engine.orchestrator import Orchestrator, get_orchestrator
-from rag_engine.retrieval.interfaces import Chunk
+from rag_engine.retrieval.interfaces import Alarm, Chunk
 from rag_engine.stores import alarms as alarms_module
 from rag_engine.stores.alarms import PostgresAlarmStore
 from tests.fakes import FB_0002, FakeAlarmStore, FakePreprocessor
@@ -25,8 +27,8 @@ class RecordingRetriever:
 
 
 class FakeReranker:
-    async def rerank(self, query, chunks, top_n):
-        return chunks[:top_n]
+    async def rerank(self, query, chunks, effort):
+        return chunks[: effort.reranker_n]
 
 
 class FakeGenerator:
@@ -35,7 +37,7 @@ class FakeGenerator:
     def __init__(self, answer="Check the cable [1]."):
         self._answer = answer
 
-    async def generate(self, prompt):
+    async def generate(self, prompt, tokens=None, thinking=False):
         self.prompt = prompt
         return self._answer
 
@@ -48,7 +50,10 @@ class BrokenAlarmStore:
 def _orch(store=None, answer="Check the cable [1]."):
     return Orchestrator(
         FakePreprocessor(),
-        RecordingRetriever(), FakeReranker(), FakeGenerator(answer), store or FakeAlarmStore()
+        RecordingRetriever(),
+        FakeReranker(),
+        FakeGenerator(answer),
+        store or FakeAlarmStore(),
     )
 
 
@@ -57,6 +62,7 @@ def _resolve(answer, code="am.fb.0002"):
 
 
 # --- orchestrator ------------------------------------------------------------
+
 
 def test_retrieves_on_alarm_text_not_code():
     orch = _orch()
@@ -68,7 +74,9 @@ def test_retrieves_on_alarm_text_not_code():
 
 def test_free_text_query_takes_precedence():
     orch = _orch()
-    asyncio.run(orch.resolve(ResolveRequest(code="am.fb.0002", query="drive trips"), Tier.technician))
+    asyncio.run(
+        orch.resolve(ResolveRequest(code="am.fb.0002", query="drive trips"), Tier.technician)
+    )
 
     assert orch._retriever.queries == ["drive trips"]
 
@@ -90,16 +98,22 @@ def test_unknown_code_raises_before_retrieval():
 
 def test_catalogue_failure_is_retrieval_unavailable():
     with pytest.raises(RetrievalUnavailable):
-        asyncio.run(_orch(BrokenAlarmStore()).resolve(ResolveRequest(code="am.fb.0002"), Tier.technician))
+        asyncio.run(
+            _orch(BrokenAlarmStore()).resolve(ResolveRequest(code="am.fb.0002"), Tier.technician)
+        )
 
 
 # --- catalogue is header, never guidance ---------------------------------------
+
 
 def test_response_renders_alarm_header_from_catalogue():
     resp = _resolve("COVERAGE: partial\nCheck the cable [1].")
 
     assert (resp.title, resp.domain, resp.severity, resp.severity_category) == (
-        "EtherCAT slave lost", "Fieldbus", 900, "Error",
+        "EtherCAT slave lost",
+        "Fieldbus",
+        900,
+        "Error",
     )
 
 
@@ -108,7 +122,61 @@ def test_prompt_marks_catalogue_text_as_not_documentation():
     asyncio.run(orch.resolve(ResolveRequest(code="am.fb.0002"), Tier.technician))
 
     assert "not documentation" in orch._generator.prompt
-    assert "never repeat it as guidance" in orch._generator.prompt
+    assert "never repeat its description of the fault as guidance" in orch._generator.prompt
+
+
+def test_prompt_lets_the_model_use_a_remedy_the_alarm_message_states():
+    # bench at temperature 0: am.lic.0001's message says "disable the server with
+    # opcua.enable", the docs only describe enabling it, and the answer was
+    # "Set opcua.enable to true" -- the old rule told the model to ignore the message
+    orch = _orch()
+    asyncio.run(orch.resolve(ResolveRequest(code="am.fb.0002"), Tier.technician))
+
+    assert "If the alarm message itself states a remedy" in orch._generator.prompt
+    assert "give that remedy as a step" in orch._generator.prompt
+    assert "never give a step that contradicts it" in orch._generator.prompt
+    # restated after the context, which is what a small model reads last
+    reminder = orch._generator.prompt.split("Context:\n", 1)[1].split("Reminder:", 1)[1]
+    assert FB_0002.alarm_text in reminder
+    assert "your first step is that remedy, and no step may do the opposite" in reminder
+
+
+LIC_0001 = Alarm(
+    code="am.lic.0001",
+    title="OPC UA server not licensed",
+    domain="Licensing",
+    severity_score=833,
+    severity_category="error",
+    alarm_text=(
+        "OPC UA Server: the current license does not include the OPC UA server option. "
+        'Purchase the option, or disable the server with the "opcua.enable" '
+        "configuration property."
+    ),
+    data_fields={},
+)
+
+
+def _resolve_lic(answer):
+    orch = _orch(FakeAlarmStore(LIC_0001), answer=answer)
+    return asyncio.run(orch.resolve(ResolveRequest(code="am.lic.0001"), Tier.technician))
+
+
+def test_remedy_stated_in_the_alarm_message_is_kept_as_a_step():
+    # an action taken from the message is guidance from the machine, not a restatement
+    remedy = "Disable the server with the opcua.enable configuration property."
+    resp = _resolve_lic(f"COVERAGE: partial\n{remedy}\nPurchase the option.")
+
+    assert resp.steps == [remedy, "Purchase the option."]
+
+
+def test_fault_description_from_the_alarm_message_is_still_dropped():
+    resp = _resolve_lic(
+        "COVERAGE: partial\n"
+        "The current license does not include the OPC UA server option.\n"
+        "Set opcua.enable to false.\n"
+    )
+
+    assert resp.steps == ["Set opcua.enable to false."]
 
 
 @pytest.mark.parametrize(
@@ -157,12 +225,15 @@ def test_answer_of_only_catalogue_echoes_is_coverage_none():
 
 def test_catalogue_text_cannot_become_a_likely_cause():
     # the alarm message is in the prompt but not in the retrieved context
-    resp = _resolve("COVERAGE: partial\nCheck the cable [1].\nCAUSE: EtherCAT slave 3 stopped responding.")
+    resp = _resolve(
+        "COVERAGE: partial\nCheck the cable [1].\nCAUSE: EtherCAT slave 3 stopped responding."
+    )
 
     assert resp.likely_causes == []
 
 
 # --- seed ----------------------------------------------------------------------
+
 
 def test_seed_source_is_the_sample_catalogue():
     # populate_alarms (the DB upsert) is covered by test_ingestion against Postgres
@@ -174,13 +245,16 @@ def test_seed_source_is_the_sample_catalogue():
     assert len(codes) == 11
     assert "am.fb.0002" in codes
     assert "fb" in data["_modules"]
-    assert all({"title", "alarm_text", "severity", "severity_category"} <= a.keys() for a in data["alarms"])
+    assert all(
+        {"title", "alarm_text", "severity", "severity_category"} <= a.keys() for a in data["alarms"]
+    )
 
 
 # --- API ---------------------------------------------------------------------
 
+
 def test_api_unknown_code_returns_404_envelope(client, bearer):
-    r = client.post("/api/v2/resolve", json={"code": "am.fb.9999"}, headers=bearer)
+    r = client.post(f"{API_PREFIX}/resolve", json={"code": "am.fb.9999"}, headers=bearer)
 
     assert r.status_code == 404
     assert r.json()["error"]["code"] == "unknown_alarm_code"
@@ -190,13 +264,14 @@ def test_api_catalogue_down_returns_503(client, bearer):
     from rag_engine.main import app
 
     app.dependency_overrides[get_orchestrator] = lambda: _orch(BrokenAlarmStore())
-    r = client.post("/api/v2/resolve", json={"code": "am.fb.0002"}, headers=bearer)
+    r = client.post(f"{API_PREFIX}/resolve", json={"code": "am.fb.0002"}, headers=bearer)
 
     assert r.status_code == 503
     assert r.json()["error"]["code"] == "retrieval_unavailable"
 
 
 # --- PostgresAlarmStore --------------------------------------------------------
+
 
 class FakeConn:
     def __init__(self, row):
@@ -223,10 +298,17 @@ def _patch_conn(monkeypatch, row):
 
 
 def test_store_maps_row_to_alarm(monkeypatch):
-    conn = _patch_conn(monkeypatch, {
-        "title": FB_0002.title, "domain": "Fieldbus", "severity_score": 900,
-        "severity_category": "error", "alarm_text": FB_0002.alarm_text, "data_fields": {"slave": 3},
-    })
+    conn = _patch_conn(
+        monkeypatch,
+        {
+            "title": FB_0002.title,
+            "domain": "Fieldbus",
+            "severity_score": 900,
+            "severity_category": "error",
+            "alarm_text": FB_0002.alarm_text,
+            "data_fields": {"slave": 3},
+        },
+    )
 
     alarm = asyncio.run(PostgresAlarmStore().get_alarm("am.fb.0002"))
 

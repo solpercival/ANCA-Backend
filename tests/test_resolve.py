@@ -1,29 +1,35 @@
-﻿"""Resolve and chat endpoints through the app: response shape, alarm-code
+"""Resolve and chat endpoints through the app: response shape, alarm-code
 validation, and message / request-body size limits.
 """
+
+from rag_engine.config import API_PREFIX
+
+
 def test_resolve_returns_steps_and_citations(client, bearer):
-    r = client.post("/api/v2/resolve", json={"code": "am.fb.0002"}, headers=bearer)
+    r = client.post(f"{API_PREFIX}/resolve", json={"code": "am.fb.0002"}, headers=bearer)
     assert r.status_code == 200
     body = r.json()
     assert body["code"] == "am.fb.0002"
     assert len(body["steps"]) >= 1
     assert len(body["citations"]) >= 1
+    # contract shape; the fake store's file sits outside the named doc folders
+    assert body["citations"][0] == {"doc": "Documentation", "path": "manual.md", "section": None}
 
 
 def test_resolve_rejects_invalid_alarm_code_format(client, bearer):
-    r = client.post("/api/v2/resolve", json={"code": "BADCODE"}, headers=bearer)
+    r = client.post(f"{API_PREFIX}/resolve", json={"code": "BADCODE"}, headers=bearer)
     assert r.status_code == 422
     assert r.json()["error"]["code"] == "validation_error"
 
 
 def test_resolve_rejects_invalid_alarm_code_separator(client, bearer):
-    r = client.post("/api/v2/resolve", json={"code": "am5fb50002"}, headers=bearer)
+    r = client.post(f"{API_PREFIX}/resolve", json={"code": "am5fb50002"}, headers=bearer)
     assert r.status_code == 422
 
 
 def test_chat_rejects_message_over_max_length(client, bearer):
     r = client.post(
-        "/api/v2/chat",
+        f"{API_PREFIX}/chat",
         json={"conversation_id": "c-1", "message": "x" * 6000},
         headers=bearer,
     )
@@ -32,7 +38,7 @@ def test_chat_rejects_message_over_max_length(client, bearer):
 
 def test_chat_rejects_oversized_request_body(client, bearer):
     r = client.post(
-        "/api/v2/chat",
+        f"{API_PREFIX}/chat",
         json={"conversation_id": "c-1", "message": "x" * 200000},
         headers=bearer,
     )

@@ -110,6 +110,8 @@ class RedisSessionStore(SessionStore):
         await self._run(lambda client: client.delete(f"auth:rl:{key}"))
 
     async def _run(self, operation: Callable[[Any], Any]) -> Any:
+        """Run `operation(client)` against Redis in a worker thread (the client is
+        synchronous). Any Redis failure is raised as AuthUnavailable."""
         try:
             return await asyncio.to_thread(self._run_sync, operation)
         except RedisError as exc:
@@ -117,6 +119,8 @@ class RedisSessionStore(SessionStore):
 
     @staticmethod
     def _run_sync(operation: Callable[[Any], Any]) -> Any:
+        """Blocking half of _run: borrow a client and call the operation with it.
+        Raises AuthUnavailable when Redis was never connected."""
         with get_cache_conn() as client:
             if client is None:
                 raise AuthUnavailable("Session store is unavailable")
