@@ -28,14 +28,10 @@ class StubOrchestrator:
         self._severity_category = severity_category
         self._doc_coverage = doc_coverage
 
-    def __init__(self, coverage="full"):
-        self.coverage = coverage
-
     async def resolve(self, req, tier):
         return ResolveResponse(
             code=req.code,
             steps=["Reset the drive."],
-            doc_coverage=self.coverage,
             likely_causes=["Loose EtherCAT cable."],
             tier=tier,
             severity_category=self._severity_category,
@@ -81,7 +77,7 @@ def test_resolve_applies_tier_rules(stub_client, tier, sees_causes, chat_availab
     ],
 )
 def test_resolve_escalation_suggestion_matrix(stub_client, tier, coverage, expected):
-    app.dependency_overrides[get_orchestrator] = lambda: StubOrchestrator(coverage)
+    app.dependency_overrides[get_orchestrator] = lambda: StubOrchestrator(doc_coverage=coverage)
 
     r = stub_client.post("/api/v2/resolve", json={"code": "am.fb.0002"}, headers=_auth(tier))
 
@@ -93,7 +89,7 @@ def test_escalation_suggestion_can_be_disabled(stub_client, monkeypatch):
     from rag_engine.api import routes
 
     monkeypatch.setattr(routes.settings, "escalation_suggestion_enabled", False)
-    app.dependency_overrides[get_orchestrator] = lambda: StubOrchestrator("partial")
+    app.dependency_overrides[get_orchestrator] = lambda: StubOrchestrator(doc_coverage="partial")
 
     r = stub_client.post(
         "/api/v2/resolve", json={"code": "am.fb.0002"}, headers=_auth(Tier.operator)

@@ -156,8 +156,11 @@ async def resolve(
     # Operators are told to escalate instead of acting alone on an alarm that is
     # safety-related or that the docs don't fully cover. Decided from the alarm's
     # severity and the coverage, never from what the orchestrator put in the notes.
-    resp.escalation_suggested = should_escalate_when_unsure(principal.tier) and (
-        is_safety_alarm(resp.severity_category) or resp.doc_coverage in _ESCALATE_COVERAGE
+    # ESCALATION_SUGGESTION_ENABLED=false turns the suggestion off entirely
+    resp.escalation_suggested = (
+        settings.escalation_suggestion_enabled
+        and should_escalate_when_unsure(principal.tier)
+        and (is_safety_alarm(resp.severity_category) or resp.doc_coverage in _ESCALATE_COVERAGE)
     )
     resp.escalation_note = ESCALATION_NOTE if resp.escalation_suggested else None
     return resp
