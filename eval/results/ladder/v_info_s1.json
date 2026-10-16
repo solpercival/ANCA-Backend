@@ -1,0 +1,281 @@
+{
+  "summary": {
+    "hit": 1.0,
+    "precision": 0.833,
+    "recall": 0.864,
+    "reciprocal_rank": 0.955,
+    "step_recall": 0.427,
+    "step_precision": 0.563,
+    "length_ratio": 1.044,
+    "actionable": 1.0,
+    "coverage_match": 0.727,
+    "fix_present": 0.818,
+    "fix_solved": 7.0,
+    "codes": 11,
+    "errors": 0,
+    "runs": 3,
+    "range": {
+      "hit": [
+        1.0,
+        1.0
+      ],
+      "precision": [
+        0.833,
+        0.833
+      ],
+      "recall": [
+        0.864,
+        0.864
+      ],
+      "reciprocal_rank": [
+        0.955,
+        0.955
+      ],
+      "step_recall": [
+        0.42,
+        0.43
+      ],
+      "step_precision": [
+        0.537,
+        0.576
+      ],
+      "length_ratio": [
+        1.012,
+        1.108
+      ],
+      "actionable": [
+        1.0,
+        1.0
+      ],
+      "coverage_match": [
+        0.727,
+        0.727
+      ],
+      "fix_present": [
+        0.818,
+        0.818
+      ],
+      "fix_solved": [
+        7,
+        7
+      ]
+    }
+  },
+  "results": [
+    {
+      "code": "am.nc.0001",
+      "hit": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.542,
+      "step_precision": 0.556,
+      "length_ratio": 1.0,
+      "actionable": 1.0,
+      "coverage_match": 1.0,
+      "fix_present": 1.0,
+      "steps": [
+        "Attach the X and A axes to the same logical machine.",
+        "Use the attach command to link the X and A axes.",
+        "If the axes are already linked by an Electronic Cam, disable the Electronic Cam link first."
+      ],
+      "doc_coverage": "full"
+    },
+    {
+      "code": "am.nc.0002",
+      "hit": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.44,
+      "step_precision": 1.0,
+      "length_ratio": 1.222,
+      "actionable": 1.0,
+      "coverage_match": 1.0,
+      "fix_present": 1.0,
+      "steps": [
+        "Detach the x' axis from logical machine 2",
+        "Check the axis's current logical machine assignment",
+        "Attach the x' axis to logical machine 1"
+      ],
+      "doc_coverage": "full"
+    },
+    {
+      "code": "am.nc.0003",
+      "hit": 1.0,
+      "precision": 0.667,
+      "recall": 0.5,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.515,
+      "step_precision": 1.0,
+      "length_ratio": 1.0,
+      "actionable": 1.0,
+      "coverage_match": 0.0,
+      "fix_present": 0.5,
+      "steps": [
+        "Check the part program search hierarchy configuration",
+        "Verify the part program 'm101.pp' exists in the search hierarchy paths",
+        "Check the M-code M101 is configured to use mode 4",
+        "Verify the part program 'm101.pp' is not overridden by another program in the search hierarchy"
+      ],
+      "doc_coverage": "partial"
+    },
+    {
+      "code": "am.nc.0004",
+      "hit": 1.0,
+      "precision": 0.5,
+      "recall": 0.5,
+      "reciprocal_rank": 0.5,
+      "step_recall": 0.619,
+      "step_precision": 0.333,
+      "length_ratio": 1.0,
+      "actionable": 1.0,
+      "coverage_match": 1.0,
+      "fix_present": 1.0,
+      "steps": [
+        "Add at least 3 control points between splineon and splineoff commands",
+        "Verify the spline type and parameters are correctly specified in the splineon block",
+        "Ensure no sync command is used between splineon and splineoff without proper reinitialisation"
+      ],
+      "doc_coverage": "full"
+    },
+    {
+      "code": "am.nc.0005",
+      "hit": 1.0,
+      "precision": 0.667,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.25,
+      "step_precision": 1.0,
+      "length_ratio": 0.333,
+      "actionable": 1.0,
+      "coverage_match": 1.0,
+      "fix_present": 1.0,
+      "steps": [
+        "Edit the block to remove all but one class 1 preparatory word."
+      ],
+      "doc_coverage": "full"
+    },
+    {
+      "code": "am.cfg.0001",
+      "hit": 1.0,
+      "precision": 0.667,
+      "recall": 0.5,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.265,
+      "step_precision": 0.133,
+      "length_ratio": 1.0,
+      "actionable": 1.0,
+      "coverage_match": 1.0,
+      "fix_present": 0.5,
+      "steps": [
+        "Check the logical device assignments for duplicates",
+        "Verify each joint's logical device is unique",
+        "Set the Joint logical device parameter to the correct logical address",
+        "Ensure no logical device is assigned to more than one joint",
+        "If the logical device is already correctly assigned, reinitialise the system"
+      ],
+      "doc_coverage": "full"
+    },
+    {
+      "code": "am.lic.0001",
+      "hit": 1.0,
+      "precision": 0.667,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.492,
+      "step_precision": 0.333,
+      "length_ratio": 1.5,
+      "actionable": 1.0,
+      "coverage_match": 1.0,
+      "fix_present": 1.0,
+      "steps": [
+        "Disable the OPC UA server by setting `opcua.enable` to `false`.",
+        "Check the license status to confirm the OPC UA server option is not included.",
+        "Purchase the OPC UA server option if needed."
+      ],
+      "doc_coverage": "full"
+    },
+    {
+      "code": "am.fb.0001",
+      "hit": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.502,
+      "step_precision": 0.476,
+      "length_ratio": 2.111,
+      "actionable": 1.0,
+      "coverage_match": 1.0,
+      "fix_present": 1.0,
+      "steps": [
+        "Restart the system",
+        "Reinitialise the Ethercat bus",
+        "Check the drive's reported error register",
+        "Verify the device's operational state matches the Master's expected state",
+        "If the device is in SAFEOP but expected to be OP, restart the drive",
+        "If the Master state changed, ensure it is set to OP",
+        "If the error persists, consult the drive manufacturer manual for error data"
+      ],
+      "doc_coverage": "full"
+    },
+    {
+      "code": "am.fb.0002",
+      "hit": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.629,
+      "step_precision": 0.75,
+      "length_ratio": 1.0,
+      "actionable": 1.0,
+      "coverage_match": 0.0,
+      "fix_present": 0.5,
+      "steps": [
+        "Restart the system to recover from the emergency state",
+        "Reinitialise the Ethercat bus to reset the drive's error state",
+        "Check the drive's reported error register for additional details",
+        "If the error code is zero, acknowledge the message; no further action is needed."
+      ],
+      "doc_coverage": "partial"
+    },
+    {
+      "code": "am.fb.0003",
+      "hit": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.201,
+      "step_precision": 0.444,
+      "length_ratio": 0.583,
+      "actionable": 1.0,
+      "coverage_match": 0.0,
+      "fix_present": 1.0,
+      "steps": [
+        "Restart the system to recover from the error",
+        "Check the Ethercat master log file for detailed error information",
+        "If multiple errors continue, acknowledge the message; no further action is needed."
+      ],
+      "doc_coverage": "partial"
+    },
+    {
+      "code": "am.fb.0004",
+      "hit": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.237,
+      "step_precision": 0.167,
+      "length_ratio": 0.733,
+      "actionable": 1.0,
+      "coverage_match": 1.0,
+      "fix_present": 0.5,
+      "steps": [
+        "Upload firmware to Drive_3 using the correct file path.",
+        "Reinitialise the fieldbus to ensure firmware version is updated.",
+        "Verify the firmware version of Drive_3 is now 1.4.0."
+      ],
+      "doc_coverage": "full"
+    }
+  ]
+}
