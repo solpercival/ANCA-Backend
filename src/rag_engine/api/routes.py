@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 
 from rag_engine.api.errors import NotFound, RetrievalUnavailable
 from rag_engine.api.rate_limit import rate_limit_dependency
+from rag_engine.api.safety import is_safety_alarm
 from rag_engine.api.schemas import (
     ChatRequest,
     ChatResponse,
@@ -23,7 +24,6 @@ from rag_engine.api.schemas import (
     ResolveRequest,
     ResolveResponse,
 )
-from rag_engine.api.safety import is_safety_alarm
 from rag_engine.auth.dependencies import optional_principal, require
 from rag_engine.auth.tiers import (
     Principal,

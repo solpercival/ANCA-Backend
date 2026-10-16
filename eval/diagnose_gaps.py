@@ -25,7 +25,6 @@ import os
 from pathlib import Path
 
 import redis
-
 from eval.run_eval import GOLD_PATH, content_stems, load_gold
 
 # a gold step counts as given when this share of its key words is in the answer
@@ -42,7 +41,7 @@ def passages(context: str) -> list[str]:
         for ln in context.splitlines()
         if ln.strip() and not set(ln.strip()) <= set("|-: ")
     ]
-    joined = [f"{a} {b}" for a, b in zip(lines, lines[1:])]
+    joined = [f"{a} {b}" for a, b in zip(lines, lines[1:], strict=False)]
     return lines + joined
 
 
@@ -107,7 +106,8 @@ def main() -> None:
 
     for code, gaps in report.items():
         for gap in gaps:
-            print(f"{code}  {gap['status']:<20} {gap['support_share']:.2f}  {gap['gold_step'][:90]}")
+            share = gap["support_share"]
+            print(f"{code}  {gap['status']:<20} {share:.2f}  {gap['gold_step'][:90]}")
     totals = {}
     for gaps in report.values():
         for gap in gaps:

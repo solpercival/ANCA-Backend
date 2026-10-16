@@ -5,6 +5,7 @@ default; these pin what each one does when switched on."""
 import asyncio
 
 from eval.diagnose_gaps import diagnose
+
 from rag_engine.api.schemas import ResolveRequest
 from rag_engine.auth.tiers import Tier
 from rag_engine.config import get_settings
@@ -79,7 +80,10 @@ def test_evidence_first_keeps_backed_steps_in_context_order(monkeypatch):
 
 
 def test_context_units_keep_table_rows_under_their_header():
-    text = "Intro sentence one. Sentence two.\n\n| Name | Meaning |\n| --- | --- |\n| E1 | Fault |\n"
+    text = (
+        "Intro sentence one. Sentence two.\n\n"
+        "| Name | Meaning |\n| --- | --- |\n| E1 | Fault |\n"
+    )
 
     assert _context_units(text) == [
         "Intro sentence one.",
