@@ -36,7 +36,7 @@ only if it beats every baseline session in at least 2 sessions of its own.
 | `e1_*` | `RERANK_RELATIVE_MIN=0.1` | Within the baseline's noise |
 | `e2_*` | `RERANK_MAX_LENGTH=4096` | Within the baseline's noise (`b8_*` reached the same 9 fixes) |
 | `e12_*` | e1 and e2 together | 8 fixes, no gain |
-| `e3_*` | `STEP_SUPPORT_MIN=0.6` | Same fixes, step_precision 0.57-0.61 to 0.64, length_ratio 1.23-1.39 to 1.13. **Adopted** |
+| `e3_*` | `STEP_SUPPORT_MIN=0.6` | Total fixes looked unchanged, and step_precision rose from 0.57-0.61 to 0.64, but per alarm it costs one: `am.cfg.0001` drops to half in all 4 sessions at 0.6 (`e3_*`, `v_base_*`) and is full in all 5 at 0.5 (`old8_*`, `b8_*`). The filter removes "Restart the system to apply changes", which the eval's fix requires. The total hid the loss because `am.fb.0004` happened to be full in both e3 sessions. Adopted, then dropped: the default stays 0.5, to keep more fixes |
 | `e4_*` | Thinking mode at medium effort (1024 tokens) | 6.67 fixes, 8.5 s per answer. Rejected |
 | `b8_*`, `old8_*`, `v_base_*` | Baselines (8 chunks; `v_base_*` also has `STEP_SUPPORT_MIN=0.6`) | 7.67-9 fixes |
 
