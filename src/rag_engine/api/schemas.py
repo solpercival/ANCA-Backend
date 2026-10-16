@@ -202,7 +202,6 @@ class ChatResponse(BaseModel):
     )
 
 
-
 class FeedbackRequest(BaseModel):
     """Body of POST <API_PREFIX>/feedback: whether a chat reply helped.
 

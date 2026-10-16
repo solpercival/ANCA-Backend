@@ -755,8 +755,7 @@ def test_medium_effort_reranks_thirty_candidates():
         pytest.param(
             [
                 "Decide whether M101 should be implemented in PLC or as an EPPL part program.",
-                "If PLC: configure the M-code to a PLC mode (1-3 or 5-7), e.g. "
-                "mcode.101.mode = 5.",
+                "If PLC: configure the M-code to a PLC mode (1-3 or 5-7), e.g. mcode.101.mode = 5.",
                 "If EPPL: place m101.pp in one of the folders on the part program search "
                 "hierarchy.",
                 "Confirm the search hierarchy includes that folder.",

@@ -87,10 +87,13 @@ def test_label_stays_with_the_block_it_introduces():
 
     assert [c.kind for c in chunks] == ["list", "list"]
     # compared word by word: the header splitter rewrites the blank lines between blocks
-    assert chunks[0].text.split() == (
-        "## M-Code Modes A mode 4 M-Code calls a subprogram. "
-        "1. Lookahead is broken by mode 4 M-Codes."
-    ).split()
+    assert (
+        chunks[0].text.split()
+        == (
+            "## M-Code Modes A mode 4 M-Code calls a subprogram. "
+            "1. Lookahead is broken by mode 4 M-Codes."
+        ).split()
+    )
     assert chunks[1].text.split() == "**Rules:** 1. Only one mode 4 M-Code per block.".split()
     assert not any("---" in c.text for c in chunks)
 

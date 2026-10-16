@@ -27,9 +27,7 @@ from tests.fakes import (
     FakePreprocessor,
 )
 
-USER_GUIDE = Chunk(
-    chunk_id="ug1", text="Reset the CoE device from the HMI.", source=USER_GUIDE_DOC
-)
+USER_GUIDE = Chunk(chunk_id="ug1", text="Reset the CoE device from the HMI.", source=USER_GUIDE_DOC)
 PPR = Chunk(chunk_id="ppr1", text="Restart the part program.", source=PPR_DOC)
 OPERATOR_WHERE = {"doc_audiences": [DocAudience.part_programmers_reference]}
 

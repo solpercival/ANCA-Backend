@@ -190,9 +190,7 @@ def test_nc_0005_fix_is_recognised_in_other_words_than_the_gold_answer():
     groups = load_fix_terms()["am.nc.0005"]
 
     # the two answers the 8B generator alternates between
-    reworded = [
-        "Edit the program to ensure only one class 1 preparatory word is used per block."
-    ]
+    reworded = ["Edit the program to ensure only one class 1 preparatory word is used per block."]
     removes = ["Edit the program to remove all but one class 1 preparatory word from the block."]
     extras = ["Remove any additional class 1 preparatory words from the block"]
     checks_only = ["Check which preparatory words in the block belong to class 1."]
@@ -216,8 +214,7 @@ def test_lic_0001_fix_terms_do_not_reward_the_opposite_fix():
         "Verify the opcua.certificate.subject matches CN=ANCA Motion AMCore OPC UA Server",
     ]
     gold = [
-        "If you don't need the OPC UA server, set the configuration property "
-        "opcua.enable = false.",
+        "If you don't need the OPC UA server, set the configuration property opcua.enable = false.",
         "If you do need it, contact ANCA to add the OPC UA option to your license.",
     ]
 
@@ -225,8 +222,10 @@ def test_lic_0001_fix_terms_do_not_reward_the_opposite_fix():
     assert score_fix(gold, groups) == 1.0
     assert (
         score_fix(
-            ["Disable the OPC UA server by setting the opcua.enable configuration "
-             "property to false."],
+            [
+                "Disable the OPC UA server by setting the opcua.enable configuration "
+                "property to false."
+            ],
             groups,
         )
         == 0.5

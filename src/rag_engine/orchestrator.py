@@ -475,9 +475,7 @@ class Orchestrator:
         citations: list[Citation] = []
         for chunk in chunks[:_MAX_CITATIONS]:
             path = doc_path(chunk.source)
-            citation = Citation(
-                doc=doc_name(path), path=path, section=section_title(chunk.section)
-            )
+            citation = Citation(doc=doc_name(path), path=path, section=section_title(chunk.section))
             if citation not in citations:
                 citations.append(citation)
         return citations
