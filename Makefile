@@ -13,12 +13,14 @@
         up up-full down build restart models sparse \
         migrate migrate-status migrate-down revision db-reset \
         ingest reingest seed-alarms \
-        smoke bench eval retest
+        smoke https bench eval retest
 
 .DEFAULT_GOAL := help
 
 VENV = .venv/bin
 COMPOSE := docker compose $(shell command -v nvidia-smi >/dev/null 2>&1 && echo -f docker-compose.yml -f docker-compose.gpu.yml)
+# the same files, always named, so an override can be added after them with -f
+COMPOSE_FILES := docker compose -f docker-compose.yml $(shell command -v nvidia-smi >/dev/null 2>&1 && echo -f docker-compose.gpu.yml)
 
 help:           ## list the targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-15s %s\n", $$1, $$2}'
@@ -110,6 +112,10 @@ seed-alarms:    ## load alarms.sample.json into the alarm catalogue only (no emb
 
 smoke:          ## end-to-end smoke test: auth -> resolve -> chat
 	bash scripts/smoke_e2e.sh
+
+https:          ## run the orchestrator behind a local HTTPS proxy (Caddy) and check it
+	$(COMPOSE_FILES) -f docker-compose.https.yml up -d --build orchestrator caddy
+	bash scripts/https_check.sh
 
 bench:          ## warm latency + answer check over sample alarm codes, with per-stage timings
 	bash scripts/bench.sh

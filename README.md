@@ -467,6 +467,31 @@ Postgres, Redis and the model server all answer, and `503` with
 which dependency is down. `scripts/smoke_e2e.sh` runs a login, a resolve and a
 chat against a running stack and is a working reference for the calls above.
 
+### Behind HTTPS
+
+The orchestrator serves plain HTTP on 8080 and expects HTTPS to be handled by a
+reverse proxy in front of it. It reads the client IP and scheme from the proxy's
+`X-Forwarded-For` and `X-Forwarded-Proto` headers, but only from the addresses
+in `FORWARDED_ALLOW_IPS`. Set that to your proxy's address, or HSTS is never sent
+and every caller shares the proxy's per-IP rate limit.
+
+`make https` tests this locally. It starts Caddy with a certificate from its own
+local CA (`docker-compose.https.yml`), serving the API on
+`https://localhost:8443` and redirecting `http://localhost:8081`, then runs
+`scripts/https_check.sh`. That script checks:
+
+- the certificate and HSTS;
+- the HTTP redirect;
+- the `Secure` refresh cookie, and refresh over HTTPS;
+- that the orchestrator sees the real client IP;
+- that a direct caller on 8080 can't fake the forwarded headers;
+- `ALLOWED_HOSTS`, if it is set.
+
+For a browser, trust Caddy's root certificate, which
+`docker compose -f docker-compose.yml -f docker-compose.https.yml cp caddy:/data/caddy/pki/authorities/local/root.crt .`
+copies out. Then add your `https://` front-end origin to `CORS_ALLOW_ORIGINS`.
+`make restart` goes back to the plain stack.
+
 ## Design boundaries (who owns what)
 
 - **Documentation team** — the `docs` submodule *and* ingestion: content through

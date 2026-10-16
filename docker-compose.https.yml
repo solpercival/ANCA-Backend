@@ -1,0 +1,35 @@
+# HTTPS test override: puts Caddy in front of the orchestrator, with a certificate
+# from Caddy's own local CA. For checking that the API works behind an HTTPS
+# proxy (Secure cookies, HSTS, forwarded client IPs), not for production.
+#
+#   make https    # bring it up and run scripts/https_check.sh
+#
+# https://localhost:8443 is the API over HTTPS; http://localhost:8081 redirects to it.
+# `make restart` afterwards goes back to the plain stack on :8080.
+services:
+  caddy:
+    image: caddy:2.10-alpine
+    ports: ["8443:8443", "8081:8081"]
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data  # the local CA, so its root certificate survives restarts
+    networks:
+      edge:
+        ipv4_address: 172.31.250.10
+    depends_on: [orchestrator]
+
+  orchestrator:
+    # trust X-Forwarded-For / X-Forwarded-Proto from Caddy only (see the Dockerfile)
+    environment:
+      FORWARDED_ALLOW_IPS: 172.31.250.10
+    networks: [default, edge]
+
+networks:
+  # fixed subnet so Caddy has a known address to trust
+  edge:
+    ipam:
+      config:
+        - subnet: 172.31.250.0/24
+
+volumes:
+  caddy-data:
