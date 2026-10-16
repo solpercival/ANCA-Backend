@@ -48,6 +48,12 @@ When running these commands from WSL, use Docker Desktop's WSL integration:
   environment was already open before enabling integration, restart it from
   PowerShell with `wsl --shutdown`, then open Ubuntu again.
 
+  Server must say `Docker Desktop` (`docker info | grep "Operating System"`).
+  If Ubuntu has its own Docker engine installed as well (`docker.io` or
+  `docker-ce`), `default` reaches that empty engine whenever Docker Desktop is
+  not running, and the stack appears to have lost its images and data. Stop it
+  with `sudo systemctl disable --now docker docker.socket`.
+
 Run the remaining commands from the repository directory. In WSL, a Windows
 checkout is typically available under `/mnt/c/Users/<your-user>/...`.
 
@@ -71,11 +77,21 @@ Download the local Ollama models after the stack is running:
 make models
 ```
 
+The default generator is `qwen3:8b` (about 5 GB to download, about 6 GB of GPU
+memory). On a GPU with less memory, set
+`LLM_MODEL=qwen3:4b-instruct-2507-q4_K_M` in `.env` and `ollama pull` it. It
+scores lower on the eval (see `.env.example`).
+
 Build the offline indexes:
 
 ```bash
 make ingest           # applies migrations, then writes pgvector rows
 ```
+
+Run `make reingest` instead after changing the chunker or `EMBEDDING_SETUP`, and
+before an eval run you want to compare with others. An index left from an
+earlier build retrieves the same documents with different chunk text, and that
+moved `fix_solved` by a whole fix (`eval/results/ladder/README.md`).
 
 ### Database migrations
 
