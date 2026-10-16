@@ -48,7 +48,12 @@ class Settings(BaseSettings):
     login_max_attempts: int = 5
     login_max_attempts_per_ip: int = 20
     login_window_seconds: int = 900
-    cors_allow_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
+    cors_allow_origins: list[str] = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:5173",  # Vite dev server
+        "http://127.0.0.1:5173",
+    ]
     # /resolve and /feedback without a bearer token answer as an operator (the
     # narrowest tier). A token that is sent must still be valid; /chat always needs one
     allow_anonymous_operator: bool = False
