@@ -14,7 +14,7 @@ import httpx
 from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import JSONResponse
 
-from rag_engine.api.errors import NotFound, RetrievalUnavailable
+from rag_engine.api.errors import NotFound
 from rag_engine.api.rate_limit import rate_limit_dependency
 from rag_engine.api.safety import is_safety_alarm
 from rag_engine.api.schemas import (
@@ -57,25 +57,6 @@ chat_rate_limit = rate_limit_dependency(
 ESCALATION_NOTE = "If you are unsure, stop and escalate to a technician before acting."
 # doc_coverage values that leave an operator without a complete, documented fix
 _ESCALATE_COVERAGE = frozenset({"none", "partial"})
-
-
-def get_orchestrator_from_request(request: Request):
-    """Orchestrator cached on app.state, built on first use.
-
-    Not used by the routes below (they depend on get_orchestrator directly); kept
-    for callers that need a 503 instead of a crash while backends are unwired.
-    """
-    orch = getattr(request.app.state, "orchestrator", None)
-    if orch is None:
-        try:
-            orch = get_orchestrator()
-            request.app.state.orchestrator = orch
-        except Exception as exc:  # placeholder runtime: DB/provider wiring still pending
-            raise RetrievalUnavailable(
-                "Orchestrator is not available yet; "
-                "DB and retrieval backends are still being wired in."
-            ) from exc
-    return orch
 
 
 def _ping_postgres(pool) -> bool:
