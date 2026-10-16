@@ -9,6 +9,9 @@ Scores the live engine against the documentation team's gold set
   orchestrator, then `make bench` and `make eval`.
 - **CI:** `.github/workflows/eval.yml` is disabled until a self-hosted GPU runner exists.
 
+The current scores, what has been tried and the open gaps are in
+`docs/answer-quality.md`.
+
 What each score means, and how far to trust it, is documented at the top of
 `run_eval.py`. In short: retrieval scores (hit, precision, recall, MRR) compare
 citations with the gold `doc_refs`. Answer scores compare the generated steps with
