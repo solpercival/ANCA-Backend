@@ -170,6 +170,13 @@ class ResolveResponse(BaseModel):
             "(full 0.9, partial 0.5, none 0.0), not a model probability"
         ),
     )
+    response_id: int | None = Field(
+        None,
+        description=(
+            "Id of the stored answer, for POST <API_PREFIX>/feedback; set only when "
+            "the request gave a conversation_id and the answer was stored, else null"
+        ),
+    )
 
 
 class ChatRequest(BaseModel):

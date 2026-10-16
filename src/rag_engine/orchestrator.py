@@ -1319,15 +1319,20 @@ class Orchestrator:
             else []
         )
         # recorded under the caller's conversation, if it gave one, so a follow-up
-        # chat message can refer back to these steps; the write is a blocking DB call
+        # chat message can refer back to these steps; the write is a blocking DB call.
+        # Its id goes back for /feedback only with a conversation_id, since feedback
+        # is addressed by conversation_id + response_id
+        response_id = None
         try:
-            await asyncio.to_thread(
+            stored_id = await asyncio.to_thread(
                 self._preprocessor.store_context,
                 req.conversation_id or "",
                 query,
                 "\n".join(steps),
                 req.code,
             )
+            if req.conversation_id:
+                response_id = stored_id
         except Exception:
             log.warning("store_context_failed code=%s (non-fatal)", req.code, exc_info=True)
 
@@ -1354,6 +1359,7 @@ class Orchestrator:
             doc_coverage=doc_coverage,
             confidence=_COVERAGE_CONFIDENCE[doc_coverage],
             safety_note=_SAFETY_NOTE if is_safety_alarm(alarm.severity_category) else None,
+            response_id=response_id,
         )
 
     async def chat(self, req: ChatRequest, tier: Tier) -> ChatResponse:

@@ -1,5 +1,6 @@
 """POST <API_PREFIX>/feedback ("this did not help"): the route, the Postgres
-write, and the rewriter seeing the feedback on the conversation's next turn.
+write, feedback on a /resolve answer, and the rewriter seeing the feedback on the
+conversation's next turn.
 
 The route tests run a real QueryPreprocessor over an in-memory chat store, so
 /chat -> /feedback -> /chat goes through the same store the rewriter reads.
@@ -235,6 +236,47 @@ def test_feedback_is_rate_limited_in_its_own_bucket(
     assert int(second.headers["retry-after"]) > 0
     assert second.json()["error"]["code"] == "rate_limited"
     assert chat_store.rows[0]["user_feedback"] is False
+
+
+# feedback on a /resolve answer
+
+
+def _resolve(client, headers, conversation_id=CONV):
+    body = {"code": "am.fb.0002"}
+    if conversation_id is not None:
+        body["conversation_id"] = conversation_id
+    r = client.post(f"{API_PREFIX}/resolve", json=body, headers=headers)
+    assert r.status_code == 200
+    return r.json()
+
+
+def test_resolve_with_a_conversation_returns_response_id(feedback_client, bearer, chat_store):
+    body = _resolve(feedback_client, bearer)
+
+    assert isinstance(body["response_id"], int)
+    assert body["response_id"] == chat_store.rows[0]["response_id"]
+
+
+def test_resolve_without_a_conversation_returns_no_response_id(feedback_client, bearer):
+    assert _resolve(feedback_client, bearer, conversation_id=None)["response_id"] is None
+
+
+@pytest.mark.parametrize("caller", ["operator", "technician", "anonymous"])
+def test_feedback_on_a_resolve_answer(feedback_client, chat_store, monkeypatch, caller):
+    monkeypatch.setattr(get_settings(), "allow_anonymous_operator", True)
+    headers = {}
+    if caller != "anonymous":
+        token, _ = create_access_token(user_id=1, tier=Tier(caller))
+        headers = {"Authorization": f"Bearer {token}"}
+    response_id = _resolve(feedback_client, headers)["response_id"]
+
+    ok = _feedback(feedback_client, headers, response_id, helpful=True)
+    wrong = _feedback(feedback_client, headers, response_id + 1, helpful=True)
+
+    assert ok.status_code == 204
+    assert chat_store.rows[0]["user_feedback"] is True
+    assert wrong.status_code == 404
+    assert wrong.json()["error"]["code"] == "not_found"
 
 
 # the rewriter on the next turn
