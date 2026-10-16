@@ -94,6 +94,9 @@ def _local_env_does_not_reach_tests(monkeypatch):
     # likewise the retrieval setup: a test of dual retrieval selects it itself
     monkeypatch.setenv("EMBEDDING_SETUP", "unified")
     monkeypatch.setattr(get_settings(), "embedding_setup", "unified")
+    # and anonymous access: a request with no token is a 401 unless a test turns it on
+    monkeypatch.setenv("ALLOW_ANONYMOUS_OPERATOR", "false")
+    monkeypatch.setattr(get_settings(), "allow_anonymous_operator", False)
     # and the resolve experiment switches (eval prompt ladder)
     for name, default in (
         ("RESOLVE_PROMPT", "full"),

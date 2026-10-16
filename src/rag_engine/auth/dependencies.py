@@ -5,9 +5,12 @@ Identifies the caller from the bearer token, gates routes by tier, builds
 AuthService from the storage adapters on app.state, and guards the
 cookie-authenticated endpoints against cross-site requests.
 
-Routes can be protected in three ways:
+Routes can be protected in four ways:
 - `Depends(current_principal)` verifies the token and returns the caller's
   Principal, which is built from the token claims alone and does not hit storage.
+- `Depends(optional_principal)` is current_principal, except that with
+  ALLOW_ANONYMOUS_OPERATOR on, a request with no token at all is an anonymous
+  operator.
 - `Depends(require(capability))` verifies the token and checks the caller's tier
   against a capability function in tiers.py, raising Forbidden if the tier is not
   allowed. This is the most common way to protect a route.
@@ -42,6 +45,25 @@ async def current_principal(token: str = Depends(oauth2_scheme)) -> Principal:
     if not token:
         raise Unauthorized("Missing bearer token")
     return decode_access_token(token)
+
+
+ANONYMOUS_SUBJECT = "anonymous"
+
+
+async def optional_principal(token: str = Depends(oauth2_scheme)) -> Principal:
+    """
+    The caller from the bearer token, or an anonymous operator when there is none.
+
+    Only a missing token is anonymous, and only with ALLOW_ANONYMOUS_OPERATOR on.
+    A token that is sent is always verified: an invalid or expired one is rejected,
+    never downgraded to operator, so a client with a broken login finds out.
+
+    Raises:
+        Unauthorized: No token while anonymous access is off, or an invalid token.
+    """
+    if not token and get_settings().allow_anonymous_operator:
+        return Principal(subject=ANONYMOUS_SUBJECT, tier=Tier.operator)
+    return await current_principal(token)
 
 
 def require(capability: Callable[[Tier], bool]) -> Callable[..., Awaitable[Principal]]:

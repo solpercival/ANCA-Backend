@@ -204,16 +204,14 @@ def test_feedback_requires_a_token(feedback_client):
     assert r.json()["error"]["code"] == "unauthorized"
 
 
-@pytest.mark.parametrize(
-    "tier, expected", [(Tier.operator, 403), (Tier.technician, 204), (Tier.partner, 204)]
-)
-def test_feedback_follows_chat_tier_access(feedback_client, chat_store, tier, expected):
+@pytest.mark.parametrize("tier", [Tier.operator, Tier.technician, Tier.partner])
+def test_feedback_is_open_to_every_tier(feedback_client, chat_store, tier):
     response_id = chat_store.store_query_result(CONV, "q", "a", None)
     token, _ = create_access_token(user_id=1, tier=tier)
 
     r = _feedback(feedback_client, {"Authorization": f"Bearer {token}"}, response_id, helpful=False)
 
-    assert r.status_code == expected
+    assert r.status_code == 204
 
 
 def test_feedback_is_rate_limited_in_its_own_bucket(

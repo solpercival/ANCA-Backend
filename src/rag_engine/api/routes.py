@@ -1,9 +1,10 @@
 """HTTP surface under API_PREFIX (/api/<version>): health/readiness probes,
 resolve-by-code, chat, and feedback on chat replies.
 
-Every business endpoint authenticates (current_principal / require), is rate
-limited per IP and per tier, and gets the shared Orchestrator from
-get_orchestrator. Tier-based visibility rules are applied here, after the
+Every business endpoint identifies the caller (optional_principal on /resolve and
+/feedback, which with ALLOW_ANONYMOUS_OPERATOR admits a caller with no token as an
+operator; require on /chat), is rate limited per IP and per tier, and gets the
+shared Orchestrator from get_orchestrator. Tier-based visibility rules are applied here, after the
 orchestrator returns, so access never depends on what generation produced.
 """
 
@@ -23,7 +24,7 @@ from rag_engine.api.schemas import (
     ResolveResponse,
 )
 from rag_engine.api.safety import is_safety_alarm
-from rag_engine.auth.dependencies import current_principal, require
+from rag_engine.auth.dependencies import optional_principal, require
 from rag_engine.auth.tiers import (
     Principal,
     can_use_chat,
@@ -36,10 +37,16 @@ from rag_engine.orchestrator import Orchestrator, get_orchestrator
 router = APIRouter(prefix=API_PREFIX, tags=["api"])
 settings = get_settings()
 resolve_rate_limit = rate_limit_dependency(
-    "resolve", "resolve_rate_limit_per_ip", "resolve_rate_limit_per_tier"
+    "resolve",
+    "resolve_rate_limit_per_ip",
+    "resolve_rate_limit_per_tier",
+    principal_dependency=optional_principal,
 )
 feedback_rate_limit = rate_limit_dependency(
-    "feedback", "feedback_rate_limit_per_ip", "feedback_rate_limit_per_tier"
+    "feedback",
+    "feedback_rate_limit_per_ip",
+    "feedback_rate_limit_per_tier",
+    principal_dependency=optional_principal,
 )
 chat_rate_limit = rate_limit_dependency(
     "chat", "chat_rate_limit_per_ip", "chat_rate_limit_per_tier"
@@ -139,12 +146,14 @@ async def ready(request: Request) -> dict[str, object] | JSONResponse:
 @router.post("/resolve", response_model=ResolveResponse, tags=["resolve"])
 async def resolve(
     req: ResolveRequest,
-    principal: Principal = Depends(current_principal),
+    principal: Principal = Depends(optional_principal),
     _: None = Depends(resolve_rate_limit),
     orch: Orchestrator = Depends(get_orchestrator),
 ) -> ResolveResponse:
     """Troubleshooting guidance for one alarm code, grounded in the documentation.
 
+    Open to every tier, and to callers with no token (as an operator) when
+    ALLOW_ANONYMOUS_OPERATOR is on.
     Errors: 404 unknown_alarm_code, 429 rate_limited, 503 retrieval/model unavailable.
     """
     resp = await orch.resolve(req, tier=principal.tier)
@@ -180,11 +189,12 @@ async def chat(
 @router.post("/feedback", status_code=status.HTTP_204_NO_CONTENT, tags=["chat"])
 async def feedback(
     req: FeedbackRequest,
-    principal: Principal = Depends(require(can_use_chat)),
+    principal: Principal = Depends(optional_principal),
     _: None = Depends(feedback_rate_limit),
     orch: Orchestrator = Depends(get_orchestrator),
 ) -> None:
-    """Mark a chat reply (by the response_id /chat returned) as having helped or not.
+    """Mark a reply (by the response_id /chat or /resolve returned) as having helped
+    or not. Open to every tier, and to anonymous operators like /resolve.
 
     Sending it again overwrites the earlier value. The next chat turn in the
     conversation passes it to the query rewriter.
