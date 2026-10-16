@@ -22,10 +22,25 @@ Each run name has three files:
 
 ## Read results across sessions, not within one
 
-The 3 passes inside one session almost always agree. A restart can still move the
-score by a whole fix (0.045), with nothing changed. Most of that comes from
-`am.fb.0004` flipping between half and full credit. So a setting counts as better
-only if it beats every baseline session in at least 2 sessions of its own.
+The 3 passes inside one session almost always agree. In these runs a restart could
+still move the score by a whole fix (0.045), with nothing changed. Most of that came
+from `am.fb.0004` flipping between half and full credit. So a setting counted as
+better only if it beat every baseline session in at least 2 sessions of its own.
+
+That swing came from the database, not the restart. Every run here used a database
+that had been ingested earlier and was not re-ingested. After a clean ingest on 16
+Oct (fresh volumes, same settings, `qwen3:8b`, 8 chunks, `STEP_SUPPORT_MIN=0.5`):
+
+- 10 `make eval` runs, including after restarts, all scored `fix_solved` 9 and `fix_present` 0.909;
+- `am.fb.0004` was full in every run;
+- step_precision was 0.637, against 0.57-0.61 here.
+
+The documents retrieved were the same, so the eval's retrieval scores never showed
+the difference. The chunk text in the old index probably differed, for example
+chunks left from an earlier chunker version. Comparisons within this folder are
+still fair, because each was made on the same database. Their absolute scores
+understate a clean install, though. Run `make reingest` before an eval you want to
+compare with others.
 
 ## Runs
 
