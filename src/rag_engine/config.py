@@ -99,9 +99,12 @@ class Settings(BaseSettings):
     # ollama
     ollama_base_url: str = "http://ollama:11434"
     embedding_model: str = "qwen3-embedding:0.6b"
-    # instruct (non-thinking) build: plain qwen3:4b is the always-thinking 2507 model,
-    # which ignores think:false and spends num_predict on reasoning text
-    llm_model: str = "qwen3:4b-instruct-2507-q4_K_M"
+    # qwen3:8b honours think:false, and on the eval gave more complete fixes than the
+    # 4B instruct build (fix_present 0.909 against 0.727) at the same speed on a 12 GB
+    # card. Needs about 6 GB of GPU memory; on a smaller card use
+    # qwen3:4b-instruct-2507-q4_K_M (not plain qwen3:4b, the always-thinking 2507
+    # model, which ignores think:false and spends num_predict on reasoning text)
+    llm_model: str = "qwen3:8b"
     # model that rewrites a follow-up chat message into a standalone query
     # (retrieval/rewriter.py). Empty = LLM_MODEL, which is already loaded. A much
     # smaller model does not do the task: qwen3:0.6b returned "why does it happen?"
