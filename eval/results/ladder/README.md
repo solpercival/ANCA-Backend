@@ -46,7 +46,7 @@ compare with others.
 
 | Prefix | What was tested | Outcome |
 |---|---|---|
-| `r0_baseline`, `ra_*`, `rb_*`, `rc*_*`, `rd_*`, `re_*` | The prompt/context ladder: 4 chunks with a 4000-character context, the short prompt, evidence first, sentence selection, `qwen3:14b` | Every rung stayed off. Rung A first looked like a gain, then matched the old defaults over 3 sessions each (`old8_*`, `t0_defaults*`, `ra_repeat`) and was reverted |
+| `r0_baseline`, `ra_*`, `rb_*`, `rc*_*`, `rd_*`, `re_*` | The prompt/context ladder: 4 chunks with a 4000-character context, the short prompt, evidence first, sentence selection, `qwen3:14b` | Every rung stayed off. Rung A first looked like a gain, then matched the old defaults over 3 sessions each (`old8_*`, `t0_defaults*`, `ra_repeat`) and was reverted. The switches for the short prompt, evidence first and sentence selection (`RESOLVE_PROMPT`, `RESOLVE_EVIDENCE_FIRST`, `RESOLVE_SENTENCE_SELECT`) were removed from the code afterwards |
 | `t*_s*`, `v_*_s*` | `RESOLVE_TABLE_RULE=use` and `RESOLVE_INFORMATIONAL_STEPS=true`, on code that has since been removed | Both lost a fix, alone and together. The informational rule also added unsupported "acknowledge" steps. Discarded |
 | `e1_*` | `RERANK_RELATIVE_MIN=0.1` | Within the baseline's noise |
 | `e2_*` | `RERANK_MAX_LENGTH=4096` | Within the baseline's noise (`b8_*` reached the same 9 fixes) |

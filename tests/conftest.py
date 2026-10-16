@@ -97,15 +97,9 @@ def _local_env_does_not_reach_tests(monkeypatch):
     # and anonymous access: a request with no token is a 401 unless a test turns it on
     monkeypatch.setenv("ALLOW_ANONYMOUS_OPERATOR", "false")
     monkeypatch.setattr(get_settings(), "allow_anonymous_operator", False)
-    # and the resolve experiment switches (eval prompt ladder)
-    for name, default in (
-        ("RESOLVE_PROMPT", "full"),
-        ("RESOLVE_EVIDENCE_FIRST", False),
-        ("RESOLVE_SENTENCE_SELECT", 0),
-        ("RESOLVE_DEBUG_PROMPT", False),
-    ):
-        monkeypatch.setenv(name, str(default).lower())
-        monkeypatch.setattr(get_settings(), name.lower(), default)
+    # and the prompt capture for eval/diagnose_gaps.py
+    monkeypatch.setenv("RESOLVE_DEBUG_PROMPT", "false")
+    monkeypatch.setattr(get_settings(), "resolve_debug_prompt", False)
 
 
 @pytest.fixture

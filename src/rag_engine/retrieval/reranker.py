@@ -192,11 +192,6 @@ class Qwen3Reranker:
             pair = pair + head.bias[rows]
         return pair
 
-    async def score_texts(self, query: str, texts: list[str]) -> list[float]:
-        """Relevance (P(yes)) of each text to the query, in input order."""
-        await asyncio.to_thread(self._ensure_loaded)
-        return await asyncio.to_thread(self._score, query, texts)
-
     async def rerank(self, query: str, chunks: list[Chunk], effort: EffortSettings) -> list[Chunk]:
         """Score each chunk against the query and return the top_n by relevance."""
         if not chunks:

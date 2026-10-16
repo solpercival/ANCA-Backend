@@ -83,12 +83,6 @@ _STEP_PREFIX = re.compile(r"^\s*(?:\d+[.)]|[-*•])\s*")
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 # "CAUSE: <verbatim sentence>" lines the model emits for technician+ tiers
 _CAUSE_LINE = re.compile(r"^\W*cause\s*[:=-]\s*(.+?)\s*$", re.I)
-# RESOLVE_EVIDENCE_FIRST: "EVIDENCE: <opening words of a context sentence>" lines
-_EVIDENCE_LINE = re.compile(r"^\W*evidence\s*[:=-]\s*(.+?)\s*$", re.I)
-# share of a step's key words that must be in one evidence sentence
-_EVIDENCE_MIN = 0.34
-# share of an EVIDENCE quote's key words that must be in the context unit it names
-_EVIDENCE_QUOTE_MIN = 0.6
 # inline citation markers ([1], [1, 2], [2-3], or a literal [n]) never reach the
 # response: sources are reported only through the structured citations list
 _CITE_MARKER = re.compile(r"\s*\[(?:n|\d+(?:\s*[,–-]\s*\d+)*)\]", re.I)
@@ -288,43 +282,6 @@ def _context_sentences(text: str) -> tuple[str, ...]:
             if len(words) >= _MIN_SENTENCE_WORDS:
                 sentences.append(sentence.strip())
     return tuple(sentences)
-
-
-def _context_units(text: str) -> list[str]:
-    """A chunk cut into the pieces sentence selection scores: prose sentences, each
-    table row under its header row, and each fenced code block whole. Headings are
-    left out; the chunk keeps its heading path."""
-    units: list[str] = []
-    fence: list[str] | None = None
-    header = ""
-    for raw in (text or "").splitlines():
-        if _FENCE.match(raw):
-            if fence is None:
-                fence = [raw]
-            else:
-                fence.append(raw)
-                units.append("\n".join(fence))
-                fence = None
-            continue
-        if fence is not None:
-            fence.append(raw)
-            continue
-        if not raw.strip() or _HEADING.match(raw):
-            header = ""
-            continue
-        if _TABLE_ROW.match(raw):
-            if set(raw.strip()) <= set("|-: "):
-                continue  # the separator under a header row
-            if not header:
-                header = raw.strip()
-                continue
-            units.append(f"{header}\n{raw.strip()}")
-            continue
-        header = ""
-        units.extend(s.strip() for s in _SENTENCE_SPLIT.split(raw.strip()) if s.strip())
-    if fence:
-        units.append("\n".join(fence))
-    return units
 
 
 def _log_candidates(candidates: list[Chunk]) -> None:
@@ -539,68 +496,6 @@ class Orchestrator:
         the message carries one occurrence's program names and addresses."""
         return req.query or f"{alarm.title}. {alarm.description or alarm.alarm_text}"
 
-    def _build_short_prompt(
-        self, req: ResolveRequest, alarm: Alarm, chunks: list[Chunk], tier: Tier
-    ) -> str:
-        """RESOLVE_PROMPT=short: five rules, two worked examples from another domain,
-        and the context directly before the question. Rules the server already
-        enforces after generation (example values, echoes of the alarm, repeats,
-        non-action lines, numbering, citation markers) are left out."""
-        evidence = get_settings().resolve_evidence_first
-        if evidence:
-            rule2 = (
-                "2. Then one line per context sentence your steps rest on, in context order: "
-                "EVIDENCE: <its first 8 to 10 words, copied exactly>. Then the steps, one per "
-                "line: a short imperative sentence starting with a verb, or "
-                '"If <condition>, <verb> ..." for each alternative the context gives.\n'
-            )
-        else:
-            rule2 = (
-                "2. Then the steps, one per line: a short imperative sentence starting with a "
-                'verb, or "If <condition>, <verb> ..." for each alternative the context gives.\n'
-            )
-        causes = (
-            "5. Last, up to 3 lines CAUSE: <the first 8 to 10 words of a context sentence "
-            "that states a cause of this alarm, copied exactly>, or none.\n"
-            if can_view_likely_causes(tier)
-            else ""
-        )
-        evidence_example = (
-            "EVIDENCE: If the paper tray is overfilled, the feed rollers\n"
-            "EVIDENCE: Error E2 is cleared by power-cycling the printer\n"
-            if evidence
-            else ""
-        )
-        return (
-            "You are a CNC troubleshooting assistant. Answer from the context only.\n"
-            "1. First line: COVERAGE: full (the context gives steps that resolve the alarm), "
-            "COVERAGE: partial (it explains the alarm but gives no complete fix) or "
-            "COVERAGE: none (it is unrelated). For none, the only other line is exactly: "
-            f'"{_NOT_COVERED}"\n'
-            f"{rule2}"
-            "3. Put the step that resolves the alarm first. Include a restart or "
-            "reinitialisation when the context says the alarm needs one.\n"
-            "4. Give only steps the context supports, and none that would cause the alarm "
-            "again. If the alarm message states a remedy, give it as the message says.\n"
-            f"{causes}"
-            "\nExample 1\n"
-            "Alarm: prn.feed.0002 - Paper jam\n"
-            "Context: If the paper tray is overfilled, the feed rollers pick up several "
-            "sheets at once. Error E2 is cleared by power-cycling the printer.\n"
-            "Answer:\nCOVERAGE: full\n"
-            f"{evidence_example}"
-            "If the paper tray is overfilled, remove the excess paper\n"
-            "Power-cycle the printer to clear the error\n"
-            "\nExample 2\n"
-            "Alarm: prn.ink.0007 - Ink cartridge not recognised\n"
-            "Context: The scanner glass should be cleaned with a dry cloth.\n"
-            f"Answer:\nCOVERAGE: none\n{_NOT_COVERED}\n"
-            f"\nAlarm: {req.code} - {alarm.title}\n"
-            f"Alarm message: {alarm.alarm_text}\n"
-            f"Context:\n{self._format_context(chunks)}\n\n"
-            f"Question: how do I resolve alarm {req.code}?\nAnswer:\n"
-        )
-
     def _build_prompt(
         self, req: ResolveRequest, alarm: Alarm, chunks: list[Chunk], tier: Tier
     ) -> str:
@@ -609,16 +504,7 @@ class Orchestrator:
 
         It asks for a COVERAGE line, then short action lines, then (for tiers that
         may see causes) CAUSE lines; resolve() parses the answer in that order.
-        RESOLVE_PROMPT=short selects _build_short_prompt instead.
         """
-        if get_settings().resolve_prompt == "short":
-            return self._build_short_prompt(req, alarm, chunks, tier)
-        evidence = (
-            "Before the steps, add one line per context sentence the steps rest on, in "
-            "context order: EVIDENCE: <its first 8 to 10 words, copied exactly>.\n"
-            if get_settings().resolve_evidence_first
-            else ""
-        )
         # The docs describe machine behaviour, not per-alarm fixes, so the model is
         # asked for grounded guidance rather than a fix it would have to invent.
         # Output tokens dominate latency here (~16-33 tok/s on the demo GPU), so answers
@@ -642,7 +528,6 @@ class Orchestrator:
             "COVERAGE: full    (the context gives explicit steps that resolve this alarm)\n"
             "COVERAGE: partial (the context explains the alarm or behaviour, but no complete fix)\n"
             "COVERAGE: none    (the context is unrelated to this alarm)\n"
-            f"{evidence}"
             "Then output the steps, one line per point, no numbering. Give as many or as "
             "few steps as the context supports: there is no fixed number and no minimum, "
             "and one step is right when that is all the context gives. Each line is one "
@@ -958,101 +843,6 @@ class Orchestrator:
             return "partial", real
         return claimed, real
 
-    @classmethod
-    def _split_evidence(cls, body: str) -> tuple[list[str], str]:
-        """Pull EVIDENCE lines out of the answer; return (quoted openings, remaining body)."""
-        claims: list[str] = []
-        kept: list[str] = []
-        for ln in body.splitlines():
-            m = _EVIDENCE_LINE.match(ln)
-            if not m:
-                kept.append(ln)
-                continue
-            quote = cls._strip_citations(m.group(1)).strip("\"'").strip()
-            if quote:
-                claims.append(quote)
-        return claims, "\n".join(kept)
-
-    @classmethod
-    def _order_by_evidence(
-        cls, steps: list[str], claims: list[str], alarm: Alarm, chunks: list[Chunk], code: str
-    ) -> list[str]:
-        """RESOLVE_EVIDENCE_FIRST: keep the steps an evidence sentence backs, in the
-        order their evidence appears in the context.
-
-        Each EVIDENCE quote is matched to the context unit it comes from (a sentence,
-        a table row under its header, a code block): the unit holding most of the
-        quote's key words, at least _EVIDENCE_QUOTE_MIN of them. A step is backed when
-        at least _EVIDENCE_MIN of its key words are in one evidence unit. The alarm
-        message counts as evidence placed first, since a remedy it states is meant to
-        be the first step. The not-covered disclaimer is left for _settle_coverage.
-        """
-        units = [u for c in chunks for u in _context_units(c.text or "")]
-        unit_stems = [cls._support_stems(u) for u in units]
-        alarm_stems = cls._support_stems(alarm.alarm_text)
-        evidence: list[tuple[int, set[str]]] = [(-1, alarm_stems)]
-        for quote in claims:
-            stems = cls._support_stems(quote)
-            if not stems:
-                continue
-            if len(stems & alarm_stems) / len(stems) >= _EVIDENCE_QUOTE_MIN:
-                continue  # quoted the alarm message, already evidence
-            share, position = max(
-                ((len(stems & us) / len(stems), i) for i, us in enumerate(unit_stems)),
-                default=(0.0, -1),
-            )
-            if share < _EVIDENCE_QUOTE_MIN:
-                log.info("evidence_rejected code=%s quote=%r", code, quote[:120])
-                continue
-            evidence.append((position, unit_stems[position]))
-        sentences = units
-        disclaimer = cls._norm(_NOT_COVERED)
-        ranked: list[tuple[int, int, str]] = []
-        for i, step in enumerate(steps):
-            if disclaimer in cls._norm(step):
-                ranked.append((len(sentences) + 1, i, step))
-                continue
-            stems = cls._support_stems(step)
-            share, position = max(
-                ((len(stems & ev) / len(stems) if stems else 0.0, pos) for pos, ev in evidence),
-                key=lambda pair: pair[0],
-            )
-            if share < _EVIDENCE_MIN:
-                log.info("step_dropped_no_evidence code=%s step=%r", code, step[:120])
-                continue
-            ranked.append((position, i, step))
-        return [step for _, _, step in sorted(ranked)]
-
-    async def _select_sentences(
-        self, query: str, chunks: list[Chunk], reranker: Reranker, code: str
-    ) -> list[Chunk]:
-        """RESOLVE_SENTENCE_SELECT: keep only the context units (sentences, table rows
-        under their header, code blocks) the reranker scores highest for the alarm,
-        in document order. Without a relevance-scoring reranker the context is kept."""
-        keep_n = get_settings().resolve_sentence_select
-        if keep_n <= 0 or not hasattr(reranker, "score_texts"):
-            return chunks
-        units = [(ci, u) for ci, c in enumerate(chunks) for u in _context_units(c.text or "")]
-        if len(units) <= keep_n:
-            return chunks
-        scores = await reranker.score_texts(query, [u for _, u in units])
-        best = sorted(range(len(units)), key=lambda i: scores[i], reverse=True)[:keep_n]
-        kept: dict[int, list[str]] = {}
-        for i in sorted(best):
-            kept.setdefault(units[i][0], []).append(units[i][1])
-        log.info("sentence_select code=%s units=%d kept=%d", code, len(units), len(best))
-        return [
-            Chunk(
-                chunk_id=chunks[ci].chunk_id,
-                text="\n".join(texts),
-                source=chunks[ci].source,
-                metadata=chunks[ci].metadata,
-                score=chunks[ci].score,
-                section=chunks[ci].section,
-            )
-            for ci, texts in kept.items()
-        ]
-
     async def _record_debug_prompt(self, code: str, prompt: str, chunks: list[Chunk]) -> None:
         """RESOLVE_DEBUG_PROMPT: keep the final prompt and its context in Redis for a
         day, for eval/diagnose_gaps.py. A failed write is logged and ignored."""
@@ -1245,7 +1035,6 @@ class Orchestrator:
         context = top
         if self._has_relevant_context(top, reranker, req.code):
             context = await self._section_context(top, req.code)
-            context = await self._select_sentences(query, context, reranker, req.code)
             prompt = self._build_prompt(req, alarm, context, tier)
             await self._record_debug_prompt(req.code, prompt, context)
             cache_key = self._generation_cache_key(prompt, effort_settings)
@@ -1299,17 +1088,12 @@ class Orchestrator:
         doc_coverage, body = self._split_coverage(answer, req.code)
         # always strip CAUSE lines so they never leak into steps, whatever the tier
         cause_claims, body = self._split_causes(body)
-        evidence_claims, body = self._split_evidence(body)
         steps = self._drop_catalogue_echoes(self._split_steps(body), alarm, context)
         steps = self._scrub_example_literals(steps, req.code, alarm.alarm_text)
         steps = self._drop_filler_beside_actions(steps, req.code)
         # after the scrub, which can leave two steps saying the same thing
         steps = self._drop_duplicate_steps(steps, req.code)
         steps = self._drop_unsupported_steps(steps, alarm, context, req.code)
-        if get_settings().resolve_evidence_first:
-            steps = self._order_by_evidence(
-                steps, evidence_claims, alarm, context, req.code
-            )
         # empty (header only / only catalogue echoes) or only the disclaimer -> "none"
         doc_coverage, steps = self._settle_coverage(doc_coverage, steps, req.code)
         # the route also strips causes per tier; skipping here just avoids the work
