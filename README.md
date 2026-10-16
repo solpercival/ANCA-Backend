@@ -150,13 +150,17 @@ written relative to that base, so `POST /resolve` means
 
 - **JSON** request and response bodies, except login, which is form-encoded.
 - **Auth:** send `Authorization: Bearer <access_token>` on every call except
-  login, refresh, logout, health and ready.
+  login, refresh, logout, health and ready. With `ALLOW_ANONYMOUS_OPERATOR=true`,
+  `/resolve` and `/feedback` also accept a call with no `Authorization` header and
+  treat it as an operator. A token that is sent must be valid: an expired or
+  malformed one is a `401`, never an anonymous call.
 - **Request id:** every response carries `X-Request-ID`. Send your own
   `X-Request-ID` to choose it; otherwise one is generated. Show it in error
   messages so a report can be matched to the server logs.
 - **Body limit:** 64 KiB per request (`413 payload_too_large` above that).
 - **CORS:** allowed origins are `CORS_ALLOW_ORIGINS` (default
-  `http://localhost:3000` and `http://127.0.0.1:3000`). Credentials are allowed,
+  `http://localhost:3000`, `http://127.0.0.1:3000`, and the Vite dev server on
+  `http://localhost:5173` and `http://127.0.0.1:5173`). Credentials are allowed,
   so the origin must match exactly. Add your dev or deployed origin there.
 - **Slow calls:** `/resolve` and `/chat` wait for an LLM and can take from a
   few seconds to tens of seconds. Show a loading state and don't use a short
@@ -171,9 +175,9 @@ written relative to that base, so `POST /resolve` means
 | POST | `/auth/logout` | refresh cookie | End this session |
 | POST | `/auth/logout-all` | bearer | End every session of the account |
 | GET | `/auth/me` | bearer | Current account |
-| POST | `/resolve` | bearer | Guidance for an alarm code |
+| POST | `/resolve` | bearer, or none as an operator (`ALLOW_ANONYMOUS_OPERATOR`) | Guidance for an alarm code |
 | POST | `/chat` | bearer, technician or partner | Follow-up question |
-| POST | `/feedback` | bearer, technician or partner | Mark a chat reply as helpful or not |
+| POST | `/feedback` | bearer (any tier), or none as an operator (`ALLOW_ANONYMOUS_OPERATOR`) | Mark a chat reply or resolve answer as helpful or not |
 | GET | `/health` | none | Process is up |
 | GET | `/ready` | none | Postgres, Redis and model server reachable |
 
@@ -257,6 +261,11 @@ names.
 
 ### POST /resolve
 
+Open to every tier. With `ALLOW_ANONYMOUS_OPERATOR=true`, a call with no
+`Authorization` header gets the operator view: `likely_causes` is `[]`,
+`ai_chat_available` is `false`, and the escalation fields are set as for an
+operator. Anonymous calls count against the per-IP rate limit like any other.
+
 Request:
 
 ```json
@@ -275,7 +284,7 @@ Request:
 | `env` | no | Machine context; narrows the documentation searched. Omit if unknown |
 | `effort` | no | `low`, `medium` (default) or `high`; higher is slower and more thorough |
 | `query` | no | Free-text symptom, up to 1000 characters |
-| `conversation_id` | no | 1-128 characters. Records the answer under that conversation, so a later `/chat` message with the same id can refer back to it |
+| `conversation_id` | no | 1-128 characters. Records the answer under that conversation, so a later `/chat` message with the same id can refer back to it, and returns a `response_id` for `/feedback` |
 
 Response `200`:
 
@@ -301,7 +310,8 @@ Response `200`:
   "safety_note": null,
   "escalation_suggested": false,
   "escalation_note": null,
-  "confidence": 0.5
+  "confidence": 0.5,
+  "response_id": 4821
 }
 ```
 
@@ -315,6 +325,7 @@ Response `200`:
 | `confidence` | Derived from `doc_coverage` (0.9, 0.5, 0.0). Use `doc_coverage` for UI decisions |
 | `safety_note` | A verify-before-acting caution, set for safety-related alarms (`severity_category` `Fatal` by default; `SAFETY_SEVERITY_CATEGORIES`) for every tier, otherwise `null`. Show it prominently with the steps |
 | `escalation_suggested`, `escalation_note` | `true` with a message for an operator when the alarm is safety-related or `doc_coverage` is `none`/`partial`: prompt them to escalate. Always `false`/`null` for technician and partner |
+| `response_id` | Identifies this answer for `POST /feedback`. Set only when the request gave a `conversation_id` (feedback is addressed by both); otherwise `null` |
 
 When `doc_coverage` is `none`, `steps` holds the single line "The documentation
 does not cover this alarm." and `likely_causes` is empty. Show that state
@@ -357,7 +368,9 @@ message gets an empty reply and no id).
 
 ### POST /feedback
 
-The "this did not help" button. Request:
+The "this did not help" button, for a `/chat` reply or a `/resolve` answer. Use
+the `response_id` and `conversation_id` that call returned. Open to every tier,
+and to anonymous operators when `ALLOW_ANONYMOUS_OPERATOR=true`. Request:
 
 ```json
 { "conversation_id": "c-7f3a", "response_id": 4821, "helpful": false }
