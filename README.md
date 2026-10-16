@@ -508,6 +508,81 @@ For a browser, trust Caddy's root certificate, which
 copies out. Then add your `https://` front-end origin to `CORS_ALLOW_ORIGINS`.
 `make restart` goes back to the plain stack.
 
+### Public access with Tailscale Funnel
+
+This is how the Vercel front end reaches the engine on the GPU machine. The app
+proxies `/api/v2/*` through its own domain (a rewrite in the front end's
+`frontend/vercel.json`) to
+`https://<TS_HOSTNAME>.<tailnet>.ts.net/api/v2/*`. Browsers only ever talk to the
+app's domain, so the refresh cookie stays first-party, and Safari keeps the login.
+
+`docker-compose.funnel.yml` runs Tailscale as a container in the stack. It joins
+the tailnet as its own machine (`anca-api` by default) and serves that URL to the
+internet over Funnel, proxying to the orchestrator on the compose network.
+Nothing is published on the host for it, and the orchestrator trusts forwarded
+headers only from that container.
+
+**Once, in the Tailscale admin console:**
+
+1. DNS: enable HTTPS certificates.
+2. Access controls: allow Funnel for the tag, in the policy file:
+   ```json
+   "tagOwners": { "tag:anca-api": ["autogroup:admin"] },
+   "nodeAttrs": [ { "target": ["tag:anca-api"], "attr": ["funnel"] } ]
+   ```
+3. Settings → Keys: generate a reusable auth key with the tag `tag:anca-api`, and
+   put it in `.env` as `TS_AUTHKEY`.
+
+**`.env` on the GPU machine.** The API becomes reachable by anyone with the URL,
+so the placeholder secrets must go:
+
+```env
+APP_ENV=production                 # the orchestrator then refuses placeholder secrets
+JWT_SECRET=<python3 -c "import secrets; print(secrets.token_urlsafe(48))">
+POSTGRES_PASSWORD=<new password, see below>
+ALLOWED_HOSTS='["anca-api.<tailnet>.ts.net","localhost"]'   # localhost: the health check
+CORS_ALLOW_ORIGINS='["https://<app>.vercel.app"]'           # checked on /auth/refresh
+ALLOW_ANONYMOUS_OPERATOR=true      # the front end lets operators in without a login
+RESOLVE_RATE_LIMIT_PER_IP=120      # every request arrives from a Vercel server (below)
+```
+
+To change the password of a database that already exists, run this, then set the
+same value as `POSTGRES_PASSWORD`:
+`docker compose exec postgres psql -U <POSTGRES_USER> -d <POSTGRES_DB> -c "ALTER USER <POSTGRES_USER> PASSWORD '<new>'"`.
+A new `JWT_SECRET` logs everyone out once.
+
+**Run it.** `make funnel`:
+
+1. refuses to start while `APP_ENV` is `local` or a secret is a placeholder;
+2. brings up the orchestrator and the Tailscale container;
+3. runs `scripts/funnel_check.sh`, which checks:
+   - the public URL and HSTS;
+   - that the orchestrator sees the real client IP;
+   - `/resolve` without a token;
+   - that a caller on port 8080 cannot fake forwarded headers;
+   - `ALLOWED_HOSTS`.
+
+`make funnel-off` stops the Tailscale container, and the API is no longer
+public. `make restart` alone leaves it running.
+
+**For the front end:**
+
+- Set the rewrite destination in `vercel.json` to
+  `https://anca-api.<tailnet>.ts.net/api/v2/:path*`.
+- Set `VITE_ENGINE_MODE=live`, and leave `VITE_ENGINE_BASE_URL` unset.
+
+**Behaviour to expect:**
+
+- Rate limits are counted per Vercel server, not per phone, because the rewrite
+  makes Vercel the client. That is why the per-IP limit above is higher. The
+  per-tier limit still applies.
+- Login works only on origins listed in `CORS_ALLOW_ORIGINS`. Vercel preview
+  deployments have their own URLs, so on a preview only the no-login operator
+  view works.
+- The first answer after a restart takes about 17 s while the models load. Open
+  the app once before a demo. The machine must stay on, with Docker Desktop
+  running.
+
 ## Design boundaries (who owns what)
 
 - **Documentation team** — the `docs` submodule *and* ingestion: content through

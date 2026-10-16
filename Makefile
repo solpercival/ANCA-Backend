@@ -13,7 +13,7 @@
         up up-full down build restart models sparse \
         migrate migrate-status migrate-down revision db-reset \
         ingest reingest seed-alarms \
-        smoke https bench eval retest
+        smoke https funnel funnel-off bench eval retest
 
 .DEFAULT_GOAL := help
 
@@ -116,6 +116,14 @@ smoke:          ## end-to-end smoke test: auth -> resolve -> chat
 https:          ## run the orchestrator behind a local HTTPS proxy (Caddy) and check it
 	$(COMPOSE_FILES) -f docker-compose.https.yml up -d --build orchestrator caddy
 	bash scripts/https_check.sh
+
+funnel:         ## serve the API publicly through Tailscale Funnel (README), then check it
+	bash scripts/funnel_check.sh preflight
+	$(COMPOSE_FILES) -f docker-compose.funnel.yml up -d --build orchestrator tailscale
+	bash scripts/funnel_check.sh
+
+funnel-off:     ## stop the Tailscale Funnel container (the API is no longer public)
+	$(COMPOSE_FILES) -f docker-compose.funnel.yml stop tailscale
 
 bench:          ## warm latency + answer check over sample alarm codes, with per-stage timings
 	bash scripts/bench.sh

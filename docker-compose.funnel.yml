@@ -1,0 +1,50 @@
+# Public HTTPS through Tailscale Funnel: a Tailscale container joins your tailnet as
+# its own machine (TS_HOSTNAME, default anca-api) and serves
+# https://<TS_HOSTNAME>.<tailnet>.ts.net to the internet, proxying to the
+# orchestrator over the compose network. Nothing is published on the host for it,
+# so other software on the machine's ports does not matter.
+#
+#   make funnel    # checks .env, brings this up, then checks the public URL
+#
+# Needs, once, in the Tailscale admin console (README "Public access with Tailscale
+# Funnel"): HTTPS certificates on, Funnel allowed for tag:anca-api, and a tagged
+# auth key in .env as TS_AUTHKEY. `make funnel-off` takes the API off the internet.
+services:
+  tailscale:
+    image: tailscale/tailscale:v1.104.1
+    hostname: ${TS_HOSTNAME:-anca-api}
+    environment:
+      TS_AUTHKEY: ${TS_AUTHKEY:?set TS_AUTHKEY in .env (a tagged Tailscale auth key)}
+      TS_EXTRA_ARGS: --advertise-tags=tag:anca-api
+      TS_STATE_DIR: /var/lib/tailscale
+      # Funnel on 443 -> http://orchestrator:8080 (docker/tailscale-serve.json)
+      TS_SERVE_CONFIG: /config/serve.json
+      TS_USERSPACE: "true"
+    volumes:
+      - tailscale-state:/var/lib/tailscale  # keeps the machine identity across restarts
+      - ./docker/tailscale-serve.json:/config/serve.json:ro
+    networks:
+      default:
+      funnel:
+        ipv4_address: 172.31.251.10
+    depends_on: [orchestrator]
+    restart: unless-stopped
+
+  orchestrator:
+    # trust X-Forwarded-For / X-Forwarded-Proto from the Tailscale container only.
+    # A caller on the published port 8080 arrives from another address, so it
+    # cannot fake its IP or scheme
+    environment:
+      FORWARDED_ALLOW_IPS: 172.31.251.10
+    networks: [default, funnel]
+    restart: unless-stopped
+
+networks:
+  # fixed subnet so the Tailscale container has a known address to trust
+  funnel:
+    ipam:
+      config:
+        - subnet: 172.31.251.0/24
+
+volumes:
+  tailscale-state:
