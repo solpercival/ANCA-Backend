@@ -574,6 +574,16 @@ A new `JWT_SECRET` logs everyone out once.
 `make funnel-off` stops the Tailscale container, and the API is no longer
 public. `make restart` alone leaves it running.
 
+**After a reboot.** Every service started by `make funnel` has
+`restart: unless-stopped`, so the whole stack comes back by itself, with the GPU
+and the Funnel, as soon as Docker Desktop is running. Docker Desktop is a desktop
+app: it starts when the Windows user signs in (Docker Desktop → Settings →
+General → "Start Docker Desktop when you sign in"). If the machine sits at the
+Windows sign-in screen, nothing runs until someone signs in. To check or recover
+by hand, run `make funnel` in WSL. It only recreates what changed, then runs the
+checks. `make funnel-off` stops the Funnel, and the restart policy does not bring
+it back while it is stopped.
+
 In this setup Ollama keeps the models loaded (`OLLAMA_KEEP_ALIVE=-1`), so an idle
 gap does not slow the next answer. A warm answer takes about 1 s. The first answer
 after the orchestrator or Ollama restarts can take up to about 2 minutes, while the

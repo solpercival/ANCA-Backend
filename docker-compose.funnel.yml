@@ -50,6 +50,15 @@ services:
     # after 5 idle minutes, and the next public answer then waits for a reload
     environment:
       OLLAMA_KEEP_ALIVE: "-1"
+    restart: unless-stopped
+
+  # with the orchestrator and tailscale above, the whole stack comes back by itself
+  # when Docker Desktop starts after a reboot (with the GPU, since the containers keep
+  # the configuration `make funnel` created them with)
+  postgres:
+    restart: unless-stopped
+  redis:
+    restart: unless-stopped
 
 networks:
   # fixed subnet so the Tailscale container has a known address to trust
