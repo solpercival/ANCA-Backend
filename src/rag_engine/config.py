@@ -7,6 +7,7 @@ Onboarding note:
 
 from functools import lru_cache
 from typing import Literal, Self
+from urllib.parse import quote
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -334,9 +335,15 @@ class Settings(BaseSettings):
 
     @property
     def postgres_dsn(self) -> str:
-        """libpq URL for psycopg; migrations/env.py adapts it for SQLAlchemy."""
+        """libpq URL for psycopg; migrations/env.py adapts it for SQLAlchemy.
+
+        The user and password are percent-encoded, so a password containing @, :,
+        / or % is not read as part of the host (both psycopg and SQLAlchemy decode
+        them again)."""
+        user = quote(self.postgres_user, safe="")
+        password = quote(self.postgres_password, safe="")
         return (
-            f"postgresql://{self.postgres_user}:{self.postgres_password}"
+            f"postgresql://{user}:{password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
 
