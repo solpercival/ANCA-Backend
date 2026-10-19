@@ -151,4 +151,19 @@ fi
 code=$(curl -s -o /dev/null -w '%{http_code}' -H "Host: evil.example" "http://localhost:8080$API_PREFIX/health")
 [ "$code" = 400 ] && pass "Host: evil.example -> 400" || fail "Host: evil.example -> $code, expected 400"
 
+# 6. on a GPU machine, the model containers have the GPU (a plain `docker compose up`
+#    without docker-compose.gpu.yml silently runs them on the CPU: 20+ s per answer)
+if command -v nvidia-smi >/dev/null 2>&1; then
+  for svc in ollama orchestrator; do
+    gpu=$(docker inspect "$($COMPOSE ps -q "$svc")" --format '{{json .HostConfig.DeviceRequests}}' 2>/dev/null)
+    if [ -n "$gpu" ] && [ "$gpu" != null ]; then
+      pass "$svc has the GPU"
+    else
+      fail "$svc runs without the GPU: start the stack with make (make funnel), not plain docker compose"
+    fi
+  done
+else
+  skip "no nvidia-smi: GPU check skipped"
+fi
+
 exit $failed
