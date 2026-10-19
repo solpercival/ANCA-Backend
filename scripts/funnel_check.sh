@@ -20,7 +20,11 @@ skip() { echo "SKIP  $1"; }
 
 # --- preflight: the API is about to be reachable by anyone with the URL ------------
 if [ "${1:-}" = "preflight" ]; then
-  [ -n "${TS_AUTHKEY:-}" ] && pass "TS_AUTHKEY is set" || fail "TS_AUTHKEY is not set in .env"
+  if [ -n "${TS_AUTHKEY:-}" ]; then
+    pass "TS_AUTHKEY is set"
+  else
+    skip "no TS_AUTHKEY: on its first start the container prints a login URL to approve"
+  fi
   # APP_ENV other than local makes the orchestrator refuse to start on a placeholder
   # JWT_SECRET or POSTGRES_PASSWORD, or on ALLOWED_HOSTS=*
   if [ "${APP_ENV:-local}" = local ]; then
@@ -66,13 +70,24 @@ for _ in $(seq 1 60); do
   sleep 2
 done
 if [ -z "$host" ]; then
-  echo "FAIL  the tailscale container did not join the tailnet; see: $COMPOSE logs tailscale"
+  url=$($COMPOSE logs tailscale 2>/dev/null | grep -oE 'https://login\.tailscale\.com/a/[A-Za-z0-9]+' | tail -1)
+  if [ -n "$url" ]; then
+    echo "WAIT  the tailscale container has not joined the tailnet. Run make funnel-login,"
+    echo "      approve the machine at the URL it prints, then run make funnel again"
+  else
+    echo "FAIL  the tailscale container did not join the tailnet; see: $COMPOSE logs tailscale"
+  fi
   exit 1
 fi
 BASE="https://$host$API_PREFIX"
 echo "      public URL: https://$host  (API base $BASE)"
 
-if $COMPOSE exec -T tailscale tailscale funnel status 2>/dev/null | grep -qi "funnel on"; then
+funnel_on=""
+for _ in $(seq 1 15); do  # the serve config is applied a few seconds after login
+  $COMPOSE exec -T tailscale tailscale funnel status 2>/dev/null | grep -qi "funnel on" && funnel_on=1 && break
+  sleep 2
+done
+if [ -n "$funnel_on" ]; then
   pass "Funnel is on for $host"
 else
   fail "Funnel is not on: allow it for tag:anca-api in the admin console (README)"

@@ -530,8 +530,17 @@ headers only from that container.
    "tagOwners": { "tag:anca-api": ["autogroup:admin"] },
    "nodeAttrs": [ { "target": ["tag:anca-api"], "attr": ["funnel"] } ]
    ```
-3. Settings → Keys: generate a reusable auth key with the tag `tag:anca-api`, and
-   put it in `.env` as `TS_AUTHKEY`.
+3. Join the tailnet, once, in either of two ways:
+   - **Login link (no key):** run `make funnel-login`. It prints a
+     `login.tailscale.com` URL. Open it on any device signed in to the tailnet and
+     approve the machine. If the tailnet requires device approval, also approve it
+     on the Machines page.
+   - **Auth key:** Settings → Keys → generate a reusable key with the tag
+     `tag:anca-api`, and put the whole key in `.env` as `TS_AUTHKEY`. Copy it from
+     the dialog: the key list only shows a short ID, which does not work.
+
+   The identity is then saved in the `tailscale-state` volume, so later starts need
+   neither.
 
 **`.env` on the GPU machine.** The API becomes reachable by anyone with the URL,
 so the placeholder secrets must go:
@@ -565,6 +574,11 @@ A new `JWT_SECRET` logs everyone out once.
 `make funnel-off` stops the Tailscale container, and the API is no longer
 public. `make restart` alone leaves it running.
 
+In this setup Ollama keeps the models loaded (`OLLAMA_KEEP_ALIVE=-1`), so an idle
+gap does not slow the next answer. A warm answer takes about 1 s. The first answer
+after the orchestrator or Ollama restarts can take up to about 2 minutes, while the
+models load from disk.
+
 **For the front end:**
 
 - Set the rewrite destination in `vercel.json` to
@@ -579,8 +593,8 @@ public. `make restart` alone leaves it running.
 - Login works only on origins listed in `CORS_ALLOW_ORIGINS`. Vercel preview
   deployments have their own URLs, so on a preview only the no-login operator
   view works.
-- The first answer after a restart takes about 17 s while the models load. Open
-  the app once before a demo. The machine must stay on, with Docker Desktop
+- Open the app once after any restart and before a demo, so the first slow
+  answer is not a user's. The machine must stay on, with Docker Desktop
   running.
 
 ## Design boundaries (who owns what)

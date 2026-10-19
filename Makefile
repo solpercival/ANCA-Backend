@@ -13,7 +13,7 @@
         up up-full down build restart models sparse \
         migrate migrate-status migrate-down revision db-reset \
         ingest reingest seed-alarms \
-        smoke https funnel funnel-off bench eval retest
+        smoke https funnel funnel-login funnel-off bench eval retest
 
 .DEFAULT_GOAL := help
 
@@ -121,6 +121,9 @@ funnel:         ## serve the API publicly through Tailscale Funnel (README), the
 	bash scripts/funnel_check.sh preflight
 	$(COMPOSE_FILES) -f docker-compose.funnel.yml up -d --build orchestrator tailscale
 	bash scripts/funnel_check.sh
+
+funnel-login:   ## join the tailnet without an auth key: prints a login URL, waits 15 min
+	bash scripts/funnel_login.sh
 
 funnel-off:     ## stop the Tailscale Funnel container (the API is no longer public)
 	$(COMPOSE_FILES) -f docker-compose.funnel.yml stop tailscale

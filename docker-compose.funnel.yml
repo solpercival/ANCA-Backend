@@ -14,8 +14,13 @@ services:
     image: tailscale/tailscale:v1.104.1
     hostname: ${TS_HOSTNAME:-anca-api}
     environment:
-      TS_AUTHKEY: ${TS_AUTHKEY:?set TS_AUTHKEY in .env (a tagged Tailscale auth key)}
-      TS_EXTRA_ARGS: --advertise-tags=tag:anca-api
+      # optional: without a key, the first start prints a login URL to approve in a
+      # browser (make funnel shows it). The identity is then kept in tailscale-state
+      TS_AUTHKEY: ${TS_AUTHKEY:-}
+      # --reset: apply these settings even if the saved identity has other ones
+      TS_EXTRA_ARGS: --advertise-tags=tag:anca-api --reset
+      # the tailnet name, passed explicitly so --reset never falls back to another
+      TS_HOSTNAME: ${TS_HOSTNAME:-anca-api}
       TS_STATE_DIR: /var/lib/tailscale
       # Funnel on 443 -> http://orchestrator:8080 (docker/tailscale-serve.json)
       TS_SERVE_CONFIG: /config/serve.json
@@ -23,8 +28,9 @@ services:
     volumes:
       - tailscale-state:/var/lib/tailscale  # keeps the machine identity across restarts
       - ./docker/tailscale-serve.json:/config/serve.json:ro
+    # only on the funnel network, so it reaches the orchestrator from the trusted
+    # address below (on the default network too, it would connect from that one)
     networks:
-      default:
       funnel:
         ipv4_address: 172.31.251.10
     depends_on: [orchestrator]
@@ -38,6 +44,12 @@ services:
       FORWARDED_ALLOW_IPS: 172.31.251.10
     networks: [default, funnel]
     restart: unless-stopped
+
+  ollama:
+    # keep the models in GPU memory between requests. Ollama's default unloads them
+    # after 5 idle minutes, and the next public answer then waits for a reload
+    environment:
+      OLLAMA_KEEP_ALIVE: "-1"
 
 networks:
   # fixed subnet so the Tailscale container has a known address to trust
