@@ -3,17 +3,30 @@ embedders, stores, reranker and generator), plus a bearer-token header.
 Nothing here needs Postgres, Redis or a model server.
 """
 
+import json
+import os
+
 import pytest
 from fastapi.testclient import TestClient
 
-from rag_engine.auth.tiers import Tier
-from rag_engine.auth.tokens import create_access_token
-from rag_engine.config import get_settings
-from rag_engine.main import app
-from rag_engine.orchestrator import Orchestrator, get_orchestrator
-from rag_engine.retrieval.hybrid import HybridRetriever
-from rag_engine.retrieval.interfaces import Chunk
-from tests.fakes import FakeAlarmStore
+from rag_engine.config import Settings
+
+# A developer's .env may hold deployment values (APP_ENV=production, a narrow
+# ALLOWED_HOSTS, the deployed CORS origin). The app reads these once, at import, to
+# build its middleware, so they are reset to the code defaults here, before the app is
+# imported. Environment variables take precedence over .env.
+for _name in ("app_env", "allowed_hosts", "cors_allow_origins"):
+    _default = Settings.model_fields[_name].default
+    os.environ[_name.upper()] = _default if isinstance(_default, str) else json.dumps(_default)
+
+from rag_engine.auth.tiers import Tier  # noqa: E402
+from rag_engine.auth.tokens import create_access_token  # noqa: E402
+from rag_engine.config import get_settings  # noqa: E402
+from rag_engine.main import app  # noqa: E402
+from rag_engine.orchestrator import Orchestrator, get_orchestrator  # noqa: E402
+from rag_engine.retrieval.hybrid import HybridRetriever  # noqa: E402
+from rag_engine.retrieval.interfaces import Chunk  # noqa: E402
+from tests.fakes import FakeAlarmStore  # noqa: E402
 
 
 class FakeRateLimitBackend:
