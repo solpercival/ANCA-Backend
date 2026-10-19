@@ -519,6 +519,8 @@ app's domain, so the refresh cookie stays first-party, and Safari keeps the logi
 `docker-compose.funnel.yml` runs Tailscale as a container in the stack. It joins
 the tailnet as its own machine (`anca-api` by default) and serves that URL to the
 internet over Funnel, proxying to the orchestrator on the compose network.
+Only `/api/v2/*` is forwarded (`docker/tailscale-serve.json`). `/metrics`, `/docs`
+and `/openapi.json` stay reachable on port 8080 of the machine only.
 Nothing is published on the host for it, and the orchestrator trusts forwarded
 headers only from that container.
 
