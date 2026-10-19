@@ -37,7 +37,7 @@ class FakeGenerator:
     def __init__(self, answer="Check the cable [1]."):
         self._answer = answer
 
-    async def generate(self, prompt, tokens=None, thinking=False):
+    async def generate(self, prompt, tokens=None, thinking=False, deterministic=False):
         self.prompt = prompt
         return self._answer
 

@@ -179,7 +179,11 @@ async def test_query_preprocessor_skips_rewrite_when_disabled():
         calls = 0
 
         async def generate(
-            self, prompt: str, tokens: int | None = None, thinking: bool = False
+            self,
+            prompt: str,
+            tokens: int | None = None,
+            thinking: bool = False,
+            deterministic: bool = False,
         ) -> str:
             self.calls += 1
             return "rewritten"
@@ -213,7 +217,11 @@ async def test_query_preprocessor_calls_rewrite_with_num_rewrite_tokens():
         last_tokens = None
 
         async def generate(
-            self, prompt: str, tokens: int | None = None, thinking: bool = False
+            self,
+            prompt: str,
+            tokens: int | None = None,
+            thinking: bool = False,
+            deterministic: bool = False,
         ) -> str:
             self.calls += 1
             self.last_tokens = tokens

@@ -129,6 +129,14 @@ class Settings(BaseSettings):
     # caps the query rewrite's output tokens at the default (medium) effort
     rewrite_num_predict: int = 256
 
+    # Make answers repeatable: temperature 0 and a fixed seed.
+    # On for resolve, so the same alarm gets the same steps.
+    # Off for chat, so conversations keep some variety.
+    resolve_deterministic: bool = True
+    chat_deterministic: bool = False
+    deterministic_temperature: float = 0.0
+    deterministic_seed: int = 42
+
     # generation http client (streaming keeps the connection alive between tokens,
     # so read_timeout only needs to cover the gap between chunks, not the full reply)
     generation_connect_timeout_seconds: float = 5.0
