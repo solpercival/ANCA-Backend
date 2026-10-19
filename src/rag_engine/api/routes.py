@@ -11,7 +11,7 @@ orchestrator returns, so access never depends on what generation produced.
 import asyncio
 
 import httpx
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, Request, Response, status
 from fastapi.responses import JSONResponse
 
 from rag_engine.api.errors import NotFound
@@ -57,6 +57,18 @@ chat_rate_limit = rate_limit_dependency(
 ESCALATION_NOTE = "If you are unsure, stop and escalate to a technician before acting."
 # doc_coverage values that leave an operator without a complete, documented fix
 _ESCALATE_COVERAGE = frozenset({"none", "partial"})
+
+
+def _set_server_timing(response: Response, timings: dict[str, float]) -> None:
+    """Send the answer's stage timings as a Server-Timing header (milliseconds), e.g.
+    `retrieve;dur=187.6, rerank;dur=402.1, generate;dur=1310.4, total;dur=1900.1`.
+    Browser devtools show it per request, and the front end can read it through
+    PerformanceResourceTiming.serverTiming. Nothing is sent when the answer was decided
+    without the pipeline (an early "not covered")."""
+    if timings:
+        response.headers["Server-Timing"] = ", ".join(
+            f"{stage};dur={seconds * 1000:.1f}" for stage, seconds in timings.items()
+        )
 
 
 def _ping_postgres(pool) -> bool:
@@ -127,6 +139,7 @@ async def ready(request: Request) -> dict[str, object] | JSONResponse:
 @router.post("/resolve", response_model=ResolveResponse, tags=["resolve"])
 async def resolve(
     req: ResolveRequest,
+    response: Response,
     principal: Principal = Depends(optional_principal),
     _: None = Depends(resolve_rate_limit),
     orch: Orchestrator = Depends(get_orchestrator),
@@ -138,6 +151,7 @@ async def resolve(
     Errors: 404 unknown_alarm_code, 429 rate_limited, 503 retrieval/model unavailable.
     """
     resp = await orch.resolve(req, tier=principal.tier)
+    _set_server_timing(response, resp._stage_timings)
     # Tier rules are applied here rather than in the orchestrator, so access never
     # depends on what generation happened to return.
     if not can_view_likely_causes(principal.tier):
@@ -159,12 +173,15 @@ async def resolve(
 @router.post("/chat", response_model=ChatResponse, tags=["chat"])
 async def chat(
     req: ChatRequest,
+    response: Response,
     principal: Principal = Depends(require(can_use_chat)),
     _: None = Depends(chat_rate_limit),
     orch: Orchestrator = Depends(get_orchestrator),
 ) -> ChatResponse:
     """Free-text follow-up question within a conversation (tiers allowed by can_use_chat)."""
-    return await orch.chat(req, tier=principal.tier)
+    resp = await orch.chat(req, tier=principal.tier)
+    _set_server_timing(response, resp._stage_timings)
+    return resp
 
 
 @router.post("/feedback", status_code=status.HTTP_204_NO_CONTENT, tags=["chat"])

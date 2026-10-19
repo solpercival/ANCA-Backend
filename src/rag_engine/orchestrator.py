@@ -284,6 +284,16 @@ def _context_sentences(text: str) -> tuple[str, ...]:
     return tuple(sentences)
 
 
+def _stage_timings(retrieve: float, rerank: float, generate: float) -> dict[str, float]:
+    """Seconds per stage of one answer, for the Server-Timing response header."""
+    return {
+        "retrieve": retrieve,
+        "rerank": rerank,
+        "generate": generate,
+        "total": retrieve + rerank + generate,
+    }
+
+
 def _log_candidates(candidates: list[Chunk]) -> None:
     """Log how many chunks retrieval returned, how many have no text, and the start
     of the first: a sanity check that retrieval returns usable text, not just ids."""
@@ -1129,7 +1139,7 @@ class Orchestrator:
         )
 
         rag_resolve_total.labels(outcome="ok").inc()
-        return ResolveResponse(
+        resp = ResolveResponse(
             code=req.code,
             title=alarm.title,
             domain=alarm.domain,
@@ -1145,6 +1155,8 @@ class Orchestrator:
             safety_note=_SAFETY_NOTE if is_safety_alarm(alarm.severity_category) else None,
             response_id=response_id,
         )
+        resp._stage_timings = _stage_timings(t_retrieve, t_rerank, t_generate)
+        return resp
 
     async def chat(self, req: ChatRequest, tier: Tier) -> ChatResponse:
         """Answer a free-text message in the context of its conversation.
@@ -1265,12 +1277,14 @@ class Orchestrator:
         reply = self._strip_citations(reply)
         # a refusal drew on nothing, so it cites nothing (as resolve does)
         refused = self._norm(reply) == self._norm(_CHAT_NOT_COVERED)
-        return ChatResponse(
+        resp = ChatResponse(
             conversation_id=req.conversation_id,
             reply=reply,
             citations=[] if refused else self._citations(top),
             response_id=response_id,
         )
+        resp._stage_timings = _stage_timings(t_retrieve, t_rerank, t_generate)
+        return resp
 
     async def record_feedback(self, conversation_id: str, response_id: int, helpful: bool) -> bool:
         """Mark a chat reply as having helped or not. False when the conversation has

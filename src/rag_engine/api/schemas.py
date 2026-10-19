@@ -3,7 +3,7 @@
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 from rag_engine.auth.tiers import Tier
 from rag_engine.config import get_settings
@@ -177,6 +177,8 @@ class ResolveResponse(BaseModel):
             "the request gave a conversation_id and the answer was stored, else null"
         ),
     )
+    # seconds per pipeline stage, for the Server-Timing header; not in the JSON body
+    _stage_timings: dict[str, float] = PrivateAttr(default_factory=dict)
 
 
 class ChatRequest(BaseModel):
@@ -200,6 +202,8 @@ class ChatResponse(BaseModel):
             "None when the turn was not stored (e.g. an empty reply)"
         ),
     )
+    # seconds per pipeline stage, for the Server-Timing header; not in the JSON body
+    _stage_timings: dict[str, float] = PrivateAttr(default_factory=dict)
 
 
 class FeedbackRequest(BaseModel):

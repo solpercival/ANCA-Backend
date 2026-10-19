@@ -181,6 +181,12 @@ written relative to that base, so `POST /resolve` means
 - **Slow calls:** `/resolve` and `/chat` wait for an LLM and can take from a
   few seconds to tens of seconds. Show a loading state and don't use a short
   client timeout. Responses are not streamed.
+- **Timings:** `/resolve` and `/chat` responses carry a `Server-Timing` header
+  with the time per stage, in milliseconds, for example
+  `retrieve;dur=42.4, rerank;dur=436.2, generate;dur=1140.7, total;dur=1619.3`.
+  Browser devtools show it under Network → Timing. Code can read it from
+  `performance.getEntriesByType("resource")[i].serverTiming`. An early "not covered"
+  answer, which runs no pipeline, sends none.
 
 ### Endpoints
 
