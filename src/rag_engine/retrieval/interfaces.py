@@ -147,6 +147,7 @@ class Generator(Protocol):
         `deterministic` asks for repeatable output (temperature 0 + fixed seed)
         where the provider supports it."""
 
+
 class KeywordStore(Protocol):
     """Domain keywords (from the ingested docs) that match a query."""
 
