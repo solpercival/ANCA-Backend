@@ -1,0 +1,156 @@
+{
+  "am.nc.0001": [
+    {
+      "gold_step": "Either update the database so both axes belong to the same logical machine, or transfer one axis at run time so both share a logical machine before enabling the cam.",
+      "status": "not_in_prompt",
+      "support_share": 0.25,
+      "support": "An axis can be transferred between between logical machines using the following commands."
+    },
+    {
+      "gold_step": "Re-enable the electronic cam once both axes are on the same logical machine.",
+      "status": "not_in_prompt",
+      "support_share": 0.38,
+      "support": "Just as with a mechanical cam, the electronic cam function on the CNC allows the coupling of two axes."
+    }
+  ],
+  "am.nc.0002": [
+    {
+      "gold_step": "Coordinate the transfer using DETACH, BARRIER and ATTACH in the correct order.",
+      "status": "not_in_prompt",
+      "support_share": 0.38,
+      "support": "The first barrier ensures that PPP1 has detached the `A` axis from LM1, before PPP2 attempts to attach that axis to LM2."
+    },
+    {
+      "gold_step": "Use a BARRIER to synchronise the logical machines so the axis is free at the point of ATTACH.",
+      "status": "not_in_prompt",
+      "support_share": 0.44,
+      "support": "| [`attach`](./05-functions.md#attach)   | function | Attaches an axis to the current logical machine.          |"
+    }
+  ],
+  "am.nc.0003": [
+    {
+      "gold_step": "Decide whether M101 should be implemented in PLC or as an EPPL part program.",
+      "status": "not_in_prompt",
+      "support_share": 0.44,
+      "support": "Other M-codes (modes 1-3 and 5-7) are instead implemented via the PLC and do not trigger part programs."
+    }
+  ],
+  "am.nc.0004": [
+    {
+      "gold_step": "Distinguish control points from the start/end points.",
+      "status": "in_prompt_not_used",
+      "support_share": 0.8,
+      "support": "Start, end and dummy points: the start point of a spline is the end point of the previous move, and the end point is the last control point before `splineoff`."
+    }
+  ],
+  "am.nc.0005": [
+    {
+      "gold_step": "Split them across separate blocks so each block has at most one class 1 word.",
+      "status": "not_in_prompt",
+      "support_share": 0.25,
+      "support": "This section concentrates on the three methods of categorising preparatory words; classes, modes and groups; and the rules which govern the programming of several preparatory words in the same block."
+    },
+    {
+      "gold_step": "Re-run the program.",
+      "status": "in_prompt_not_used",
+      "support_share": 0.5,
+      "support": "Commands and words that may be legally included within a single block are executed independently of the order in which they were programmed."
+    }
+  ],
+  "am.cfg.0001": [
+    {
+      "gold_step": "Reconfigure one of them to use a different device address.",
+      "status": "not_in_prompt",
+      "support_share": 0.33,
+      "support": "Determine the logical address of the device (it was set when you [set up your devices](./set-up-your-devices/set-up-your-devices.md#set-up-your-devices))."
+    },
+    {
+      "gold_step": "Restart AMCore and confirm startup completes without the assertion.",
+      "status": "not_in_prompt",
+      "support_share": 0.29,
+      "support": "(docs/docs-proto/starter-kit/docs/user-guide/configure-amcore/set-up-your-axes.md)"
+    }
+  ],
+  "am.lic.0001": [
+    {
+      "gold_step": "If you do need it, contact ANCA to add the OPC UA option to your license.",
+      "status": "not_in_prompt",
+      "support_share": 0.29,
+      "support": "| `opcua.certificate.subject`<br>**Type:** `String` | `CN=ANCA Motion AMCore`<br>`OPC UA Server` | Subject field of certificate.<br><br>This value must match the subject field of the certificate. |"
+    }
+  ],
+  "am.fb.0001": [
+    {
+      "gold_step": "Note the device name and station address in the message.",
+      "status": "not_in_prompt",
+      "support_share": 0.33,
+      "support": "| Name | Description | | Current state | Actual operational state of the device |"
+    },
+    {
+      "gold_step": "If the same device drops out again, restart (power-cycle) that drive specifically.",
+      "status": "not_in_prompt",
+      "support_share": 0.14,
+      "support": "A device will raise a device unexpected state error when its operational state no longer matches that of the Master."
+    }
+  ],
+  "am.fb.0002": [
+    {
+      "gold_step": "An emergency with error code zero is informational (the drive recovered) \u2014 just acknowledge it.",
+      "status": "in_prompt_not_used",
+      "support_share": 0.78,
+      "support": "Note that emergencies with an error code set to zero is an informational message that some drives raise when it has successfully recovered from an emergency."
+    }
+  ],
+  "am.fb.0003": [
+    {
+      "gold_step": "Check the error type (No Response, CRC, Retry Fail, etc.) for the nature of the fault.",
+      "status": "not_in_prompt",
+      "support_share": 0.3,
+      "support": "| Error type | Type of frame response error |"
+    },
+    {
+      "gold_step": "Single spurious errors often self-recover \u2014 no action needed.",
+      "status": "not_in_prompt",
+      "support_share": 0.29,
+      "support": "Sometimes these errors are spurious, and the drive is able to recover itself."
+    },
+    {
+      "gold_step": "If they repeat, they usually escalate to a drive emergency; a system restart is then required.",
+      "status": "not_in_prompt",
+      "support_share": 0.11,
+      "support": "Sometimes these errors are spurious, and the drive is able to recover itself."
+    },
+    {
+      "gold_step": "For detail, review the logs at %amcore%/PCC/dsa.log and %amcore%/PCC/ecatmaster.log.",
+      "status": "not_in_prompt",
+      "support_share": 0.0,
+      "support": ""
+    }
+  ],
+  "am.fb.0004": [
+    {
+      "gold_step": "Start AMCore with 'AMCore.exe -start device' to bring the fieldbus to PREOP via the Device Administrator.",
+      "status": "in_prompt_not_used",
+      "support_share": 0.57,
+      "support": "(docs/docs-proto/starter-kit/docs/user-guide/use-amcore/device-firmware-upgrade.md) Firmware uploads require the EtherCAT fieldbus to be in a non-operational state (INIT or PREOP)."
+    },
+    {
+      "gold_step": "Upload the firmware (interactive device-firmware-upload tool, automatic mode, or the CNCC SDK / FoE).",
+      "status": "not_in_prompt",
+      "support_share": 0.4,
+      "support": "(docs/docs-proto/starter-kit/docs/user-guide/use-amcore/device-firmware-upgrade.md) Firmware uploads use the FoE (File over EtherCAT) mailbox protocol."
+    },
+    {
+      "gold_step": "On success run 'AMCore.exe -start' to continue to OP; on failure run 'AMCore.exe -stop'.",
+      "status": "not_in_prompt",
+      "support_share": 0.29,
+      "support": "> If you call `AMCore.exe -start` without first calling `AMCore.exe -start device`, the system proceeds directly to OP and firmware uploads will be rejected with `CNCCRESULT_INVALID_FIELDBUS_STATE`."
+    },
+    {
+      "gold_step": "Note: skipping '-start device' goes straight to OP and uploads are rejected with CNCCRESULT_INVALID_FIELDBUS_STATE.",
+      "status": "in_prompt_not_used",
+      "support_share": 0.67,
+      "support": "The system stays in this state, giving you a window to inspect and upload firmware before the machine goes operational. > If you call `AMCore.exe -start` without first calling `AMCore.exe -start devic"
+    }
+  ]
+}

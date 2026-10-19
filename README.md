@@ -48,6 +48,12 @@ When running these commands from WSL, use Docker Desktop's WSL integration:
   environment was already open before enabling integration, restart it from
   PowerShell with `wsl --shutdown`, then open Ubuntu again.
 
+  Server must say `Docker Desktop` (`docker info | grep "Operating System"`).
+  If Ubuntu has its own Docker engine installed as well (`docker.io` or
+  `docker-ce`), `default` reaches that empty engine whenever Docker Desktop is
+  not running, and the stack appears to have lost its images and data. Stop it
+  with `sudo systemctl disable --now docker docker.socket`.
+
 Run the remaining commands from the repository directory. In WSL, a Windows
 checkout is typically available under `/mnt/c/Users/<your-user>/...`.
 
@@ -71,11 +77,21 @@ Download the local Ollama models after the stack is running:
 make models
 ```
 
+The default generator is `qwen3:8b` (about 5 GB to download, about 6 GB of GPU
+memory). On a GPU with less memory, set
+`LLM_MODEL=qwen3:4b-instruct-2507-q4_K_M` in `.env` and `ollama pull` it. It
+scores lower on the eval (see `.env.example`).
+
 Build the offline indexes:
 
 ```bash
 make ingest           # applies migrations, then writes pgvector rows
 ```
+
+Run `make reingest` instead after changing the chunker or `EMBEDDING_SETUP`, and
+before an eval run you want to compare with others. An index left from an
+earlier build retrieves the same documents with different chunk text, and that
+moved `fix_solved` by a whole fix (`eval/results/ladder/README.md`).
 
 ### Database migrations
 
@@ -150,13 +166,17 @@ written relative to that base, so `POST /resolve` means
 
 - **JSON** request and response bodies, except login, which is form-encoded.
 - **Auth:** send `Authorization: Bearer <access_token>` on every call except
-  login, refresh, logout, health and ready.
+  login, refresh, logout, health and ready. With `ALLOW_ANONYMOUS_OPERATOR=true`,
+  `/resolve` and `/feedback` also accept a call with no `Authorization` header and
+  treat it as an operator. A token that is sent must be valid: an expired or
+  malformed one is a `401`, never an anonymous call.
 - **Request id:** every response carries `X-Request-ID`. Send your own
   `X-Request-ID` to choose it; otherwise one is generated. Show it in error
   messages so a report can be matched to the server logs.
 - **Body limit:** 64 KiB per request (`413 payload_too_large` above that).
 - **CORS:** allowed origins are `CORS_ALLOW_ORIGINS` (default
-  `http://localhost:3000` and `http://127.0.0.1:3000`). Credentials are allowed,
+  `http://localhost:3000`, `http://127.0.0.1:3000`, and the Vite dev server on
+  `http://localhost:5173` and `http://127.0.0.1:5173`). Credentials are allowed,
   so the origin must match exactly. Add your dev or deployed origin there.
 - **Slow calls:** `/resolve` and `/chat` wait for an LLM and can take from a
   few seconds to tens of seconds. Show a loading state and don't use a short
@@ -171,8 +191,9 @@ written relative to that base, so `POST /resolve` means
 | POST | `/auth/logout` | refresh cookie | End this session |
 | POST | `/auth/logout-all` | bearer | End every session of the account |
 | GET | `/auth/me` | bearer | Current account |
-| POST | `/resolve` | bearer | Guidance for an alarm code |
+| POST | `/resolve` | bearer, or none as an operator (`ALLOW_ANONYMOUS_OPERATOR`) | Guidance for an alarm code |
 | POST | `/chat` | bearer, technician or partner | Follow-up question |
+| POST | `/feedback` | bearer (any tier), or none as an operator (`ALLOW_ANONYMOUS_OPERATOR`) | Mark a chat reply or resolve answer as helpful or not |
 | GET | `/health` | none | Process is up |
 | GET | `/ready` | none | Postgres, Redis and model server reachable |
 
@@ -240,17 +261,26 @@ PY
 
 ### Tiers
 
-| Tier | `/resolve` | `likely_causes` | `/chat` |
-|------|-----------|-----------------|---------|
-| `operator` | yes | always `[]` | `403 forbidden` |
-| `technician` | yes | shown | yes |
-| `partner` | yes | shown | yes |
+| Tier | `/resolve` | `likely_causes` | `/chat` | Answers drawn from |
+|------|-----------|-----------------|---------|--------------------|
+| `operator` | yes | always `[]` | `403 forbidden` | Part Programmer's Reference only |
+| `technician` | yes | shown | yes | all docs (incl. User Guide) |
+| `partner` | yes | shown | yes | all docs (incl. User Guide) |
+
+The documentation restriction is a query-time filter on the document path
+(`auth/tiers.py` `allowed_doc_audiences`), so an operator resolve for an alarm
+documented only in the User Guide returns `doc_coverage: "none"` and no citations.
 
 Use `ai_chat_available` from the resolve response (or `tier` from `/auth/me`)
 to decide whether to show the chat entry point, rather than hard-coding tier
 names.
 
 ### POST /resolve
+
+Open to every tier. With `ALLOW_ANONYMOUS_OPERATOR=true`, a call with no
+`Authorization` header gets the operator view: `likely_causes` is `[]`,
+`ai_chat_available` is `false`, and the escalation fields are set as for an
+operator. Anonymous calls count against the per-IP rate limit like any other.
 
 Request:
 
@@ -259,7 +289,8 @@ Request:
   "code": "am.fb.0002",
   "env": { "versions": { "amcore": "1.4.2" }, "machine_variant": "MX7" },
   "effort": "medium",
-  "query": "happens after a tool change"
+  "query": "happens after a tool change",
+  "conversation_id": "c-7f3a"
 }
 ```
 
@@ -269,6 +300,7 @@ Request:
 | `env` | no | Machine context; narrows the documentation searched. Omit if unknown |
 | `effort` | no | `low`, `medium` (default) or `high`; higher is slower and more thorough |
 | `query` | no | Free-text symptom, up to 1000 characters |
+| `conversation_id` | no | 1-128 characters. Records the answer under that conversation, so a later `/chat` message with the same id can refer back to it, and returns a `response_id` for `/feedback` |
 
 Response `200`:
 
@@ -283,11 +315,19 @@ Response `200`:
   "doc_coverage": "partial",
   "likely_causes": ["A device sends an emergency message when it detects an internal error."],
   "citations": [
-    { "source": "docs/user-guide/troubleshoot/coe-device-errors.md", "chunk_id": "1234" }
+    {
+      "doc": "AMCore User Guide",
+      "path": "user-guide/troubleshoot/coe-device-errors.md",
+      "section": "Emergency Error"
+    }
   ],
   "tier": "technician",
   "ai_chat_available": true,
-  "confidence": 0.5
+  "safety_note": null,
+  "escalation_suggested": false,
+  "escalation_note": null,
+  "confidence": 0.5,
+  "response_id": 4821
 }
 ```
 
@@ -297,8 +337,11 @@ Response `200`:
 | `steps` | The guidance, one point per element, already cleaned of numbering. Render as a list |
 | `doc_coverage` | `full`: the docs give explicit steps. `partial`: the docs explain the alarm but give no complete fix. `none`: the docs don't cover it |
 | `likely_causes` | Up to 3 sentences taken from the documentation; often empty |
-| `citations` | Up to 3 source documents. `source` is a path inside the docs repo |
+| `citations` | Up to 3 documentation sections the answer drew on. `doc` is the document's display name, `path` is relative to the documentation root (link to it), `section` is the heading the text sits under, or `null` if it has none |
 | `confidence` | Derived from `doc_coverage` (0.9, 0.5, 0.0). Use `doc_coverage` for UI decisions |
+| `safety_note` | A verify-before-acting caution, set for safety-related alarms (`severity_category` `Fatal` by default; `SAFETY_SEVERITY_CATEGORIES`) for every tier, otherwise `null`. Show it prominently with the steps |
+| `escalation_suggested`, `escalation_note` | `true` with a message for an operator when the alarm is safety-related or `doc_coverage` is `none`/`partial`: prompt them to escalate. Always `false`/`null` for technician and partner |
+| `response_id` | Identifies this answer for `POST /feedback`. Set only when the request gave a `conversation_id` (feedback is addressed by both); otherwise `null` |
 
 When `doc_coverage` is `none`, `steps` holds the single line "The documentation
 does not cover this alarm." and `likely_causes` is empty. Show that state
@@ -325,11 +368,37 @@ Response `200`:
 {
   "conversation_id": "c-7f3a",
   "reply": "Check the device's EMCY code in the diagnostics view ...",
-  "citations": [{ "source": "docs/user-guide/troubleshoot/coe-device-errors.md", "chunk_id": "1234" }]
+  "citations": [
+    {
+      "doc": "AMCore User Guide",
+      "path": "user-guide/troubleshoot/coe-device-errors.md",
+      "section": "Emergency Error"
+    }
+  ]
 }
 ```
 
-`reply` is plain text and may contain line breaks.
+`reply` is plain text and may contain line breaks. `response_id` identifies
+this reply for `POST /feedback`; it is `null` when nothing was stored (an empty
+message gets an empty reply and no id).
+
+### POST /feedback
+
+The "this did not help" button, for a `/chat` reply or a `/resolve` answer. Use
+the `response_id` and `conversation_id` that call returned. Open to every tier,
+and to anonymous operators when `ALLOW_ANONYMOUS_OPERATOR=true`. Request:
+
+```json
+{ "conversation_id": "c-7f3a", "response_id": 4821, "helpful": false }
+```
+
+Response `204` with no body. Sending feedback again for the same reply
+replaces the earlier value. The next `/chat` message in the conversation passes
+it to the query rewriter, which treats a reply marked `helpful: false` as one
+that was tried and failed.
+
+A `response_id` that doesn't exist, or doesn't belong to `conversation_id`,
+returns `404 not_found`.
 
 ### Errors
 
@@ -356,7 +425,7 @@ Branch on `error.code`, never on `message` (messages may be reworded).
 | 401 | `session_expired` | Send the user to login |
 | 403 | `forbidden` | The tier can't use this feature; hide it |
 | 404 | `unknown_alarm_code` | Tell the user the code isn't recognised |
-| 404 | `not_found` | Wrong URL |
+| 404 | `not_found` | Wrong URL, or `/feedback` for a reply that isn't in the conversation |
 | 413 | `payload_too_large` | Input too long |
 | 422 | `validation_error` | Show `details` next to the fields |
 | 429 | `rate_limited` | Wait `Retry-After` seconds before retrying |
@@ -365,8 +434,8 @@ Branch on `error.code`, never on `message` (messages may be reworded).
 | 500 | `internal_error` | Show a generic failure with the request id |
 
 Rate limits on the business endpoints, per minute: `/resolve` 30 per IP,
-`/chat` 10 per IP (plus a shared per-tier ceiling). All are configurable in
-the backend `.env`.
+`/chat` 10 per IP, `/feedback` 30 per IP (each plus a shared per-tier
+ceiling). All are configurable in the backend `.env`.
 
 ### Minimal client
 
@@ -413,6 +482,31 @@ Postgres, Redis and the model server all answer, and `503` with
 `"status": "not_ready"` and the same `checks` object otherwise, so you can see
 which dependency is down. `scripts/smoke_e2e.sh` runs a login, a resolve and a
 chat against a running stack and is a working reference for the calls above.
+
+### Behind HTTPS
+
+The orchestrator serves plain HTTP on 8080 and expects HTTPS to be handled by a
+reverse proxy in front of it. It reads the client IP and scheme from the proxy's
+`X-Forwarded-For` and `X-Forwarded-Proto` headers, but only from the addresses
+in `FORWARDED_ALLOW_IPS`. Set that to your proxy's address, or HSTS is never sent
+and every caller shares the proxy's per-IP rate limit.
+
+`make https` tests this locally. It starts Caddy with a certificate from its own
+local CA (`docker-compose.https.yml`), serving the API on
+`https://localhost:8443` and redirecting `http://localhost:8081`, then runs
+`scripts/https_check.sh`. That script checks:
+
+- the certificate and HSTS;
+- the HTTP redirect;
+- the `Secure` refresh cookie, and refresh over HTTPS;
+- that the orchestrator sees the real client IP;
+- that a direct caller on 8080 can't fake the forwarded headers;
+- `ALLOWED_HOSTS`, if it is set.
+
+For a browser, trust Caddy's root certificate, which
+`docker compose -f docker-compose.yml -f docker-compose.https.yml cp caddy:/data/caddy/pki/authorities/local/root.crt .`
+copies out. Then add your `https://` front-end origin to `CORS_ALLOW_ORIGINS`.
+`make restart` goes back to the plain stack.
 
 ## Design boundaries (who owns what)
 

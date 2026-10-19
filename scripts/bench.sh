@@ -30,6 +30,9 @@ PG_DB=${POSTGRES_DB:-rag}
 # Real codes drawn from alarms.sample.json, spread across modules (fb/nc/cfg/lic)
 # so the sample is not one lucky document. Override by exporting BENCH_CODES.
 CODES=(${BENCH_CODES:-am.fb.0002 am.fb.0001 am.nc.0003 am.nc.0004 am.cfg.0001 am.lic.0001})
+# Tier of the seeded bench user: operator, technician or partner. The tier changes
+# the answer (likely causes, escalation prompt), e.g. BENCH_TIER=operator make bench
+export BENCH_TIER=${BENCH_TIER:-technician}
 
 # ---- helpers ---------------------------------------------------------------
 
@@ -67,8 +70,12 @@ for i, s in enumerate(data.get("steps") or [], 1):
     print(f"      step {i}: {s}")
 for c in data.get("likely_causes") or []:
     print(f"      cause : {c}")
+if data.get("safety_note"):
+    print(f"      safety  : {data['safety_note']}")
+if data.get("escalation_suggested"):
+    print(f"      escalate: {data.get('escalation_note')}")
 for c in data.get("citations") or []:
-    print(f"      cite  : {c.get('source')} #{c.get('chunk_id')}")
+    print(f"      cite  : {c.get('doc')} | {c.get('path')} | {c.get('section')}")
 PY
 }
 
@@ -79,6 +86,7 @@ docker compose exec -T postgres psql -U "$PG_USER" -d "$PG_DB" -c \
   "DELETE FROM users WHERE username = 'benchtest';" >/dev/null
 PYTHONUNBUFFERED=1 POSTGRES_HOST=localhost .venv/bin/python - <<'PY'
 import asyncio
+import os
 from rag_engine.auth.tiers import Tier
 from rag_engine.auth.user_repository import PostgresUserRepository
 from rag_engine.stores.db import init_db_pool
@@ -88,7 +96,7 @@ async def main():
     init_db_pool()
     repo = PostgresUserRepository()
     pw_hash = await passwords.hash_password("s3cret-pw!")
-    user = await repo.create("benchtest", pw_hash, Tier.technician)
+    user = await repo.create("benchtest", pw_hash, Tier(os.environ["BENCH_TIER"]))
     print("seeded user:", user.username, user.tier)
 
 asyncio.run(main())

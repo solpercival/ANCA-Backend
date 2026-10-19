@@ -9,11 +9,14 @@ are chunked and embedded, replacing their previous rows. Files with the same
 hash stay as they are, including their chunks. Documents whose files disappeared
 are pruned. keyword_lookup is rebuilt when any file was re-embedded or pruned.
 The tables must already exist: `make ingest` applies the Alembic migrations first.
+INGEST_FORCE=1 (`make reingest`) re-embeds every file whatever its hash: needed after
+switching EMBEDDING_SETUP, which changes what is stored per chunk but not the files.
 """
 
 from __future__ import annotations
 
 import hashlib
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -24,6 +27,13 @@ if TYPE_CHECKING:
 # README/INTERFACE describe canned answers, and alarms/ holds the alarm catalogue
 # and curated gold answers (the catalogue is loaded separately by seed_alarms).
 EXCLUDED_DIRS = frozenset({"mock-api", "alarms"})
+
+# Bump when the chunker or what is embedded per chunk changes. It is part of every
+# file's digest, so the next `make ingest` re-chunks and re-embeds all documents
+# instead of skipping them as unchanged.
+#   2: chunks embedded under their heading path; content-free pieces dropped
+#   3: horizontal rules dropped; a short label joins the block it introduces
+CHUNKING_VERSION = 3
 
 
 def iter_markdown_files(docs_dir: Path) -> list[Path]:
@@ -36,12 +46,15 @@ def iter_markdown_files(docs_dir: Path) -> list[Path]:
 
 
 def hash_file(path: Path) -> str:
-    """SHA-256 hex digest of the file's raw bytes.
+    """SHA-256 hex digest of the file's raw bytes and CHUNKING_VERSION.
 
     Hashes the bytes on disk, not the chunk text. Ingestion compares this digest
-    with document.hash to decide whether the file needs re-embedding.
+    with document.hash to decide whether the file needs re-embedding; the version
+    makes a change to the chunking count as a change to every file.
     """
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    digest = hashlib.sha256(path.read_bytes())
+    digest.update(f"|chunking={CHUNKING_VERSION}".encode())
+    return digest.hexdigest()
 
 
 def hash_markdown_files(docs_dir: Path) -> dict[str, str]:
@@ -92,6 +105,8 @@ def run(docs_dir: str = "docs") -> int:  # pragma: no cover - integration
     seed()
     stored = load_document_hashes()
     changed = changed_document_hashes(current_hashes, stored)
+    if os.environ.get("INGEST_FORCE"):
+        changed = dict(current_hashes)
     removed = [path for path in stored if path not in current_hashes]
     chunks = collect_markdown(docs_path, set(changed)) if changed else []
     # keep_paths is every file still on disk, including ones whose hash matched

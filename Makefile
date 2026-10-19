@@ -10,15 +10,17 @@
 # on it, so pending migrations always run before the app or ingestion touch the DB.
 
 .PHONY: help bootstrap install fmt lint test \
-        up up-full down build restart models \
+        up up-full down build restart models sparse \
         migrate migrate-status migrate-down revision db-reset \
-        ingest seed-alarms \
-        smoke bench eval retest
+        ingest reingest seed-alarms \
+        smoke https bench eval retest
 
 .DEFAULT_GOAL := help
 
 VENV = .venv/bin
 COMPOSE := docker compose $(shell command -v nvidia-smi >/dev/null 2>&1 && echo -f docker-compose.yml -f docker-compose.gpu.yml)
+# the same files, always named, so an override can be added after them with -f
+COMPOSE_FILES := docker compose -f docker-compose.yml $(shell command -v nvidia-smi >/dev/null 2>&1 && echo -f docker-compose.gpu.yml)
 
 help:           ## list the targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-15s %s\n", $$1, $$2}'
@@ -62,7 +64,10 @@ restart:        ## rebuild and recreate the orchestrator in the background (runs
 models:         ## start Ollama and pull the embedding + generation models
 	$(COMPOSE) up -d ollama
 	$(COMPOSE) exec ollama ollama pull qwen3-embedding:0.6b
-	$(COMPOSE) exec ollama ollama pull qwen3:4b-instruct-2507-q4_K_M
+	$(COMPOSE) exec ollama ollama pull qwen3:8b
+
+sparse:         ## start the sparse (SPLADE) embedding container, for EMBEDDING_SETUP=dual
+	$(COMPOSE) --profile sparse up -d tei
 
 # --- database migrations (Alembic) -----------------------------------------------
 
@@ -95,6 +100,11 @@ ingest:         ## migrate, pull models, then chunk + embed the docs into pgvect
 	$(MAKE) models
 	$(COMPOSE) run --rm --build ingestion
 
+reingest:       ## like ingest, but re-embed every document (after switching EMBEDDING_SETUP)
+	$(MAKE) migrate
+	$(MAKE) models
+	$(COMPOSE) run --rm --build -e INGEST_FORCE=1 ingestion
+
 seed-alarms:    ## load alarms.sample.json into the alarm catalogue only (no embedding)
 	$(COMPOSE) run --rm --build ingestion python -m ingestion.seed_alarms
 
@@ -102,6 +112,10 @@ seed-alarms:    ## load alarms.sample.json into the alarm catalogue only (no emb
 
 smoke:          ## end-to-end smoke test: auth -> resolve -> chat
 	bash scripts/smoke_e2e.sh
+
+https:          ## run the orchestrator behind a local HTTPS proxy (Caddy) and check it
+	$(COMPOSE_FILES) -f docker-compose.https.yml up -d --build orchestrator caddy
+	bash scripts/https_check.sh
 
 bench:          ## warm latency + answer check over sample alarm codes, with per-stage timings
 	bash scripts/bench.sh

@@ -1,58 +1,62 @@
 """HTTP surface under API_PREFIX (/api/<version>): health/readiness probes,
-resolve-by-code, and chat.
+resolve-by-code, chat, and feedback on chat replies.
 
-Every business endpoint authenticates (current_principal / require), is rate
-limited per IP and per tier, and gets the shared Orchestrator from
-get_orchestrator. Tier-based visibility rules are applied here, after the
+Every business endpoint identifies the caller (optional_principal on /resolve and
+/feedback, which with ALLOW_ANONYMOUS_OPERATOR admits a caller with no token as an
+operator; require on /chat), is rate limited per IP and per tier, and gets the
+shared Orchestrator from get_orchestrator. Tier-based visibility rules are applied here, after the
 orchestrator returns, so access never depends on what generation produced.
 """
 
 import asyncio
 
 import httpx
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import JSONResponse
 
-from rag_engine.api.errors import RetrievalUnavailable
+from rag_engine.api.errors import NotFound
 from rag_engine.api.rate_limit import rate_limit_dependency
+from rag_engine.api.safety import is_safety_alarm
 from rag_engine.api.schemas import (
     ChatRequest,
     ChatResponse,
+    FeedbackRequest,
     ResolveRequest,
     ResolveResponse,
 )
-from rag_engine.auth.dependencies import current_principal, require
-from rag_engine.auth.tiers import Principal, can_use_chat, can_view_likely_causes
+from rag_engine.auth.dependencies import optional_principal, require
+from rag_engine.auth.tiers import (
+    Principal,
+    can_use_chat,
+    can_view_likely_causes,
+    should_escalate_when_unsure,
+)
 from rag_engine.config import API_PREFIX, get_settings
 from rag_engine.orchestrator import Orchestrator, get_orchestrator
 
 router = APIRouter(prefix=API_PREFIX, tags=["api"])
 settings = get_settings()
 resolve_rate_limit = rate_limit_dependency(
-    "resolve", "resolve_rate_limit_per_ip", "resolve_rate_limit_per_tier"
+    "resolve",
+    "resolve_rate_limit_per_ip",
+    "resolve_rate_limit_per_tier",
+    principal_dependency=optional_principal,
+)
+feedback_rate_limit = rate_limit_dependency(
+    "feedback",
+    "feedback_rate_limit_per_ip",
+    "feedback_rate_limit_per_tier",
+    principal_dependency=optional_principal,
 )
 chat_rate_limit = rate_limit_dependency(
     "chat", "chat_rate_limit_per_ip", "chat_rate_limit_per_tier"
 )
 
-
-def get_orchestrator_from_request(request: Request):
-    """Orchestrator cached on app.state, built on first use.
-
-    Not used by the routes below (they depend on get_orchestrator directly); kept
-    for callers that need a 503 instead of a crash while backends are unwired.
-    """
-    orch = getattr(request.app.state, "orchestrator", None)
-    if orch is None:
-        try:
-            orch = get_orchestrator()
-            request.app.state.orchestrator = orch
-        except Exception as exc:  # placeholder runtime: DB/provider wiring still pending
-            raise RetrievalUnavailable(
-                "Orchestrator is not available yet; "
-                "DB and retrieval backends are still being wired in."
-            ) from exc
-    return orch
+# Shown to operators with escalation_suggested; kept out of `steps`, which hold
+# only doc-grounded guidance.
+ESCALATION_NOTE = "If you are unsure, stop and escalate to a technician before acting."
+# doc_coverage values that leave an operator without a complete, documented fix
+_ESCALATE_COVERAGE = frozenset({"none", "partial"})
 
 
 def _ping_postgres(pool) -> bool:
@@ -123,12 +127,14 @@ async def ready(request: Request) -> dict[str, object] | JSONResponse:
 @router.post("/resolve", response_model=ResolveResponse, tags=["resolve"])
 async def resolve(
     req: ResolveRequest,
-    principal: Principal = Depends(current_principal),
+    principal: Principal = Depends(optional_principal),
     _: None = Depends(resolve_rate_limit),
     orch: Orchestrator = Depends(get_orchestrator),
 ) -> ResolveResponse:
     """Troubleshooting guidance for one alarm code, grounded in the documentation.
 
+    Open to every tier, and to callers with no token (as an operator) when
+    ALLOW_ANONYMOUS_OPERATOR is on.
     Errors: 404 unknown_alarm_code, 429 rate_limited, 503 retrieval/model unavailable.
     """
     resp = await orch.resolve(req, tier=principal.tier)
@@ -137,6 +143,16 @@ async def resolve(
     if not can_view_likely_causes(principal.tier):
         resp.likely_causes = []
     resp.ai_chat_available = can_use_chat(principal.tier)
+    # Operators are told to escalate instead of acting alone on an alarm that is
+    # safety-related or that the docs don't fully cover. Decided from the alarm's
+    # severity and the coverage, never from what the orchestrator put in the notes.
+    # ESCALATION_SUGGESTION_ENABLED=false turns the suggestion off entirely
+    resp.escalation_suggested = (
+        settings.escalation_suggestion_enabled
+        and should_escalate_when_unsure(principal.tier)
+        and (is_safety_alarm(resp.severity_category) or resp.doc_coverage in _ESCALATE_COVERAGE)
+    )
+    resp.escalation_note = ESCALATION_NOTE if resp.escalation_suggested else None
     return resp
 
 
@@ -149,3 +165,21 @@ async def chat(
 ) -> ChatResponse:
     """Free-text follow-up question within a conversation (tiers allowed by can_use_chat)."""
     return await orch.chat(req, tier=principal.tier)
+
+
+@router.post("/feedback", status_code=status.HTTP_204_NO_CONTENT, tags=["chat"])
+async def feedback(
+    req: FeedbackRequest,
+    principal: Principal = Depends(optional_principal),
+    _: None = Depends(feedback_rate_limit),
+    orch: Orchestrator = Depends(get_orchestrator),
+) -> None:
+    """Mark a reply (by the response_id /chat or /resolve returned) as having helped
+    or not. Open to every tier, and to anonymous operators like /resolve.
+
+    Sending it again overwrites the earlier value. The next chat turn in the
+    conversation passes it to the query rewriter.
+    Errors: 404 not_found (no such reply in the conversation), 429 rate_limited.
+    """
+    if not await orch.record_feedback(req.conversation_id, req.response_id, req.helpful):
+        raise NotFound("No such response in this conversation")

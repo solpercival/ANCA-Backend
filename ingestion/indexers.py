@@ -1,9 +1,9 @@
 """Model-backed embedding plus PostgreSQL/pgvector: the write side of retrieval.
 
 - embed_and_index: embed chunks (Ollama dense, TEI sparse when EMBEDDING_SETUP=dual)
-  and write document / heading / document_chunks rows, replacing each document's
-  previous rows in one transaction. document.hash stores the file's SHA-256 hex
-  digest when the caller supplies one.
+  under their heading path (RawChunk.context_text) and write document / heading /
+  document_chunks rows, replacing each document's previous rows in one transaction.
+  document.hash stores the file's SHA-256 hex digest when the caller supplies one.
   prune deletes documents missing from keep_paths; files skipped
   because their hash matched stay in that list so their chunks are kept.
 - populate_alarms: upsert the alarm catalogue (alarm_module, alarm_code).
@@ -58,7 +58,10 @@ def _dense_embed(chunks: list[RawChunk], client: httpx.Client) -> list[list[floa
         batch = chunks[start : start + batch_size]
         response = client.post(
             f"{settings.ollama_base_url.rstrip('/')}/api/embed",
-            json={"model": settings.embedding_model, "input": [chunk.text for chunk in batch]},
+            json={
+                "model": settings.embedding_model,
+                "input": [chunk.context_text for chunk in batch],
+            },
         )
         response.raise_for_status()
         embeddings.extend(response.json()["embeddings"])
@@ -75,17 +78,26 @@ def _sparse_embed(chunks: list[RawChunk], client: httpx.Client) -> list[dict[str
     if settings.embedding_setup != "dual":
         return []
 
-    sparse_vecs = (
-        client.post(
+    # TEI rejects a request above its client batch size (32 by default) and, unless
+    # asked to truncate, any input longer than the model's 512 tokens
+    batch_size = 32
+    sparse_vecs = []
+    for start in range(0, len(chunks), batch_size):
+        batch = chunks[start : start + batch_size]
+        response = client.post(
             f"{settings.tei_endpoint.rstrip('/')}/embed_sparse",
-            json={"inputs": [chunk.text for chunk in chunks]},
+            json={"inputs": [chunk.context_text for chunk in batch], "truncate": True},
         )
-        .raise_for_status()
-        .json()
-    )
+        sparse_vecs.extend(response.raise_for_status().json())
+        print(f"sparse embed: {min(start + batch_size, len(chunks))}/{len(chunks)}", flush=True)
 
+    # index 0 is the padding token; a sparsevec has no position 0 to store it in
     return [
-        {int(entry["index"]): float(entry["value"]) for entry in sparse_chunk}
+        {
+            int(entry["index"]): float(entry["value"])
+            for entry in sparse_chunk
+            if int(entry["index"]) > 0
+        }
         for sparse_chunk in sparse_vecs
     ]
 
@@ -176,7 +188,10 @@ def resolve_immediate_heading(
 
 
 def insert_chunk(cursor, data: dict, doc_id: int, heading_cache: dict[tuple, int]) -> None:
-    """Insert chunks into document_chunks table and insert headings if not exists"""
+    """Insert chunks into document_chunks table and insert headings if not exists.
+
+    content is the chunk's own text; its heading path goes in metadata.heading_path,
+    where the reranker reads it back (rag_engine Chunk.context_text)."""
 
     chunk = data["chunk"]
     dense = data["dense"]
@@ -199,7 +214,7 @@ def insert_chunk(cursor, data: dict, doc_id: int, heading_cache: dict[tuple, int
         """,
         (
             chunk.text,
-            "{}",
+            Jsonb({"heading_path": chunk.heading_path} if chunk.heading_path else {}),
             chunk.kind,
             chunk.source,
             f"{sparse}/30522" if sparse else None,
@@ -379,6 +394,8 @@ def populate_alarms(alarms_json: dict) -> None:
                         "severity_category"
                     ].lower(),  # severity category (enum)
                     "alarm_text": alarm["alarm_text"],
+                    # optional: older alarm files have none
+                    "description": alarm.get("description") or "",
                     "data_fields": alarm["data_fields"],
                     # alarm_module data
                     "code": code_sections[1],
@@ -422,13 +439,14 @@ def populate_alarms(alarms_json: dict) -> None:
                     """
                     INSERT INTO alarm_code
                     (origin, alarm_sequence, title, severity_score, severity_category,
-                     alarm_text, data_fields, module)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                     alarm_text, description, data_fields, module)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (origin, alarm_sequence, module) DO UPDATE 
                         SET title = EXCLUDED.title,
                             severity_score = EXCLUDED.severity_score,
                             severity_category = EXCLUDED.severity_category,
                             alarm_text = EXCLUDED.alarm_text,
+                            description = EXCLUDED.description,
                             data_fields = EXCLUDED.data_fields; 
                     """,
                     (
@@ -438,6 +456,7 @@ def populate_alarms(alarms_json: dict) -> None:
                         alarm_data["severity_score"],
                         alarm_data["severity_category"],
                         alarm_data["alarm_text"],
+                        alarm_data["description"],
                         Jsonb(alarm_data["data_fields"]),
                         module_res["id"],
                     ),

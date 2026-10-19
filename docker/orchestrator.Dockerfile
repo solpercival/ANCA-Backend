@@ -41,4 +41,8 @@ RUN if [ -n "$EXTRAS" ]; then pip install --no-cache-dir -e ".[$EXTRAS]"; \
     else pip install --no-cache-dir -e .; fi && rm -rf /root/.cache
 
 EXPOSE 8080
-CMD ["uvicorn", "rag_engine.main:app", "--host", "0.0.0.0", "--port", "8080"]
+# --proxy-headers: behind an HTTPS proxy, take the client IP and scheme from the
+# X-Forwarded-For / X-Forwarded-Proto headers, so the per-IP rate limit sees real
+# clients and HSTS is sent. Only trusted from the addresses in FORWARDED_ALLOW_IPS
+# (uvicorn default 127.0.0.1), so a direct caller cannot fake its IP
+CMD ["uvicorn", "rag_engine.main:app", "--host", "0.0.0.0", "--port", "8080", "--proxy-headers"]

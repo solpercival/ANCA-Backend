@@ -24,51 +24,63 @@
     "severity": "integer 1-1000",
     "severity_category": "Debug | Info | Warning | Error | Fatal",
     "alarm_text": "the literal message shown on the machine (locale-dependent) — an optional hint, not the key",
+    "description": "optional fixed description of the condition, in the documentation's own terms: what went wrong, when, and the areas the fix can involve. Used to search the documentation in place of the title and alarm_text. No per-occurrence values, no steps",
     "data_fields": "example structured data an instance of this alarm could carry"
   },
   "alarms": [
     { "code": "am.nc.0001", "title": "Electronic cam axes on different logical machines", "domain": "Numerical Controller", "severity": 833, "severity_category": "Error",
       "alarm_text": "PPI Execution Error — Program mdi1.pp, line 2: The X and A axes must be attached to the same logical machine before they can be linked by an Electronic Cam.",
+      "description": "A part program tried to link two axes with an Electronic Cam while the axes were attached to different logical machines. Related areas: electronic cam functions, and attaching or transferring an axis between logical machines.",
       "data_fields": { "program": "mdi1.pp", "line": 2, "axes": ["X", "A"] } },
 
     { "code": "am.nc.0002", "title": "Axis attached to another logical machine", "domain": "Numerical Controller", "severity": 833, "severity_category": "Error",
       "alarm_text": "PPI Execution Error — Program mdi1.pp, line 1: Cannot attach the x' axis to logical machine 1 — it is currently attached to logical machine 2.",
+      "description": "A part program tried to attach an axis to a logical machine while the axis was still attached to another logical machine. Related areas: the attach and detach functions, and transferring an axis between logical machines.",
       "data_fields": { "program": "mdi1.pp", "line": 1, "axis": "x'", "target_lm": 1, "current_lm": 2 } },
 
     { "code": "am.nc.0003", "title": "M-code part program could not be activated", "domain": "Numerical Controller", "severity": 833, "severity_category": "Error",
       "alarm_text": "PPI Execution Error — Program mdi1.pp, line 1: Could not activate part program 'm101.pp' for M-code M101.",
+      "description": "An M-code that is configured to run as a part program could not be executed because its program file could not be found or activated. Related areas: the M-code mode configured for the M-code (part program or PLC), and the part program search hierarchy.",
       "data_fields": { "program": "mdi1.pp", "line": 1, "mcode": "M101", "missing_file": "m101.pp" } },
 
     { "code": "am.nc.0004", "title": "Not enough points in spline", "domain": "Numerical Controller", "severity": 833, "severity_category": "Error",
       "alarm_text": "PPI Execution Error — Program mdi1.pp, line 4: Spline requires at least 3 control points.",
+      "description": "A spline was programmed with too few control points between the commands that start and end the spline. Related areas: spline interpolation, the splineon and splineoff commands, and spline control points.",
       "data_fields": { "program": "mdi1.pp", "line": 4 } },
 
     { "code": "am.nc.0005", "title": "Multiple class 1 preparatory words in a block", "domain": "Numerical Controller", "severity": 833, "severity_category": "Error",
       "alarm_text": "PPI Execution Error — Program mdi1.pp, line 1: Only one class 1 preparatory word is allowed per block.",
+      "description": "A part program block contains more than one class 1 preparatory word (G-code). Related areas: preparatory word classes, class 1 preparatory words, and part program block structure.",
       "data_fields": { "program": "mdi1.pp", "line": 1 } },
 
     { "code": "am.cfg.0001", "title": "Logical device mapped multiple times", "domain": "Configuration", "severity": 1000, "severity_category": "Fatal",
       "alarm_text": "Startup halted: logical device 5 is mapped to more than one joint.",
+      "description": "At startup the configuration assigns the same logical device to more than one joint, so the system cannot start. Related areas: the joint logical device parameter, logical device addresses, and setting up devices and joints.",
       "data_fields": { "assertion_source": "sma.cpp:717", "logical_device": 5 } },
 
     { "code": "am.lic.0001", "title": "OPC UA server not licensed", "domain": "Licensing", "severity": 833, "severity_category": "Error",
       "alarm_text": "OPC UA Server: the current license does not include the OPC UA server option. Purchase the option, or disable the server with the \"opcua.enable\" configuration property.",
+      "description": "The OPC UA server is enabled in the configuration but the installed license does not include the OPC UA server option. Related areas: the configuration property that enables the OPC UA server, and licensing options.",
       "data_fields": { "config_property": "opcua.enable", "current_value": true } },
 
     { "code": "am.fb.0001", "title": "EtherCAT device in unexpected state", "domain": "Fieldbus", "severity": 833, "severity_category": "Error",
       "alarm_text": "Fieldbus: device 'Drive_3' (station 0x03) is in an unexpected state — actual SAFEOP, expected OP.",
+      "description": "An EtherCAT device is not in the state the master expects, for example it stays in a lower state when it should be operational. Related areas: EtherCAT device states, the device unexpected state error, and reinitialising the EtherCAT bus.",
       "data_fields": { "device_name": "Drive_3", "station_address": "0x03", "current_state": "SAFEOP", "expected_state": "OP" } },
 
     { "code": "am.fb.0002", "title": "Drive emergency (EMCY)", "domain": "Fieldbus", "severity": 833, "severity_category": "Error",
       "alarm_text": "Fieldbus: emergency reported by drive 'Drive_3' — error code 0x2350, error register 0x04.",
+      "description": "A drive on the EtherCAT fieldbus sent a CANopen over EtherCAT emergency message with an error code and error register. Related areas: the emergency error, manufacturer-specific error data, and recovering the drive.",
       "data_fields": { "device_name": "Drive_3", "error_code": "0x2350", "error_register": "0x04" } },
 
     { "code": "am.fb.0003", "title": "EtherCAT frame response error", "domain": "Fieldbus", "severity": 833, "severity_category": "Error",
       "alarm_text": "Fieldbus: frame response error (CRC) on cyclic task 1 — 3 cyclic frames lost.",
+      "description": "An EtherCAT frame was malformed, unanswered or lost on a cyclic or acyclic task. Related areas: the frame response error and its error types, and the fieldbus log files.",
       "data_fields": { "error_type": "CRC", "is_cyclic": true, "cyclic_task_id": 1, "lost_cyclic_frames": 3 } },
 
     { "code": "am.fb.0004", "title": "Device firmware mismatch", "domain": "Fieldbus", "severity": 500, "severity_category": "Warning",
       "alarm_text": "Fieldbus: device 'Drive_3' is running firmware 1.2.0 but 1.4.0 is expected.",
+      "description": "The firmware version an EtherCAT device is running differs from the firmware version the configuration expects. Related areas: device firmware upgrade, the expected firmware version, and the fieldbus state required for an upload.",
       "data_fields": { "device_name": "Drive_3", "current_firmware": "1.2.0", "expected_firmware": "1.4.0" } }
   ]
 }

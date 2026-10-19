@@ -5,6 +5,7 @@ and one per account tier. The window's counter lives in Redis (one atomic Lua
 call per request), so limits hold across orchestrator replicas.
 """
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -94,18 +95,27 @@ return {current, ttl}
         return int(count), int(ttl)
 
 
-def rate_limit_dependency(route_name: str, ip_limit_setting: str, tier_limit_setting: str):
+def rate_limit_dependency(
+    route_name: str,
+    ip_limit_setting: str,
+    tier_limit_setting: str,
+    principal_dependency: Callable[..., Awaitable[Principal]] = current_principal,
+):
     """Build an authenticated FastAPI dependency for one route's buckets.
 
     ip_limit_setting / tier_limit_setting name the Settings fields holding each
-    bucket's limit. Behaviour: no Redis configured -> requests are not limited;
-    over a limit -> 429 with Retry-After; Redis errors -> 503 rate_limit_unavailable
-    (fails closed rather than letting unlimited traffic through).
+    bucket's limit. principal_dependency must be the one the route itself uses, so
+    the limiter identifies the caller the same way (an anonymous operator on a route
+    that admits one, rather than a 401 the route would not give).
+
+    Behaviour: no Redis configured -> requests are not limited; over a limit -> 429
+    with Retry-After; Redis errors -> 503 rate_limit_unavailable (fails closed
+    rather than letting unlimited traffic through).
     """
 
     async def enforce_rate_limit(
         request: Request,
-        principal: Principal = Depends(current_principal),
+        principal: Principal = Depends(principal_dependency),
     ) -> None:
         settings = get_settings()
         backend = getattr(request.app.state, "rate_limit_backend", None)

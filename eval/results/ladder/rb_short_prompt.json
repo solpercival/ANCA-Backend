@@ -1,0 +1,264 @@
+{
+  "summary": {
+    "hit": 0.909,
+    "precision": 0.773,
+    "recall": 0.773,
+    "reciprocal_rank": 0.864,
+    "step_recall": 0.35,
+    "step_precision": 0.603,
+    "length_ratio": 0.595,
+    "actionable": 0.909,
+    "coverage_match": 0.909,
+    "fix_present": 0.773,
+    "fix_solved": 7.0,
+    "codes": 11,
+    "errors": 0,
+    "runs": 3,
+    "range": {
+      "hit": [
+        0.909,
+        0.909
+      ],
+      "precision": [
+        0.773,
+        0.773
+      ],
+      "recall": [
+        0.773,
+        0.773
+      ],
+      "reciprocal_rank": [
+        0.864,
+        0.864
+      ],
+      "step_recall": [
+        0.349,
+        0.351
+      ],
+      "step_precision": [
+        0.598,
+        0.606
+      ],
+      "length_ratio": [
+        0.585,
+        0.615
+      ],
+      "actionable": [
+        0.909,
+        0.909
+      ],
+      "coverage_match": [
+        0.909,
+        0.909
+      ],
+      "fix_present": [
+        0.773,
+        0.773
+      ],
+      "fix_solved": [
+        7,
+        7
+      ]
+    }
+  },
+  "results": [
+    {
+      "code": "am.nc.0001",
+      "hit": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.406,
+      "step_precision": 0.306,
+      "length_ratio": 1.111,
+      "actionable": 1.0,
+      "coverage_match": 1.0,
+      "fix_present": 1.0,
+      "steps": [
+        "If the X and A axes are on different logical machines, attach the X and A axes to the same logical machine",
+        "If the X and A axes are on different logical machines, use the detach command to remove the axis from its current logical machine before attaching it to the correct one",
+        "If the X and A axes are on different logical machines, use the barrier command to synchronise the program runnings before attaching the axis to the correct logical machine",
+        "Restart the CNC to apply the changes"
+      ],
+      "doc_coverage": "full"
+    },
+    {
+      "code": "am.nc.0002",
+      "hit": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.481,
+      "step_precision": 1.0,
+      "length_ratio": 0.667,
+      "actionable": 1.0,
+      "coverage_match": 1.0,
+      "fix_present": 1.0,
+      "steps": [
+        "If the axis is attached to the wrong logical machine, detach it from the current logical machine",
+        "If the axis is attached to the wrong logical machine, attach it to the correct logical machine"
+      ],
+      "doc_coverage": "full"
+    },
+    {
+      "code": "am.nc.0003",
+      "hit": 1.0,
+      "precision": 0.667,
+      "recall": 0.5,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.485,
+      "step_precision": 1.0,
+      "length_ratio": 0.5,
+      "actionable": 1.0,
+      "coverage_match": 1.0,
+      "fix_present": 0.5,
+      "steps": [
+        "Check if the part program 'm101.pp' exists in the configured search hierarchy",
+        "If the part program 'm101.pp' is missing, create it in a root hierarchy folder"
+      ],
+      "doc_coverage": "full"
+    },
+    {
+      "code": "am.nc.0004",
+      "hit": 1.0,
+      "precision": 0.5,
+      "recall": 0.5,
+      "reciprocal_rank": 0.5,
+      "step_recall": 0.505,
+      "step_precision": 1.0,
+      "length_ratio": 0.333,
+      "actionable": 1.0,
+      "coverage_match": 1.0,
+      "fix_present": 1.0,
+      "steps": [
+        "Specify at least 3 control points between splineon and splineoff commands"
+      ],
+      "doc_coverage": "full"
+    },
+    {
+      "code": "am.nc.0005",
+      "hit": 0.0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "reciprocal_rank": 0.0,
+      "step_recall": 0.0,
+      "step_precision": 0.0,
+      "length_ratio": 0.333,
+      "actionable": 0.0,
+      "coverage_match": 0.0,
+      "fix_present": 0.0,
+      "steps": [
+        "The documentation does not cover this alarm."
+      ],
+      "doc_coverage": "none"
+    },
+    {
+      "code": "am.cfg.0001",
+      "hit": 1.0,
+      "precision": 0.667,
+      "recall": 0.5,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.397,
+      "step_precision": 1.0,
+      "length_ratio": 0.667,
+      "actionable": 1.0,
+      "coverage_match": 1.0,
+      "fix_present": 1.0,
+      "steps": [
+        "Set the Joint logical device parameter for the joint to the logical address of the device",
+        "Restart the system to apply the configuration"
+      ],
+      "doc_coverage": "full"
+    },
+    {
+      "code": "am.lic.0001",
+      "hit": 1.0,
+      "precision": 0.667,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.421,
+      "step_precision": 0.5,
+      "length_ratio": 1.0,
+      "actionable": 1.0,
+      "coverage_match": 1.0,
+      "fix_present": 1.0,
+      "steps": [
+        "Purchase the option to enable the OPC UA server",
+        "Disable the server with the \"opcua.enable\" configuration property"
+      ],
+      "doc_coverage": "full"
+    },
+    {
+      "code": "am.fb.0001",
+      "hit": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.181,
+      "step_precision": 0.0,
+      "length_ratio": 0.333,
+      "actionable": 1.0,
+      "coverage_match": 1.0,
+      "fix_present": 1.0,
+      "steps": [
+        "Restart the system to resolve the unexpected state error"
+      ],
+      "doc_coverage": "full"
+    },
+    {
+      "code": "am.fb.0002",
+      "hit": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.362,
+      "step_precision": 1.0,
+      "length_ratio": 0.5,
+      "actionable": 1.0,
+      "coverage_match": 1.0,
+      "fix_present": 0.5,
+      "steps": [
+        "If the error is informational, acknowledge the message",
+        "If the error is an error, restart the system to recover the drive"
+      ],
+      "doc_coverage": "full"
+    },
+    {
+      "code": "am.fb.0003",
+      "hit": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.141,
+      "step_precision": 0.5,
+      "length_ratio": 0.5,
+      "actionable": 1.0,
+      "coverage_match": 1.0,
+      "fix_present": 0.5,
+      "steps": [
+        "Restart the system to recover from the error",
+        "If multiple frame response errors occur, restart the system to clear the error"
+      ],
+      "doc_coverage": "full"
+    },
+    {
+      "code": "am.fb.0004",
+      "hit": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.47,
+      "step_precision": 0.333,
+      "length_ratio": 0.6,
+      "actionable": 1.0,
+      "coverage_match": 1.0,
+      "fix_present": 1.0,
+      "steps": [
+        "Start AMCore with the -start device flag to transition the fieldbus to PREOP",
+        "Run the device-firmware-upload.exe --auto command to upload firmware for mismatched devices",
+        "Power-cycle the device or reinitialise the fieldbus to verify the firmware update"
+      ],
+      "doc_coverage": "full"
+    }
+  ]
+}
