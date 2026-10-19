@@ -411,7 +411,7 @@ def test_cached_answer_is_reused_for_the_same_prompt():
     class CountingGenerator(FakeGenerator):
         calls = 0
 
-        async def generate(self, prompt, tokens=None, thinking=False):
+        async def generate(self, prompt, tokens=None, thinking=False, deterministic=False):
             self.calls += 1
             return self._answer
 

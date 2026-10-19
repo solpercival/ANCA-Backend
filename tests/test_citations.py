@@ -148,7 +148,7 @@ class FakeReranker:
 
 
 class FakeGenerator:
-    async def generate(self, prompt, tokens=None, thinking=False):
+    async def generate(self, prompt, tokens=None, thinking=False, deterministic=False):
         return "COVERAGE: partial\nCheck the spline control points."
 
 

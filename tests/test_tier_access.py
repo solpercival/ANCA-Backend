@@ -208,7 +208,7 @@ class _Generator:
     def __init__(self, answer):
         self._answer = answer
 
-    async def generate(self, prompt, tokens=None, thinking=False):
+    async def generate(self, prompt, tokens=None, thinking=False, deterministic=False):
         return self._answer
 
 

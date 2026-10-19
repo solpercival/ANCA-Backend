@@ -24,7 +24,10 @@ async def test_deterministic_on_sends_temperature_and_seed():
     assert options["seed"] == settings.deterministic_seed
 
 
-async def test_deterministic_off_sends_no_temperature_or_seed():
+async def test_deterministic_off_sends_no_seed_and_the_configured_temperature():
+    # off, the request keeps LLM_TEMPERATURE as before the flag existed; only the
+    # fixed seed (and the deterministic temperature) depend on the flag
+    settings = get_settings()
     sent = []
 
     def fake_ollama(request):
@@ -35,5 +38,5 @@ async def test_deterministic_off_sends_no_temperature_or_seed():
         await OllamaGenerator(client).generate("prompt", deterministic=False)
 
     options = sent[0]["options"]
-    assert "temperature" not in options
+    assert options["temperature"] == settings.llm_temperature
     assert "seed" not in options

@@ -56,7 +56,7 @@ class Generator:
         self._answer = answer
         self.calls = 0
 
-    async def generate(self, prompt, tokens=None, thinking=False):
+    async def generate(self, prompt, tokens=None, thinking=False, deterministic=False):
         self.calls += 1
         return self._answer
 

@@ -80,7 +80,7 @@ class RecordingRewriteModel:
     def __init__(self):
         self.prompts: list[str] = []
 
-    async def generate(self, prompt, tokens=None, thinking=False):
+    async def generate(self, prompt, tokens=None, thinking=False, deterministic=False):
         self.prompts.append(prompt)
         return "rewritten query"
 
