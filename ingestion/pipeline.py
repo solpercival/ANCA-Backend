@@ -93,6 +93,12 @@ def run(docs_dir: str = "docs") -> int:  # pragma: no cover - integration
     """Ingest docs_dir. Returns how many chunks were re-embedded."""
     docs_path = Path(docs_dir)
     current_hashes = hash_markdown_files(docs_path)
+    if not current_hashes:
+        # every stored document would count as removed and be pruned: an empty index
+        raise SystemExit(
+            f"no markdown files under {docs_path.resolve()}; is the docs/working_docs "
+            "submodule checked out? Run: git submodule update --init docs/working_docs"
+        )
     # Lazy import keeps hosted CI free of torch.
     from ingestion.indexers import (
         embed_and_index,

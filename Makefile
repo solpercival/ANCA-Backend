@@ -96,11 +96,13 @@ db-reset:       ## DESTRUCTIVE: drop all tables and data, rebuild an empty schem
 # --- data ------------------------------------------------------------------------
 
 ingest:         ## migrate, pull models, then chunk + embed the docs into pgvector
+	git submodule update --init docs/working_docs
 	$(MAKE) migrate
 	$(MAKE) models
 	$(COMPOSE) run --rm --build ingestion
 
 reingest:       ## like ingest, but re-embed every document (after switching EMBEDDING_SETUP)
+	git submodule update --init docs/working_docs
 	$(MAKE) migrate
 	$(MAKE) models
 	$(COMPOSE) run --rm --build -e INGEST_FORCE=1 ingestion

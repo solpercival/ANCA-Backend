@@ -6,6 +6,10 @@ WORKDIR /app
 COPY pyproject.toml ./
 COPY src/ ./src/
 COPY ingestion/ ./ingestion/
-COPY docs/docs-proto/ ./docs/docs-proto/
+# the documentation team's repository (the docs/working_docs submodule; make ingest
+# checks it out), and from our copy only the alarm catalogue, which adds the alarm
+# descriptions retrieval uses (ingestion/seed_alarms.py)
+COPY docs/working_docs/ ./docs/working_docs/
+COPY docs/docs-proto/starter-kit/alarms/ ./docs/docs-proto/starter-kit/alarms/
 RUN pip install --no-cache-dir -e ".[models]" && rm -rf /root/.cache
 CMD ["python", "-m", "ingestion.pipeline"]

@@ -1,7 +1,7 @@
 """Where a chunk came from, in the API contract's terms.
 
 Chunks are stored with the path the ingestion run saw
-(docs/docs-proto/starter-kit/docs/user-guide/troubleshoot/coe-device-errors.md).
+(docs/working_docs/starter-kit/docs/user-guide/troubleshoot/coe-device-errors.md).
 Clients get {doc, path, section} instead, the shape of doc_refs in the starter
 kit's reference-answers.json and of Citation in mock-api/INTERFACE.md:
   path     relative to the documentation bundle's root, so the UI can link to it
@@ -11,7 +11,7 @@ This module is the only place that knows the bundle's root and its document name
 """
 
 # the documentation bundle's root as ingestion stores it (`make ingest` walks docs/)
-DOCS_ROOT = "docs/docs-proto/starter-kit/docs/"
+DOCS_ROOT = "docs/working_docs/starter-kit/docs/"
 
 # top-level folder of the bundle -> display name, as used in reference-answers.json
 DOC_NAMES = {
