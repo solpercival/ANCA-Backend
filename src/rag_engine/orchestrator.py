@@ -401,9 +401,14 @@ class Orchestrator:
 
     @staticmethod
     def _format_context(chunks: list[Chunk]) -> str:
-        """The prompt's context block: each chunk under its source path, separated by
-        rules. No [n] labels: unlabelled context gives the model nothing to cite inline."""
-        return "\n\n---\n\n".join(f"({c.source})\n{c.text}" for c in chunks)
+        """The prompt's context block: each chunk under its document path, separated by
+        rules. No [n] labels: unlabelled context gives the model nothing to cite inline.
+
+        The path is relative to the documentation root (doc_path), as in citations, so
+        where the docs are checked out (docs/working_docs/..., a container's /app/...)
+        never reaches the prompt: moving them would otherwise change every prompt, and
+        with it the answers, for identical documents."""
+        return "\n\n---\n\n".join(f"({doc_path(c.source)})\n{c.text}" for c in chunks)
 
     @staticmethod
     def _generation_cache_key(prompt: str, effort: EffortSettings) -> str:

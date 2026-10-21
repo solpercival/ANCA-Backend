@@ -42,7 +42,7 @@ class ContextGenerator:
     no coverage -- like a grounded model with nothing to go on."""
 
     async def generate(self, prompt, tokens=None, thinking=False, deterministic=False):
-        if "(docs/" in prompt:
+        if "(user-guide/" in prompt or "(part-programmers-reference/" in prompt:
             return "COVERAGE: full\nReset the device."
         return "COVERAGE: none\n"
 
