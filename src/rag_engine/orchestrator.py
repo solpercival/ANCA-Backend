@@ -507,6 +507,19 @@ class Orchestrator:
         """Remove any citation markers the model added despite being told not to."""
         return _CITE_MARKER.sub("", text).strip()
 
+    @classmethod
+    def _drop_stray_refusal(cls, reply: str) -> str:
+        """Remove the refusal sentence from a reply that also answers the question.
+
+        The model sometimes answers from the context and then adds "The documentation
+        does not cover this." as well. A reply that is only the refusal stays one."""
+        refusal = cls._norm(_CHAT_NOT_COVERED)
+        sentences = _SENTENCE_SPLIT.split(reply.strip())
+        kept = [s for s in sentences if cls._norm(s) != refusal]
+        if kept and len(kept) < len(sentences):
+            return " ".join(kept).strip()
+        return reply
+
     @staticmethod
     def _retrieval_query(req: ResolveRequest, alarm: Alarm) -> str:
         """What to search the docs for: the caller's query if given, else the alarm's
@@ -1322,7 +1335,7 @@ class Orchestrator:
             )
 
         rag_resolve_total.labels(outcome="ok").inc()
-        reply = self._strip_citations(reply)
+        reply = self._drop_stray_refusal(self._strip_citations(reply))
         # a refusal drew on nothing, so it cites nothing (as resolve does)
         refused = self._norm(reply) == self._norm(_CHAT_NOT_COVERED)
         resp = ChatResponse(
