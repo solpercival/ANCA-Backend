@@ -533,6 +533,13 @@ class Orchestrator:
             else ""
         )
         return (
+            # The alarm first: Ollama reuses the cached computation of the prompt start
+            # it shares with the previous request. With the long instruction block first,
+            # that start was the same for every alarm, and the answers depended on which
+            # request had filled the cache since the model loaded (up to two fixes on
+            # the eval moved with it). Starting with the alarm leaves only a few tokens
+            # to share, so each prompt is computed the same way whatever came before.
+            f"Alarm {req.code} - {alarm.title}\n\n"
             "You are a CNC troubleshooting assistant.\n"
             "Using ONLY the context, tell the technician how to resolve this alarm. "
             "The documentation is descriptive and often will NOT contain explicit "
