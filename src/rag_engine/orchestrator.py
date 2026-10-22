@@ -30,6 +30,7 @@ import asyncio
 import logging
 import re
 import time
+from collections.abc import Sequence
 from difflib import SequenceMatcher
 from functools import lru_cache
 from typing import Any
@@ -85,6 +86,11 @@ _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 _CAUSE_LINE = re.compile(r"^\W*cause\s*[:=-]\s*(.+?)\s*$", re.I)
 # inline citation markers ([1], [1, 2], [2-3], or a literal [n]) never reach the
 # response: sources are reported only through the structured citations list
+# an alarm code inside free text ("What does am.fb.0002 mean?"); same shape as
+# ALARM_CODE_PATTERN in api/schemas.py, without the anchors
+_ALARM_CODE_IN_TEXT = re.compile(r"\b[a-z]{2,4}\.[a-z]{2,6}\.\d{4}\b", re.I)
+# at most this many codes from one message are looked up
+_CHAT_MAX_ALARMS = 2
 _CITE_MARKER = re.compile(r"\s*\[(?:n|\d+(?:\s*[,–-]\s*\d+)*)\]", re.I)
 _MAX_CAUSES = 3
 _MAX_CITATIONS = 3  # top-ranked chunks reported as citations
@@ -944,15 +950,22 @@ class Orchestrator:
             return None
         return best[1]
 
-    def _build_chat_prompt(self, message: str, chunks: list[Chunk]) -> str:
-        """Prompt for a short free-text answer from the context, or an exact refusal."""
+    def _build_chat_prompt(
+        self, message: str, chunks: list[Chunk], alarms: Sequence[tuple[str, str]] = ()
+    ) -> str:
+        """Prompt for a short free-text answer from the context, or an exact refusal.
+        `alarms` names the alarm codes the question mentions (see _named_alarms): the
+        documentation never mentions codes, so the model is told which alarm each is."""
+        named = "".join(f"{code} = {about}\n" for code, about in alarms)
+        if named:
+            named = f"Alarm codes in the question, from the alarm catalogue:\n{named}\n"
         return (
             "You are a CNC troubleshooting assistant. Answer the user's question using only "
             "the context, in at most 3 short sentences. No citation markers or brackets, "
             "no preamble.\n"
             "If the answer is not in the context, reply exactly: "
             f'"{_CHAT_NOT_COVERED}"\n\n'
-            f"Context:\n{self._format_context(chunks)}\n\nUser: {message}"
+            f"{named}Context:\n{self._format_context(chunks)}\n\nUser: {message}"
         )
 
     async def resolve(self, req: ResolveRequest, tier: Tier) -> ResolveResponse:
@@ -1170,6 +1183,25 @@ class Orchestrator:
         resp._stage_timings = _stage_timings(t_retrieve, t_rerank, t_generate)
         return resp
 
+    async def _named_alarms(self, message: str, conversation_id: str) -> list[tuple[str, str]]:
+        """(code, "title. description") for each alarm code the message names. The
+        documentation never mentions codes, so chat searches and reranks with what
+        the alarm is about, as /resolve does (_retrieval_query), and tells the model
+        which alarm the code is. A failed or unknown lookup is skipped, never fatal."""
+        codes = list(dict.fromkeys(c.lower() for c in _ALARM_CODE_IN_TEXT.findall(message)))
+        terms = []
+        for code in codes[:_CHAT_MAX_ALARMS]:
+            try:
+                alarm = await self._alarms.get_alarm(code)
+            except Exception:
+                log.warning("chat_alarm_lookup_failed code=%s (non-fatal)", code, exc_info=True)
+                continue
+            if alarm is not None:
+                terms.append((code, f"{alarm.title}. {alarm.description or alarm.alarm_text}"))
+        if terms:
+            log.info("chat_alarm_terms conversation_id=%s codes=%s", conversation_id, codes[:2])
+        return terms
+
     async def chat(self, req: ChatRequest, tier: Tier) -> ChatResponse:
         """Answer a free-text message in the context of its conversation.
 
@@ -1205,11 +1237,15 @@ class Orchestrator:
             )
 
         where = self._tier_where(tier)
+        # an alarm code means nothing to the embedder, so search with what the
+        # alarm is about as well; the question itself reaches the model unchanged
+        named = await self._named_alarms(req.message, req.conversation_id)
+        search_query = " ".join([req.message, *(about for _, about in named)])
 
         t0 = time.perf_counter()
         try:
             candidates = await self._retriever.retrieve(
-                req.message, top_k=effort_settings.retrieval_k, where=where or None
+                search_query, top_k=effort_settings.retrieval_k, where=where or None
             )
         except Exception as exc:
             log.exception("retrieval_error conversation_id=%s", req.conversation_id)
@@ -1235,9 +1271,9 @@ class Orchestrator:
 
         t0 = time.perf_counter()
         if effort_settings.reranker == "identity":
-            top = await self._id_reranker.rerank(req.message, trimmed, effort=effort_settings)
+            top = await self._id_reranker.rerank(search_query, trimmed, effort=effort_settings)
         else:
-            top = await self._reranker.rerank(req.message, trimmed, effort=effort_settings)
+            top = await self._reranker.rerank(search_query, trimmed, effort=effort_settings)
         t_rerank = time.perf_counter() - t0
         rag_stage_seconds.labels(stage="rerank").observe(t_rerank)
 
@@ -1252,7 +1288,7 @@ class Orchestrator:
         t0 = time.perf_counter()
         try:
             reply = await self._generator.generate(
-                prompt=self._build_chat_prompt(req.message, top),
+                prompt=self._build_chat_prompt(req.message, top, named),
                 tokens=effort_settings.num_predict,
                 thinking=effort_settings.thinking,
                 deterministic=get_settings().chat_deterministic,
