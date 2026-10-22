@@ -4,16 +4,16 @@
     "precision": 0.833,
     "recall": 0.864,
     "reciprocal_rank": 0.955,
-    "step_recall": 0.423,
-    "step_precision": 0.513,
-    "length_ratio": 1.068,
+    "step_recall": 0.409,
+    "step_precision": 0.464,
+    "length_ratio": 1.15,
     "actionable": 1.0,
-    "coverage_match": 0.545,
-    "fix_present": 0.818,
-    "fix_solved": 7.0,
+    "coverage_match": 0.727,
+    "fix_present": 0.864,
+    "fix_solved": 8.0,
     "codes": 11,
     "errors": 0,
-    "runs": 3,
+    "runs": 10,
     "range": {
       "hit": [
         1.0,
@@ -32,32 +32,32 @@
         0.955
       ],
       "step_recall": [
-        0.421,
-        0.428
+        0.408,
+        0.416
       ],
       "step_precision": [
-        0.508,
-        0.524
+        0.415,
+        0.47
       ],
       "length_ratio": [
-        1.058,
-        1.088
+        1.141,
+        1.232
       ],
       "actionable": [
         1.0,
         1.0
       ],
       "coverage_match": [
-        0.545,
-        0.545
+        0.727,
+        0.727
       ],
       "fix_present": [
-        0.818,
-        0.818
+        0.864,
+        0.864
       ],
       "fix_solved": [
-        7,
-        7
+        8,
+        8
       ]
     }
   },
@@ -68,17 +68,18 @@
       "precision": 1.0,
       "recall": 1.0,
       "reciprocal_rank": 1.0,
-      "step_recall": 0.634,
-      "step_precision": 0.5,
-      "length_ratio": 1.333,
+      "step_recall": 0.455,
+      "step_precision": 0.94,
+      "length_ratio": 0.767,
       "actionable": 1.0,
       "coverage_match": 1.0,
       "fix_present": 1.0,
       "steps": [
-        "Attach the X axis to the same logical machine as the A axis.",
-        "Detach the X axis from its current logical machine if it is attached to a different one.",
-        "Synchronize the logical machines using the barrier function before linking the axes with an electronic cam.",
-        "Check that both axes are attached to the same logical machine before activating the electronic cam."
+        "Attach the X and A axes to the same logical machine",
+        "Ensure the axes are detached from their current logical machine before attaching",
+        "Check the Joint logical machine parameter for both axes",
+        "Check the program for correct axis attachment commands",
+        "Ensure no other program is conflicting with the axis attachment"
       ],
       "doc_coverage": "full"
     },
@@ -88,19 +89,19 @@
       "precision": 1.0,
       "recall": 1.0,
       "reciprocal_rank": 1.0,
-      "step_recall": 0.644,
-      "step_precision": 0.5,
+      "step_recall": 0.481,
+      "step_precision": 1.0,
       "length_ratio": 1.333,
       "actionable": 1.0,
-      "coverage_match": 0.0,
+      "coverage_match": 1.0,
       "fix_present": 1.0,
       "steps": [
-        "Check that the axis is not already attached to another logical machine.",
-        "Detach the axis from its current logical machine.",
-        "Synchronize the Part Program Processors before attempting to reattach the axis.",
-        "Verify that no other process is using the axis during the transfer."
+        "Detach the axis from its current logical machine",
+        "Check the axis is not assigned to another logical machine",
+        "Reinitialise the logical machine configuration",
+        "Attach the axis to the desired logical machine"
       ],
-      "doc_coverage": "partial"
+      "doc_coverage": "full"
     },
     {
       "code": "am.nc.0003",
@@ -108,18 +109,17 @@
       "precision": 0.667,
       "recall": 0.5,
       "reciprocal_rank": 1.0,
-      "step_recall": 0.596,
-      "step_precision": 0.422,
-      "length_ratio": 1.417,
+      "step_recall": 0.515,
+      "step_precision": 1.0,
+      "length_ratio": 1.0,
       "actionable": 1.0,
       "coverage_match": 0.0,
       "fix_present": 0.5,
       "steps": [
-        "Check the part program search hierarchy configuration.",
-        "Verify that the folder paths in `programs.paths` are correctly defined and exist.",
-        "Ensure that a part program named `m101.pp` is present in one of the hierarchy folders or their subfolders.",
-        "Check that the M-Code M101 is configured to use mode 4.",
-        "Restart AMCore to apply any changes to the search hierarchy."
+        "Check the part program search hierarchy configuration",
+        "Verify the part program 'm101.pp' exists in the search hierarchy paths",
+        "Ensure the M-code M101 is configured to use mode 4",
+        "Verify the part program 'm101.pp' is not corrupted or missing"
       ],
       "doc_coverage": "partial"
     },
@@ -130,16 +130,15 @@
       "recall": 0.5,
       "reciprocal_rank": 0.5,
       "step_recall": 0.571,
-      "step_precision": 0.306,
-      "length_ratio": 1.111,
+      "step_precision": 0.333,
+      "length_ratio": 1.0,
       "actionable": 1.0,
       "coverage_match": 1.0,
       "fix_present": 1.0,
       "steps": [
-        "Add at least three control points between the `splineon` and `splineoff` commands.",
-        "Check the program line 4 for the `splineon` and `splineoff` commands.",
-        "Verify that the control points are correctly specified between these commands.",
-        "Restart the program execution after making the changes."
+        "Add at least three control points between splineon and splineoff commands.",
+        "Check the splineon and splineoff blocks for correct placement of control points.",
+        "Verify the spline type and parameters are correctly specified in the splineon block."
       ],
       "doc_coverage": "full"
     },
@@ -149,15 +148,16 @@
       "precision": 0.667,
       "recall": 1.0,
       "reciprocal_rank": 1.0,
-      "step_recall": 0.25,
-      "step_precision": 0.5,
-      "length_ratio": 0.667,
+      "step_recall": 0.5,
+      "step_precision": 0.0,
+      "length_ratio": 1.0,
       "actionable": 1.0,
       "coverage_match": 1.0,
       "fix_present": 1.0,
       "steps": [
-        "Check the block for multiple class 1 preparatory words.",
-        "Remove any additional class 1 preparatory words beyond the first."
+        "Edit the program to ensure only one class 1 preparatory word is used per block.",
+        "Check the G-code documentation to identify which words belong to class 1.",
+        "Verify the block syntax to ensure no multiple class 1 preparatory words are present."
       ],
       "doc_coverage": "full"
     },
@@ -167,15 +167,16 @@
       "precision": 0.667,
       "recall": 0.5,
       "reciprocal_rank": 1.0,
-      "step_recall": 0.198,
-      "step_precision": 1.0,
-      "length_ratio": 0.667,
+      "step_recall": 0.349,
+      "step_precision": 0.667,
+      "length_ratio": 1.0,
       "actionable": 1.0,
       "coverage_match": 1.0,
-      "fix_present": 0.5,
+      "fix_present": 1.0,
       "steps": [
-        "Set the Joint logical device parameter for each joint to a unique logical device.",
-        "Check that no two joints are assigned to the same logical device."
+        "Set the Joint logical device parameter for each joint to a unique logical device address.",
+        "Check the logical device addresses are unique across all joints.",
+        "Restart the system to apply changes."
       ],
       "doc_coverage": "full"
     },
@@ -185,14 +186,17 @@
       "precision": 0.667,
       "recall": 1.0,
       "reciprocal_rank": 1.0,
-      "step_recall": 0.405,
-      "step_precision": 1.0,
-      "length_ratio": 0.5,
+      "step_recall": 0.437,
+      "step_precision": 0.5,
+      "length_ratio": 2.0,
       "actionable": 1.0,
       "coverage_match": 1.0,
-      "fix_present": 0.5,
+      "fix_present": 1.0,
       "steps": [
-        "Disable the OPC UA server by setting the `opcua.enable` configuration property to `false`."
+        "Disable the OPC UA server by setting `opcua.enable` to `false`.",
+        "Check the license includes the OPC UA server option.",
+        "Purchase the OPC UA server option if required.",
+        "Verify the license is correctly applied."
       ],
       "doc_coverage": "full"
     },
@@ -202,19 +206,21 @@
       "precision": 1.0,
       "recall": 1.0,
       "reciprocal_rank": 1.0,
-      "step_recall": 0.362,
-      "step_precision": 0.25,
-      "length_ratio": 1.333,
+      "step_recall": 0.465,
+      "step_precision": 0.333,
+      "length_ratio": 2.0,
       "actionable": 1.0,
-      "coverage_match": 0.0,
+      "coverage_match": 1.0,
       "fix_present": 1.0,
       "steps": [
-        "Restart the system.",
-        "Check the drive's reported error register.",
-        "Verify the master's operational state matches the expected state.",
-        "Reinitialise the Ethercat bus if the drive remains in an error state."
+        "Restart the EtherCAT system",
+        "Reinitialise the EtherCAT bus",
+        "Check the drive's reported error register",
+        "Verify the device's operational state matches the Master's expected state",
+        "Check the EtherCAT master configuration for state consistency",
+        "Verify the device's safety settings are not conflicting with operational state"
       ],
-      "doc_coverage": "partial"
+      "doc_coverage": "full"
     },
     {
       "code": "am.fb.0002",
@@ -222,16 +228,16 @@
       "precision": 1.0,
       "recall": 1.0,
       "reciprocal_rank": 1.0,
-      "step_recall": 0.44,
-      "step_precision": 0.667,
+      "step_recall": 0.329,
+      "step_precision": 0.333,
       "length_ratio": 0.75,
       "actionable": 1.0,
       "coverage_match": 0.0,
       "fix_present": 0.5,
       "steps": [
-        "Check the drive's reported error register for specific diagnostic information.",
-        "Reinitialise the Ethercat bus to recover from the emergency state.",
-        "Restart the system if the drive remains in an error state."
+        "Restart the Ethercat bus",
+        "Check the drive's reported error register",
+        "Verify the drive's communication status"
       ],
       "doc_coverage": "partial"
     },
@@ -243,19 +249,15 @@
       "reciprocal_rank": 1.0,
       "step_recall": 0.202,
       "step_precision": 0.0,
-      "length_ratio": 1.833,
+      "length_ratio": 1.0,
       "actionable": 1.0,
       "coverage_match": 0.0,
       "fix_present": 1.0,
       "steps": [
-        "Check the EtherCAT master log file for additional error details.",
-        "Restart the system if multiple errors continue to occur.",
-        "Verify the cyclic task configuration for correct index values.",
-        "Check for unexpected MAC addresses in the network.",
-        "Ensure all EtherCAT frames are properly formatted and transmitted.",
-        "Verify the CRC settings and data integrity for the cyclic task.",
-        "Check for non-EtherCAT frames interfering with communication.",
-        "Verify the EtherCAT bus state and ensure it is in safe operation."
+        "Restart the EtherCAT master application",
+        "Check the EtherCAT master log file for detailed error information",
+        "Check the drive's reported error register for additional fault details",
+        "Reinitialise the EtherCAT bus configuration"
       ],
       "doc_coverage": "partial"
     },
@@ -265,17 +267,17 @@
       "precision": 1.0,
       "recall": 1.0,
       "reciprocal_rank": 1.0,
-      "step_recall": 0.353,
-      "step_precision": 0.5,
+      "step_recall": 0.197,
+      "step_precision": 0.0,
       "length_ratio": 0.8,
       "actionable": 1.0,
       "coverage_match": 1.0,
-      "fix_present": 1.0,
+      "fix_present": 0.5,
       "steps": [
-        "Set the fieldbus to INIT or PREOP mode before uploading firmware.",
-        "Upload the correct firmware version 1.4.0 to device Drive_3.",
-        "Restart the fieldbus after the firmware upload completes.",
-        "Verify the device's actual firmware version matches the expected version."
+        "Upload firmware for Drive_3 using the correct file path",
+        "Verify the firmware version is updated on Drive_3",
+        "Restart the fieldbus to OP mode",
+        "Check the drive's reported error register"
       ],
       "doc_coverage": "full"
     }
