@@ -16,7 +16,8 @@ models, FastAPI orchestration, Redis, and PostgreSQL.
 
 ```
 src/rag_engine/      FastAPI app, orchestrator, retrieval, generation, auth
-  api/               routes, OAuth2 tier auth, request/response schemas
+  api/               routes, request/response schemas, errors, rate limiting
+  auth/              login, JWT + Redis refresh sessions, tier access checks
   retrieval/         interfaces (Protocols), hybrid RRF, embedder/reranker/vectorstore
   generation/        response LLM adapter
   stores/            postgres + redis adapters
