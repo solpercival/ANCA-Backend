@@ -1,0 +1,17 @@
+# HTTPS proxy for docker-compose.https.yml. Caddy issues the certificate from its
+# own local CA (local_certs), so no domain or internet access is needed.
+{
+	local_certs
+	# the redirect below is the only plain-HTTP listener
+	auto_https disable_redirects
+}
+
+https://localhost:8443 {
+	# Caddy sets X-Forwarded-For and X-Forwarded-Proto itself. No read timeout
+	# by default, so a slow high-effort /resolve is not cut off
+	reverse_proxy orchestrator:8080
+}
+
+http://localhost:8081 {
+	redir https://localhost:8443{uri} permanent
+}

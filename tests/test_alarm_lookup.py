@@ -8,8 +8,9 @@ import pytest
 from rag_engine.api.errors import RetrievalUnavailable, UnknownAlarmCode
 from rag_engine.api.schemas import ResolveRequest
 from rag_engine.auth.tiers import Tier
+from rag_engine.config import API_PREFIX
 from rag_engine.orchestrator import Orchestrator, get_orchestrator
-from rag_engine.retrieval.interfaces import Chunk
+from rag_engine.retrieval.interfaces import Alarm, Chunk
 from rag_engine.stores import alarms as alarms_module
 from rag_engine.stores.alarms import PostgresAlarmStore
 from tests.fakes import FB_0002, FakeAlarmStore, FakePreprocessor
@@ -36,7 +37,7 @@ class FakeGenerator:
     def __init__(self, answer="Check the cable [1]."):
         self._answer = answer
 
-    async def generate(self, prompt, tokens=None, thinking=False):
+    async def generate(self, prompt, tokens=None, thinking=False, deterministic=False):
         self.prompt = prompt
         return self._answer
 
@@ -121,7 +122,61 @@ def test_prompt_marks_catalogue_text_as_not_documentation():
     asyncio.run(orch.resolve(ResolveRequest(code="am.fb.0002"), Tier.technician))
 
     assert "not documentation" in orch._generator.prompt
-    assert "never repeat it as guidance" in orch._generator.prompt
+    assert "never repeat its description of the fault as guidance" in orch._generator.prompt
+
+
+def test_prompt_lets_the_model_use_a_remedy_the_alarm_message_states():
+    # bench at temperature 0: am.lic.0001's message says "disable the server with
+    # opcua.enable", the docs only describe enabling it, and the answer was
+    # "Set opcua.enable to true" -- the old rule told the model to ignore the message
+    orch = _orch()
+    asyncio.run(orch.resolve(ResolveRequest(code="am.fb.0002"), Tier.technician))
+
+    assert "If the alarm message itself states a remedy" in orch._generator.prompt
+    assert "give that remedy as a step" in orch._generator.prompt
+    assert "never give a step that contradicts it" in orch._generator.prompt
+    # restated after the context, which is what a small model reads last
+    reminder = orch._generator.prompt.split("Context:\n", 1)[1].split("Reminder:", 1)[1]
+    assert FB_0002.alarm_text in reminder
+    assert "your first step is that remedy, and no step may do the opposite" in reminder
+
+
+LIC_0001 = Alarm(
+    code="am.lic.0001",
+    title="OPC UA server not licensed",
+    domain="Licensing",
+    severity_score=833,
+    severity_category="error",
+    alarm_text=(
+        "OPC UA Server: the current license does not include the OPC UA server option. "
+        'Purchase the option, or disable the server with the "opcua.enable" '
+        "configuration property."
+    ),
+    data_fields={},
+)
+
+
+def _resolve_lic(answer):
+    orch = _orch(FakeAlarmStore(LIC_0001), answer=answer)
+    return asyncio.run(orch.resolve(ResolveRequest(code="am.lic.0001"), Tier.technician))
+
+
+def test_remedy_stated_in_the_alarm_message_is_kept_as_a_step():
+    # an action taken from the message is guidance from the machine, not a restatement
+    remedy = "Disable the server with the opcua.enable configuration property."
+    resp = _resolve_lic(f"COVERAGE: partial\n{remedy}\nPurchase the option.")
+
+    assert resp.steps == [remedy, "Purchase the option."]
+
+
+def test_fault_description_from_the_alarm_message_is_still_dropped():
+    resp = _resolve_lic(
+        "COVERAGE: partial\n"
+        "The current license does not include the OPC UA server option.\n"
+        "Set opcua.enable to false.\n"
+    )
+
+    assert resp.steps == ["Set opcua.enable to false."]
 
 
 @pytest.mark.parametrize(
@@ -199,7 +254,7 @@ def test_seed_source_is_the_sample_catalogue():
 
 
 def test_api_unknown_code_returns_404_envelope(client, bearer):
-    r = client.post("/api/v2/resolve", json={"code": "am.fb.9999"}, headers=bearer)
+    r = client.post(f"{API_PREFIX}/resolve", json={"code": "am.fb.9999"}, headers=bearer)
 
     assert r.status_code == 404
     assert r.json()["error"]["code"] == "unknown_alarm_code"
@@ -209,7 +264,7 @@ def test_api_catalogue_down_returns_503(client, bearer):
     from rag_engine.main import app
 
     app.dependency_overrides[get_orchestrator] = lambda: _orch(BrokenAlarmStore())
-    r = client.post("/api/v2/resolve", json={"code": "am.fb.0002"}, headers=bearer)
+    r = client.post(f"{API_PREFIX}/resolve", json={"code": "am.fb.0002"}, headers=bearer)
 
     assert r.status_code == 503
     assert r.json()["error"]["code"] == "retrieval_unavailable"

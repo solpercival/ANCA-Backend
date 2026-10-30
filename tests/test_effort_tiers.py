@@ -11,7 +11,7 @@ from rag_engine.api.schemas import (
     ResolveRequest,
     get_effort_settings,
 )
-from rag_engine.config import get_settings
+from rag_engine.config import API_PREFIX, get_settings
 from rag_engine.providers import OllamaGenerator
 from rag_engine.retrieval.interfaces import Chunk
 from rag_engine.retrieval.reranker import IdentityReranker, Qwen3Reranker
@@ -81,7 +81,8 @@ def test_get_effort_settings_mapping():
     assert high.reranker_n == settings.HIGH_CONFIG["reranker_n"]
     assert high.num_predict == settings.HIGH_CONFIG["num_predict"]
     assert high.rewrite is True
-    assert high.thinking is True
+    # thinking spends the output budget before any answer is written
+    assert high.thinking is False
 
     # None defaults to Medium
     default = get_effort_settings(None)
@@ -89,11 +90,26 @@ def test_get_effort_settings_mapping():
     assert default.num_predict == mid.num_predict
 
 
+def test_medium_effort_follows_the_documented_settings(monkeypatch):
+    # these four were read by nothing: changing them in .env had no effect
+    monkeypatch.setenv("RETRIEVAL_TOP_K", "40")
+    monkeypatch.setenv("RERANK_TOP_N", "6")
+    monkeypatch.setenv("LLM_NUM_PREDICT", "150")
+    monkeypatch.setenv("REWRITE_NUM_PREDICT", "200")
+    get_settings.cache_clear()
+    try:
+        mid = get_effort_settings(EffortLevel.MEDIUM)
+    finally:
+        get_settings.cache_clear()
+
+    assert (mid.retrieval_k, mid.reranker_n, mid.num_predict, mid.num_rewrite) == (40, 6, 150, 200)
+
+
 def test_api_resolve_endpoint_effort_boundary_validation(client, bearer):
     # Valid effort tiers return 200
     for effort in ("low", "medium", "high"):
         resp = client.post(
-            "/api/v2/resolve",
+            f"{API_PREFIX}/resolve",
             json={"code": "am.fb.0002", "effort": effort},
             headers=bearer,
         )
@@ -103,7 +119,7 @@ def test_api_resolve_endpoint_effort_boundary_validation(client, bearer):
 
     # Invalid effort tier rejected with 422
     resp_invalid = client.post(
-        "/api/v2/resolve",
+        f"{API_PREFIX}/resolve",
         json={"code": "am.fb.0002", "effort": "super_high"},
         headers=bearer,
     )
@@ -115,7 +131,7 @@ def test_api_chat_endpoint_effort_boundary_validation(client, bearer):
     # Valid effort tiers return 200
     for effort in ("low", "medium", "high"):
         resp = client.post(
-            "/api/v2/chat",
+            f"{API_PREFIX}/chat",
             json={"conversation_id": "c-1", "message": "how to fix", "effort": effort},
             headers=bearer,
         )
@@ -125,7 +141,7 @@ def test_api_chat_endpoint_effort_boundary_validation(client, bearer):
 
     # Invalid effort tier rejected with 422
     resp_invalid = client.post(
-        "/api/v2/chat",
+        f"{API_PREFIX}/chat",
         json={"conversation_id": "c-1", "message": "how to fix", "effort": "bad_tier"},
         headers=bearer,
     )
@@ -163,7 +179,11 @@ async def test_query_preprocessor_skips_rewrite_when_disabled():
         calls = 0
 
         async def generate(
-            self, prompt: str, tokens: int | None = None, thinking: bool = False
+            self,
+            prompt: str,
+            tokens: int | None = None,
+            thinking: bool = False,
+            deterministic: bool = False,
         ) -> str:
             self.calls += 1
             return "rewritten"
@@ -197,7 +217,11 @@ async def test_query_preprocessor_calls_rewrite_with_num_rewrite_tokens():
         last_tokens = None
 
         async def generate(
-            self, prompt: str, tokens: int | None = None, thinking: bool = False
+            self,
+            prompt: str,
+            tokens: int | None = None,
+            thinking: bool = False,
+            deterministic: bool = False,
         ) -> str:
             self.calls += 1
             self.last_tokens = tokens

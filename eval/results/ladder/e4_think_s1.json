@@ -1,0 +1,272 @@
+{
+  "summary": {
+    "hit": 0.879,
+    "precision": 0.712,
+    "recall": 0.743,
+    "reciprocal_rank": 0.834,
+    "step_recall": 0.371,
+    "step_precision": 0.442,
+    "length_ratio": 1.004,
+    "actionable": 0.879,
+    "coverage_match": 0.545,
+    "fix_present": 0.712,
+    "fix_solved": 6.667,
+    "codes": 11,
+    "errors": 0,
+    "runs": 3,
+    "range": {
+      "hit": [
+        0.818,
+        0.909
+      ],
+      "precision": [
+        0.652,
+        0.742
+      ],
+      "recall": [
+        0.682,
+        0.773
+      ],
+      "reciprocal_rank": [
+        0.773,
+        0.864
+      ],
+      "step_recall": [
+        0.338,
+        0.388
+      ],
+      "step_precision": [
+        0.427,
+        0.45
+      ],
+      "length_ratio": [
+        0.852,
+        1.08
+      ],
+      "actionable": [
+        0.818,
+        0.909
+      ],
+      "coverage_match": [
+        0.364,
+        0.636
+      ],
+      "fix_present": [
+        0.682,
+        0.727
+      ],
+      "fix_solved": [
+        6,
+        7
+      ]
+    }
+  },
+  "results": [
+    {
+      "code": "am.nc.0001",
+      "hit": 0.667,
+      "precision": 0.667,
+      "recall": 0.667,
+      "reciprocal_rank": 0.667,
+      "step_recall": 0.298,
+      "step_precision": 0.267,
+      "length_ratio": 1.222,
+      "actionable": 0.667,
+      "coverage_match": 0.667,
+      "fix_present": 0.667,
+      "steps": [
+        "The documentation does not cover this alarm."
+      ],
+      "doc_coverage": "none"
+    },
+    {
+      "code": "am.nc.0002",
+      "hit": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.454,
+      "step_precision": 0.867,
+      "length_ratio": 1.444,
+      "actionable": 1.0,
+      "coverage_match": 1.0,
+      "fix_present": 1.0,
+      "steps": [
+        "Detach the X-axis from logical machine 2.",
+        "Attach the X-axis to logical machine 1.",
+        "Check the axis's current attachment status before attempting to reattach."
+      ],
+      "doc_coverage": "full"
+    },
+    {
+      "code": "am.nc.0003",
+      "hit": 1.0,
+      "precision": 0.667,
+      "recall": 0.5,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.646,
+      "step_precision": 0.178,
+      "length_ratio": 1.417,
+      "actionable": 1.0,
+      "coverage_match": 0.667,
+      "fix_present": 0.5,
+      "steps": [
+        "Verify the part program 'm101.pp' exists in any of the configured search hierarchy folders.",
+        "Check the `programs.paths` configuration to ensure all required directories are included.",
+        "Confirm the M-code M101 is configured to use mode 4 (trailing subprogram call).",
+        "If using a relative filepath, ensure the subfolder path is correctly specified in the M-code.",
+        "If the program is in a different directory, add the full path to the search hierarchy or use an absolute filepath."
+      ],
+      "doc_coverage": "partial"
+    },
+    {
+      "code": "am.nc.0004",
+      "hit": 1.0,
+      "precision": 0.5,
+      "recall": 0.5,
+      "reciprocal_rank": 0.5,
+      "step_recall": 0.603,
+      "step_precision": 0.611,
+      "length_ratio": 0.889,
+      "actionable": 1.0,
+      "coverage_match": 1.0,
+      "fix_present": 1.0,
+      "steps": [
+        "Add at least two more control points between `splineon` and `splineoff` commands.",
+        "Verify the `splineon` and `splineoff` blocks are correctly placed with sufficient control points."
+      ],
+      "doc_coverage": "full"
+    },
+    {
+      "code": "am.nc.0005",
+      "hit": 1.0,
+      "precision": 0.667,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.375,
+      "step_precision": 0.444,
+      "length_ratio": 0.778,
+      "actionable": 1.0,
+      "coverage_match": 0.667,
+      "fix_present": 0.333,
+      "steps": [
+        "Edit the block to ensure only one class 1 preparatory word is present.",
+        "Check the block for class 1 preparatory words and remove duplicates.",
+        "Verify the block contains a single class 1 preparatory word before resubmitting."
+      ],
+      "doc_coverage": "partial"
+    },
+    {
+      "code": "am.cfg.0001",
+      "hit": 1.0,
+      "precision": 0.667,
+      "recall": 0.5,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.354,
+      "step_precision": 0.833,
+      "length_ratio": 1.111,
+      "actionable": 1.0,
+      "coverage_match": 0.667,
+      "fix_present": 0.667,
+      "steps": [
+        "Verify the Joint logical device parameter for each joint is set to a unique logical device address.",
+        "Check the logical device 5's EtherCAT address is assigned to only one physical device.",
+        "Set the Joint logical device parameter for all joints to distinct logical device addresses.",
+        "Restart the system to apply changes."
+      ],
+      "doc_coverage": "partial"
+    },
+    {
+      "code": "am.lic.0001",
+      "hit": 1.0,
+      "precision": 0.667,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.444,
+      "step_precision": 0.778,
+      "length_ratio": 1.333,
+      "actionable": 1.0,
+      "coverage_match": 0.0,
+      "fix_present": 0.833,
+      "steps": [
+        "Disable the OPC UA server by setting `opcua.enable` to `false`.",
+        "Verify the OPC UA server is disabled by confirming `opcua.enable` is `false`."
+      ],
+      "doc_coverage": "partial"
+    },
+    {
+      "code": "am.fb.0001",
+      "hit": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.342,
+      "step_precision": 0.5,
+      "length_ratio": 1.333,
+      "actionable": 1.0,
+      "coverage_match": 1.0,
+      "fix_present": 1.0,
+      "steps": [
+        "Restart the system",
+        "Restart the drive",
+        "Check the drive's reported error register",
+        "Verify the Ethercat bus is reinitialised correctly"
+      ],
+      "doc_coverage": "full"
+    },
+    {
+      "code": "am.fb.0002",
+      "hit": 0.333,
+      "precision": 0.333,
+      "recall": 0.333,
+      "reciprocal_rank": 0.333,
+      "step_recall": 0.163,
+      "step_precision": 0.222,
+      "length_ratio": 0.417,
+      "actionable": 0.333,
+      "coverage_match": 0.333,
+      "fix_present": 0.167,
+      "steps": [
+        "Reinitialise the Ethercat bus",
+        "Restart the system",
+        "Check the drive's error register and error code for additional details"
+      ],
+      "doc_coverage": "full"
+    },
+    {
+      "code": "am.fb.0003",
+      "hit": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.177,
+      "step_precision": 0.0,
+      "length_ratio": 0.5,
+      "actionable": 1.0,
+      "coverage_match": 0.0,
+      "fix_present": 1.0,
+      "steps": [
+        "Restart the system to clear transient errors.",
+        "Check the EtherCAT master log file for detailed error information."
+      ],
+      "doc_coverage": "partial"
+    },
+    {
+      "code": "am.fb.0004",
+      "hit": 0.667,
+      "precision": 0.667,
+      "recall": 0.667,
+      "reciprocal_rank": 0.667,
+      "step_recall": 0.228,
+      "step_precision": 0.167,
+      "length_ratio": 0.6,
+      "actionable": 0.667,
+      "coverage_match": 0.0,
+      "fix_present": 0.667,
+      "steps": [
+        "The documentation does not cover this alarm."
+      ],
+      "doc_coverage": "none"
+    }
+  ]
+}

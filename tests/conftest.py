@@ -3,16 +3,30 @@ embedders, stores, reranker and generator), plus a bearer-token header.
 Nothing here needs Postgres, Redis or a model server.
 """
 
+import json
+import os
+
 import pytest
 from fastapi.testclient import TestClient
 
-from rag_engine.auth.tiers import Tier
-from rag_engine.auth.tokens import create_access_token
-from rag_engine.main import app
-from rag_engine.orchestrator import Orchestrator, get_orchestrator
-from rag_engine.retrieval.hybrid import HybridRetriever
-from rag_engine.retrieval.interfaces import Chunk
-from tests.fakes import FakeAlarmStore
+from rag_engine.config import Settings
+
+# A developer's .env may hold deployment values (APP_ENV=production, a narrow
+# ALLOWED_HOSTS, the deployed CORS origin). The app reads these once, at import, to
+# build its middleware, so they are reset to the code defaults here, before the app is
+# imported. Environment variables take precedence over .env.
+for _name in ("app_env", "allowed_hosts", "cors_allow_origins"):
+    _default = Settings.model_fields[_name].default
+    os.environ[_name.upper()] = _default if isinstance(_default, str) else json.dumps(_default)
+
+from rag_engine.auth.tiers import Tier  # noqa: E402
+from rag_engine.auth.tokens import create_access_token  # noqa: E402
+from rag_engine.config import get_settings  # noqa: E402
+from rag_engine.main import app  # noqa: E402
+from rag_engine.orchestrator import Orchestrator, get_orchestrator  # noqa: E402
+from rag_engine.retrieval.hybrid import HybridRetriever  # noqa: E402
+from rag_engine.retrieval.interfaces import Chunk  # noqa: E402
+from tests.fakes import FakeAlarmStore  # noqa: E402
 
 
 class FakeRateLimitBackend:
@@ -58,7 +72,7 @@ class FakeReranker:
 
 
 class FakeGenerator:
-    async def generate(self, prompt, tokens=None, thinking=False):
+    async def generate(self, prompt, tokens=None, thinking=False, deterministic=False):
         # uncited CAUSE: the fake can't know chunk order, so it's matched against all
         return (
             "COVERAGE: partial\n"
@@ -82,6 +96,23 @@ def _fake_orchestrator() -> Orchestrator:
     return Orchestrator(
         FakePreprocessor(), retriever, FakeReranker(), FakeGenerator(), FakeAlarmStore()
     )
+
+
+@pytest.fixture(autouse=True)
+def _local_env_does_not_reach_tests(monkeypatch):
+    # a developer's .env may turn it on, and the fake answers in these tests are not
+    # written against the fake chunks; a test of the floor sets it itself
+    monkeypatch.setenv("STEP_SUPPORT_MIN", "0")
+    monkeypatch.setattr(get_settings(), "step_support_min", 0.0)
+    # likewise the retrieval setup: a test of dual retrieval selects it itself
+    monkeypatch.setenv("EMBEDDING_SETUP", "unified")
+    monkeypatch.setattr(get_settings(), "embedding_setup", "unified")
+    # and anonymous access: a request with no token is a 401 unless a test turns it on
+    monkeypatch.setenv("ALLOW_ANONYMOUS_OPERATOR", "false")
+    monkeypatch.setattr(get_settings(), "allow_anonymous_operator", False)
+    # and the prompt capture for eval/diagnose_gaps.py
+    monkeypatch.setenv("RESOLVE_DEBUG_PROMPT", "false")
+    monkeypatch.setattr(get_settings(), "resolve_debug_prompt", False)
 
 
 @pytest.fixture

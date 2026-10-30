@@ -18,7 +18,9 @@ dependencies = [
     "pyjwt>=2.10",
     "pwdlib[argon2]>=0.2",
     "python-multipart>=0.0.20",
-    "langfuse>=2.53",                   # runtime tracing
+    # runtime tracing. <3: the code uses the v2 client API (Langfuse.trace), which
+    # SDK 3+ removed, and docker-compose.yml runs a v2 server (langfuse/langfuse:2)
+    "langfuse>=2.53,<3",
     "langchain-text-splitters>=1.1.2",
     "wordfreq>=3.1.1",
     "prometheus-client>=0.20",           # metrics collection

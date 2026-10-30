@@ -1,9 +1,9 @@
 {
   "query": "motor stalls after startup",
   "code": "am.fb.0002",
-  "citation_ids": [
-    "c1",
-    "c9"
+  "citation_paths": [
+    "manual.md",
+    "faq.md"
   ],
   "step_count": 3,
   "confidence": 0.891,

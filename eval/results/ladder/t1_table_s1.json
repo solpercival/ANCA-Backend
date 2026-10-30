@@ -1,0 +1,286 @@
+{
+  "summary": {
+    "hit": 1.0,
+    "precision": 0.833,
+    "recall": 0.864,
+    "reciprocal_rank": 0.955,
+    "step_recall": 0.435,
+    "step_precision": 0.472,
+    "length_ratio": 1.269,
+    "actionable": 1.0,
+    "coverage_match": 0.727,
+    "fix_present": 0.773,
+    "fix_solved": 7.0,
+    "codes": 11,
+    "errors": 0,
+    "runs": 3,
+    "range": {
+      "hit": [
+        1.0,
+        1.0
+      ],
+      "precision": [
+        0.833,
+        0.833
+      ],
+      "recall": [
+        0.864,
+        0.864
+      ],
+      "reciprocal_rank": [
+        0.955,
+        0.955
+      ],
+      "step_recall": [
+        0.433,
+        0.439
+      ],
+      "step_precision": [
+        0.442,
+        0.532
+      ],
+      "length_ratio": [
+        1.203,
+        1.302
+      ],
+      "actionable": [
+        1.0,
+        1.0
+      ],
+      "coverage_match": [
+        0.727,
+        0.727
+      ],
+      "fix_present": [
+        0.773,
+        0.773
+      ],
+      "fix_solved": [
+        7,
+        7
+      ]
+    }
+  },
+  "results": [
+    {
+      "code": "am.nc.0001",
+      "hit": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.488,
+      "step_precision": 0.778,
+      "length_ratio": 1.0,
+      "actionable": 1.0,
+      "coverage_match": 1.0,
+      "fix_present": 1.0,
+      "steps": [
+        "Attach the X and A axes to the same logical machine",
+        "Check the logical machine assignment of the X and A axes",
+        "Ensure the logical machine for both axes is identical before linking them with Electronic Cam"
+      ],
+      "doc_coverage": "full"
+    },
+    {
+      "code": "am.nc.0002",
+      "hit": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.52,
+      "step_precision": 0.667,
+      "length_ratio": 2.222,
+      "actionable": 1.0,
+      "coverage_match": 1.0,
+      "fix_present": 1.0,
+      "steps": [
+        "Detach the x' axis from logical machine 2",
+        "Check the current logical machine attachment of the x' axis",
+        "Reinitialise the logical machine 1 connection",
+        "Verify the x' axis is not attached to any logical machine"
+      ],
+      "doc_coverage": "full"
+    },
+    {
+      "code": "am.nc.0003",
+      "hit": 1.0,
+      "precision": 0.667,
+      "recall": 0.5,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.485,
+      "step_precision": 0.389,
+      "length_ratio": 0.833,
+      "actionable": 1.0,
+      "coverage_match": 0.0,
+      "fix_present": 0.5,
+      "steps": [
+        "Verify the part program 'm101.pp' exists in the configured search hierarchy.",
+        "Check the search hierarchy path for any typos or incorrect folder names.",
+        "Ensure the part program 'm101.pp' is not blocked or corrupted.",
+        "Restart the CNC system to refresh the search hierarchy."
+      ],
+      "doc_coverage": "partial"
+    },
+    {
+      "code": "am.nc.0004",
+      "hit": 1.0,
+      "precision": 0.5,
+      "recall": 0.5,
+      "reciprocal_rank": 0.5,
+      "step_recall": 0.571,
+      "step_precision": 0.667,
+      "length_ratio": 1.0,
+      "actionable": 1.0,
+      "coverage_match": 1.0,
+      "fix_present": 1.0,
+      "steps": [
+        "Add at least 3 control points between splineon and splineoff commands.",
+        "Check the splineon and splineoff blocks for correct placement of control points.",
+        "Verify the spline type is properly specified with at least 3 control points."
+      ],
+      "doc_coverage": "full"
+    },
+    {
+      "code": "am.nc.0005",
+      "hit": 1.0,
+      "precision": 0.667,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.292,
+      "step_precision": 0.0,
+      "length_ratio": 1.0,
+      "actionable": 1.0,
+      "coverage_match": 1.0,
+      "fix_present": 0.0,
+      "steps": [
+        "Check the block for more than one class 1 preparatory word.",
+        "Remove or reorder class 1 preparatory words to ensure only one is present.",
+        "Verify the G-code syntax follows the rule of one class 1 preparatory word per block."
+      ],
+      "doc_coverage": "full"
+    },
+    {
+      "code": "am.cfg.0001",
+      "hit": 1.0,
+      "precision": 0.667,
+      "recall": 0.5,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.349,
+      "step_precision": 0.333,
+      "length_ratio": 1.0,
+      "actionable": 1.0,
+      "coverage_match": 1.0,
+      "fix_present": 1.0,
+      "steps": [
+        "Set the Joint logical device for each joint to a unique logical address.",
+        "Check the logical device assignments for conflicts.",
+        "Restart the system to apply changes."
+      ],
+      "doc_coverage": "full"
+    },
+    {
+      "code": "am.lic.0001",
+      "hit": 1.0,
+      "precision": 0.667,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.437,
+      "step_precision": 0.5,
+      "length_ratio": 2.0,
+      "actionable": 1.0,
+      "coverage_match": 1.0,
+      "fix_present": 1.0,
+      "steps": [
+        "Disable the OPC UA server by setting `opcua.enable` to `false`.",
+        "Check the license includes the OPC UA server option.",
+        "Purchase the OPC UA server option if required.",
+        "Verify the OPC UA server is disabled after applying the license."
+      ],
+      "doc_coverage": "full"
+    },
+    {
+      "code": "am.fb.0001",
+      "hit": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.417,
+      "step_precision": 0.667,
+      "length_ratio": 1.0,
+      "actionable": 1.0,
+      "coverage_match": 1.0,
+      "fix_present": 1.0,
+      "steps": [
+        "Restart the system",
+        "Reinitialise the EtherCAT bus",
+        "Verify the device's operational state matches the Master's expected state"
+      ],
+      "doc_coverage": "full"
+    },
+    {
+      "code": "am.fb.0002",
+      "hit": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.496,
+      "step_precision": 0.333,
+      "length_ratio": 0.75,
+      "actionable": 1.0,
+      "coverage_match": 0.0,
+      "fix_present": 0.5,
+      "steps": [
+        "Restart the system to recover from the emergency state.",
+        "Reinitialise the Ethercat bus to reset the drive's communication state.",
+        "Check the drive's reported error register for additional diagnostic information."
+      ],
+      "doc_coverage": "partial"
+    },
+    {
+      "code": "am.fb.0003",
+      "hit": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.169,
+      "step_precision": 0.143,
+      "length_ratio": 1.75,
+      "actionable": 1.0,
+      "coverage_match": 0.0,
+      "fix_present": 0.5,
+      "steps": [
+        "Restart the system",
+        "Verify the cyclic task configuration for task 1",
+        "Check the drive's reported error register",
+        "Check for interference on the EtherCAT network",
+        "Verify the EtherCAT master configuration",
+        "Check the network topology for correct device addressing",
+        "Check the power supply stability for the EtherCAT devices"
+      ],
+      "doc_coverage": "partial"
+    },
+    {
+      "code": "am.fb.0004",
+      "hit": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "reciprocal_rank": 1.0,
+      "step_recall": 0.558,
+      "step_precision": 0.714,
+      "length_ratio": 1.4,
+      "actionable": 1.0,
+      "coverage_match": 1.0,
+      "fix_present": 1.0,
+      "steps": [
+        "Upload firmware to device Drive_3 using the --firmware command.",
+        "Start AMCore in device mode with the -start device flag.",
+        "Verify firmware version matches expected version using --actual-firmware.",
+        "Check fieldbus state is INIT or PREOP before uploading.",
+        "Run the firmware tool in automatic mode to resolve mismatch.",
+        "Reinitialise the fieldbus after firmware upload completes.",
+        "Power cycle Drive_3 if firmware version is still not updated."
+      ],
+      "doc_coverage": "full"
+    }
+  ]
+}
