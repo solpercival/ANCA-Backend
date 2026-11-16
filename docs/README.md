@@ -1,16 +1,19 @@
-# docs/ — documentation submodule (placeholder)
+# docs/
 
-This directory is the mount point for the **cnc-documentation** repository,
-owned by the documentation team and consumed here as a git submodule.
+| Folder | What it is |
+|--------|------------|
+| `working_docs/` | Git submodule: the documentation team's repository. Answers are drawn from `working_docs/starter-kit/docs/` |
+| `docs-proto/` | The earlier copy of the starter kit, kept in this repo. The alarm catalogue (`starter-kit/alarms/alarms.sample.json`) and the eval's gold answers (`starter-kit/alarms/reference-answers.json`) still come from here |
+| `answer-quality.md` | Current eval scores, what has been tried, and the open gaps |
+| `alarm-description-guidelines.md` | How to write alarm descriptions that retrieve the right documentation |
 
-It is intentionally empty in a fresh clone. To populate it:
+`working_docs/` is empty until the submodule is checked out:
 
 ```bash
-git submodule add git@github.com:your-org/cnc-documentation.git docs
-git submodule update --init --recursive
+git submodule update --init --recursive     # make ingest also runs this
 ```
 
-The ingestion pipeline reads `*.md` here plus `reference-answers.json`
-(the gold set used by the eval suite). Nothing in this folder is edited from
-the engine repo — content changes happen upstream, and a submodule pointer
-bump is a reviewed PR that re-triggers ingestion + evaluation.
+Documentation is not edited from this repo. Changes are made in the
+documentation team's repository. Moving the submodule to their latest commit,
+re-ingesting and recording the new pointer is described in the main README,
+under [Documentation and ingestion](../README.md#documentation-and-ingestion).
