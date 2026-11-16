@@ -1,18 +1,235 @@
 # CNC Troubleshooting RAG Engine
 
-Alarm-code-driven troubleshooting assistant: resolve-by-code and conversational
-chat over CNC documentation, using hybrid retrieval (pgvector), Ollama
-models, FastAPI orchestration, Redis, and PostgreSQL.
+The backend of the alarm troubleshooting assistant. Given an alarm code such as
+`am.fb.0002`, it finds the relevant sections of the AMCore documentation and
+answers with the steps to clear the alarm. Technicians and partners can also ask
+follow-up questions in a chat.
 
-## Repository shape
+It runs as one Docker Compose stack on a machine with an NVIDIA GPU:
 
-| Repo | Owns | Notes |
-|------|------|-------|
-| **this repo** | RAG engine + ingestion | docs are a **submodule** at `docs/` |
-| `cnc-documentation` (submodule) | source manuals + `reference-answers.json` | documentation team |
-| `frontend` (separate repo) | App UI | consumes the HTTP API contract ([Frontend integration](#frontend-integration-api-contract)) |
+- a FastAPI **orchestrator** (the API, on port 8080);
+- **PostgreSQL** with pgvector, for the document chunks, the alarm catalogue,
+  accounts and conversations;
+- **Redis**, for login sessions and rate limits;
+- **Ollama**, for the embedding model and the answer model (`qwen3:8b`).
 
-## Layout
+The Vercel front end reaches it over HTTPS through a Tailscale Funnel.
+
+## Contents
+
+1. [Set up a new instance](#set-up-a-new-instance): start to finish
+2. [Running it day to day](#running-it-day-to-day)
+3. [Troubleshooting](#troubleshooting)
+4. [How it works](#how-it-works)
+5. [Configuration](#configuration)
+6. [Documentation and ingestion](#documentation-and-ingestion)
+7. [Database migrations](#database-migrations)
+8. [Frontend integration (API contract)](#frontend-integration-api-contract)
+9. [Deployment: HTTPS and public access](#deployment-https-and-public-access)
+10. [Evaluation](#evaluation)
+11. [Development](#development)
+
+## Set up a new instance
+
+Follow the steps in order. Steps 1 to 6 give a working instance on
+`http://localhost:8080`. Step 7 makes it reachable by the Vercel front end.
+
+### What you need
+
+- Windows 11 with WSL 2 (Ubuntu) and Docker Desktop, or Linux with Docker
+  Engine and the NVIDIA Container Toolkit.
+- An NVIDIA GPU with at least 8 GB of memory and a current driver (development
+  used an RTX 4070). It also runs without a GPU, but each answer takes far longer.
+- In WSL or Linux: `git`, `make`, `curl` and Python 3.12:
+  `sudo apt install git make curl python3.12 python3.12-venv`.
+- Disk space for the images and about 7 GB of models.
+- For step 7 only: admin access to a Tailscale tailnet.
+
+Run every command below in the WSL (Ubuntu) terminal, from the repository folder.
+
+### 1. Docker Desktop with WSL
+
+1. In Docker Desktop, open **Settings > Resources > WSL Integration**, enable
+   your Ubuntu distribution, apply, and restart Docker Desktop.
+2. In Ubuntu, check that Docker Desktop answers:
+
+   ```bash
+   docker context use default
+   docker info | grep "Operating System"     # must say Docker Desktop
+   ```
+
+   If Ubuntu was already open, restart it first: run `wsl --shutdown` in
+   PowerShell, then open Ubuntu again.
+3. If Ubuntu also has its own Docker engine (`docker.io` or `docker-ce`), turn it
+   off: `sudo systemctl disable --now docker docker.socket`. Otherwise, whenever
+   Docker Desktop is not running, commands reach that empty engine and the stack
+   seems to have lost its images and data.
+4. In Docker Desktop, turn on **Settings > General > Start Docker Desktop when
+   you sign in**, so the stack comes back after a reboot.
+
+### 2. Get the code
+
+```bash
+git clone --recurse-submodules <repo-url> ANCA-Backend
+cd ANCA-Backend
+```
+
+The documentation is a git submodule in `docs/working_docs`. If you cloned
+without `--recurse-submodules`, run `git submodule update --init --recursive`
+(`make ingest` also does this). A Windows folder works too: in WSL,
+`C:\Users\<you>\...` is `/mnt/c/Users/<you>/...`.
+
+### 3. Create `.env`
+
+```bash
+cp .env.example .env
+```
+
+The defaults work for a local instance. `.env` holds the secrets, is gitignored,
+and must never be committed.
+
+**If this machine will be public (step 7), set the production values from
+[step 7](#7-make-it-public-for-the-vercel-front-end) now.** Postgres fixes its
+password when it first starts, so changing `POSTGRES_PASSWORD` later takes an
+extra command.
+
+### 4. Install the Python tools and run the tests
+
+```bash
+make install     # .venv with the project and dev tools (the models run in containers)
+make test        # unit tests; no services needed, about 4 minutes
+```
+
+`make user`, `make smoke` and `make eval` also use this `.venv`.
+
+### 5. Start the stack and load the documentation
+
+```bash
+make up          # terminal 1: builds the images, runs the stack in the foreground
+make ingest      # terminal 2: migrations, model downloads (~6 GB), then embeds the docs
+```
+
+`make up` stays in the foreground, and Ctrl+C stops it. To run the stack in the
+background instead, use `make restart` (or `make funnel` in step 7). Always start
+it through `make`: a plain `docker compose up` leaves out the GPU.
+
+Check it:
+
+```bash
+curl http://localhost:8080/api/v2/ready  # {"status":"ok",...} once Postgres, Redis and Ollama answer
+make smoke                               # log in -> resolve -> chat, with a temporary account
+```
+
+The interactive API docs are at `http://localhost:8080/docs`.
+
+### 6. Create accounts
+
+There is no sign-up. Operators need no account when `ALLOW_ANONYMOUS_OPERATOR=true`
+(the front end lets them in without a login). Technicians and partners need one:
+
+```bash
+make user u=alex tier=technician     # asks for the password twice, at least 12 characters
+make user u=alex tier=partner        # run again to change the tier or password; reactivates it
+make user-disable u=alex             # the account can no longer log in
+```
+
+See [Tiers](#tiers) for what each tier can do. Usernames are stored in lower case.
+
+`make smoke` deletes its test account when it finishes. `make eval` keeps a
+technician account, `evaluser`, with the password `EVAL_PASSWORD`, and the default
+for that is in this repository. On a public instance, set `EVAL_PASSWORD` in
+`.env` to a private value before running `make eval`. If the account already has
+the default password, run `make user-disable u=evaluser`. Run
+`make user u=evaluser tier=technician` to turn it back on before the next eval.
+
+### 7. Make it public for the Vercel front end
+
+The front end proxies `/api/v2/*` to this machine through a Tailscale Funnel.
+The full explanation is in
+[Public access with Tailscale Funnel](#public-access-with-tailscale-funnel). In
+short:
+
+1. **Once, in the Tailscale admin console:** enable HTTPS certificates, and allow
+   Funnel for `tag:anca-api` in the access-control policy.
+2. **Production values in `.env`:**
+
+   ```env
+   APP_ENV=production
+   JWT_SECRET=<python3 -c "import secrets; print(secrets.token_urlsafe(48))">
+   POSTGRES_PASSWORD=<a new password>
+   ALLOWED_HOSTS='["anca-api.<tailnet>.ts.net","localhost"]'
+   CORS_ALLOW_ORIGINS='["https://<app>.vercel.app"]'
+   ALLOW_ANONYMOUS_OPERATOR=true
+   RESOLVE_RATE_LIMIT_PER_IP=120
+   ```
+
+   `CORS_ALLOW_ORIGINS` is the front end's exact origin. Login only works from it.
+3. **Join the tailnet, once:** `make funnel-login`, then open the printed
+   `login.tailscale.com` link and approve the machine. Alternatively, put an
+   auth key in `TS_AUTHKEY`.
+4. **Go public:** `make funnel`. It refuses to start on placeholder secrets,
+   starts the stack in the background with the Funnel, and checks the public URL,
+   the GPU and the security settings. Every line should say `PASS`. It prints the
+   public URL, `https://anca-api.<tailnet>.ts.net`.
+5. **Front end:** in its `vercel.json`, set the rewrite destination to
+   `https://anca-api.<tailnet>.ts.net/api/v2/:path*`, and set
+   `VITE_ENGINE_MODE=live`.
+6. **Test from outside the tailnet**, for example a phone on mobile data. This
+   machine and other tailnet devices take a private route to the URL, so they
+   can work while the public one does not.
+
+## Running it day to day
+
+| To | Run |
+|----|-----|
+| Start everything and make it public | `make funnel` |
+| Start everything, local only | `make restart` (background) or `make up` (foreground) |
+| Stop public access, keep the stack running | `make funnel-off` |
+| Stop everything (data is kept) | `make funnel-off`, then `make down` |
+| Recover after a reboot | Nothing, once Docker Desktop is running. `make funnel` checks it, and repairs it if needed |
+| Apply a code change | `make restart`, or `make retest` for tests, a restart, the benchmark and the eval |
+| Apply a documentation change | `make ingest` ([Documentation and ingestion](#documentation-and-ingestion)) |
+| Add, change or disable an account | `make user u=<name> tier=<tier>`, `make user-disable u=<name>` |
+| Check it answers | `make smoke`, or `make bench` for latency per stage |
+| Read the logs | `docker compose logs -f orchestrator` |
+| List every target | `make help` |
+
+Under `make funnel`, Ollama keeps the models loaded, so a warm answer takes about
+1 to 3 seconds. The first answer after a restart can take up to about 2 minutes
+while the models load, so open the app once before a demo.
+
+## Troubleshooting
+
+| Symptom | Cause and fix |
+|---------|---------------|
+| The stack seems to have lost its images and data | WSL reached Ubuntu's own empty Docker engine because Docker Desktop is not running. Start Docker Desktop. See [step 1](#1-docker-desktop-with-wsl) |
+| Answers are very slow; `make funnel` fails "has the GPU" | The containers were recreated without the GPU, for example by a plain `docker compose` command. Run `make funnel`, or `make restart` |
+| The app works on this PC but not on a phone | The public DNS record for the Funnel can disappear for a while after a restart. Check with `curl "https://dns.google/resolve?name=anca-api.<tailnet>.ts.net&type=A"`. Turning the Funnel off and on (`make funnel-off`, then `make funnel`) brought it back |
+| The app shows HTTP 502 just after a restart | The models are still loading. Wait a minute and retry |
+| Login returns 429 | 5 failed logins for a username, or 20 from one IP, in 15 minutes. Wait 15 minutes, or clear the counters: `docker compose exec -T redis redis-cli --scan --pattern 'auth:rl:*' \| xargs -r docker compose exec -T redis redis-cli del` |
+| Login fails only on a Vercel preview deployment | Previews have their own URLs, which are not in `CORS_ALLOW_ORIGINS`. Only the operator view without a login works there |
+| `make funnel` prints a `login.tailscale.com` link and waits | The Tailscale container has not joined the tailnet. Approve the link, or set `TS_AUTHKEY` |
+
+## How it works
+
+`POST /resolve` with an alarm code:
+
+1. Looks up the alarm in the catalogue (its title and description).
+2. Embeds the title and description, and retrieves the 50 closest documentation
+   chunks from pgvector. Operators only search the Part Programmer's Reference.
+   Technicians and partners also search the User Guide.
+3. The Qwen3 reranker scores those chunks, and the best 8 are kept, each widened
+   to its whole section.
+4. `qwen3:8b` writes the steps from those sections only. Steps whose words are
+   not in the sections are dropped, and an alarm the documentation does not
+   cover gets "not covered" without a model call.
+
+`POST /chat` does the same for a free-text question. It first rewrites a
+follow-up into a standalone question, using the conversation, and looks up any
+alarm code the question names. Quality, the scores and the known gaps are in
+[docs/answer-quality.md](docs/answer-quality.md).
+
+### Repository layout
 
 ```
 src/rag_engine/      FastAPI app, orchestrator, retrieval, generation, auth
@@ -22,79 +239,92 @@ src/rag_engine/      FastAPI app, orchestrator, retrieval, generation, auth
   generation/        response LLM adapter
   stores/            postgres + redis adapters
 ingestion/           OFFLINE: chunk -> embed -> pgvector
-eval/                Ragas/DeepEval harness vs the gold set
-tests/               CPU-only unit tests (no models) — the CI gate
-docker/              orchestrator + ingestion images
-docker-compose.yml   local stack (optional observability profile)
+migrations/          Alembic schema revisions
+eval/                scores answers against the gold reference answers
+scripts/             bootstrap, smoke, bench, eval, HTTPS/Funnel checks, accounts
+tests/               CPU-only unit tests (no models): the CI gate
+docker/              orchestrator + ingestion images, Tailscale serve config
+docs/                working_docs (submodule), docs-proto, design notes
+docker-compose*.yml  the stack, plus GPU, HTTPS and Funnel overrides
 .github/workflows/   ci.yml (hosted) + eval.yml (GPU, disabled)
 ```
 
-## Quick start
+### Who owns what
 
-### Docker Desktop with WSL
+| Team | Owns |
+|------|------|
+| Documentation team | The documentation (the `docs/working_docs` submodule) and its quality: content through to a populated index that passes the eval |
+| RAG team (this repo) | Everything that reads the index: orchestrator, retrieval, reranking, generation, the HTTP API contract, and the platform (compose, CI, auth) |
+| Frontend team | The app UI, in its own repo, against the [API contract](#frontend-integration-api-contract) |
 
-When running these commands from WSL, use Docker Desktop's WSL integration:
+## Configuration
 
-1. In Docker Desktop, open **Settings > Resources > WSL Integration** and
-  enable your Ubuntu distribution.
-2. Apply the change and restart Docker Desktop.
-3. In Ubuntu, select Docker Desktop's Unix-socket context:
+All settings are environment variables, read from `.env`. Every setting is
+listed and explained in [.env.example](.env.example). The ones you are most
+likely to change:
 
-  ```bash
-  docker context use default
-  docker version
-  ```
+| Setting | What it does |
+|---------|--------------|
+| `APP_ENV` | `local`, or `production` for a public machine. `production` makes the orchestrator refuse placeholder secrets |
+| `JWT_SECRET`, `POSTGRES_PASSWORD` | Secrets. See [Secrets](#secrets) |
+| `CORS_ALLOW_ORIGINS` | Browser origins allowed to call the API with cookies (login, refresh, logout). The exact front-end origin, for example `https://<app>.vercel.app` |
+| `ALLOWED_HOSTS` | Host names the API answers to. On the Funnel: the `ts.net` name and `localhost` |
+| `ALLOW_ANONYMOUS_OPERATOR` | `true` lets `/resolve` and `/feedback` answer without a login, as an operator |
+| `LLM_MODEL` | The answer model. `qwen3:8b` by default. With less GPU memory use `qwen3:4b-instruct-2507-q4_K_M`, which scores lower |
+| `RESOLVE_RATE_LIMIT_PER_IP` | Requests per minute per IP. Higher behind Vercel, where every request comes from a Vercel server |
+| `TS_AUTHKEY`, `TS_HOSTNAME` | The Tailscale auth key (optional) and the machine name (default `anca-api`) |
 
-  `docker version` must show both a Client and Server section. If the WSL
-  environment was already open before enabling integration, restart it from
-  PowerShell with `wsl --shutdown`, then open Ubuntu again.
+Langfuse tracing is optional: `make up-full` starts the stack with it.
 
-  Server must say `Docker Desktop` (`docker info | grep "Operating System"`).
-  If Ubuntu has its own Docker engine installed as well (`docker.io` or
-  `docker-ce`), `default` reaches that empty engine whenever Docker Desktop is
-  not running, and the stack appears to have lost its images and data. Stop it
-  with `sudo systemctl disable --now docker docker.socket`.
+### Secrets
 
-Run the remaining commands from the repository directory. In WSL, a Windows
-checkout is typically available under `/mnt/c/Users/<your-user>/...`.
+The secrets are `JWT_SECRET`, `POSTGRES_PASSWORD`, `TS_AUTHKEY`,
+`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `HF_TOKEN` and `LANGFUSE_SECRET_KEY`.
+They live in `.env` on the machine. There is no secrets store yet, and none are
+needed in CI. Keep them out of commits, logs and images.
 
-```bash
-cp .env.example .env
-make help             # list all make targets with a one-line description
-make install          # venv + dev deps (no models)
-make test             # unit tests
-make up               # orchestrator + PostgreSQL(pgvector) + redis + Ollama
-                      # (runs the schema migrations first, via the `migrate` service)
-# open http://localhost:8080/docs  (OpenAPI / Swagger)
-```
+Outside `APP_ENV=local`, the orchestrator refuses to start when:
 
-`.env` is for local development and is gitignored. Keep real credentials out of
-commits, logs, and container images. Do not use this file as a production
-secrets mechanism.
+- `JWT_SECRET` is the placeholder or shorter than 32 characters;
+- `POSTGRES_PASSWORD` is blank or a known placeholder (`rag`, `change_in_prod`);
+- `ALLOWED_HOSTS` is `*`.
 
-Download the local Ollama models after the stack is running:
+A new `JWT_SECRET` logs everyone out once. To change the password of a database
+that already exists, run this, then set the same value as `POSTGRES_PASSWORD`:
 
 ```bash
-make models
+docker compose exec postgres psql -U <POSTGRES_USER> -d <POSTGRES_DB> -c "ALTER USER <POSTGRES_USER> PASSWORD '<new>'"
 ```
 
-The default generator is `qwen3:8b` (about 5 GB to download, about 6 GB of GPU
-memory). On a GPU with less memory, set
-`LLM_MODEL=qwen3:4b-instruct-2507-q4_K_M` in `.env` and `ollama pull` it. It
-scores lower on the eval (see `.env.example`).
+## Documentation and ingestion
 
-Build the offline indexes:
+| What | Where |
+|------|-------|
+| The documentation that answers are drawn from | `docs/working_docs/starter-kit/docs/` (submodule, the documentation team's repo) |
+| The alarm catalogue (codes, titles, descriptions) | `docs/docs-proto/starter-kit/alarms/alarms.sample.json` |
+| The gold answers for the eval | `docs/docs-proto/starter-kit/alarms/reference-answers.json` |
+
+`make ingest` checks out the submodule, applies the migrations, pulls the models,
+loads the alarm catalogue, and chunks and embeds the documentation into pgvector.
+Only documents that changed since the last run are embedded again.
+
+To take in the documentation team's latest changes:
 
 ```bash
-make ingest           # applies migrations, then writes pgvector rows
+git submodule update --remote docs/working_docs   # move the submodule to their latest commit
+make ingest
+git add docs/working_docs && git commit -m "docs: update working_docs"   # record the new pointer
 ```
 
-Run `make reingest` instead after changing the chunker or `EMBEDDING_SETUP`, and
-before an eval run you want to compare with others. An index left from an
-earlier build retrieves the same documents with different chunk text, and that
-moved `fix_solved` by a whole fix (`eval/results/ladder/README.md`).
+Run `make reingest` instead after changing the chunker or `EMBEDDING_SETUP`, or
+before an eval run you want to compare with others. It embeds every document
+again. An index left from an earlier build retrieves the same documents with
+different chunk text, which moved `fix_solved` by a whole fix
+(`eval/results/ladder/README.md`). `make seed-alarms` reloads only the alarm
+catalogue. How to write alarm descriptions that retrieve well is in
+[docs/alarm-description-guidelines.md](docs/alarm-description-guidelines.md).
 
-### Database migrations
+## Database migrations
 
 The schema is versioned with [Alembic](https://alembic.sqlalchemy.org/) in
 `migrations/`. The migrations are the only schema definition: there is no SQL
@@ -141,14 +371,6 @@ schema. Mark them as migrated once, instead of upgrading:
 ```bash
 make migrate-status                                         # "current" is empty
 docker compose run --rm migrate alembic stamp 0001          # record 0001 as applied
-```
-
-PostgreSQL stores dense vectors
-
-Bring up the stack with Langfuse enabled with:
-
-```bash
-make up-full
 ```
 
 ## Frontend integration (API contract)
@@ -247,24 +469,8 @@ what to render:
 { "user_id": 1, "username": "alex", "tier": "technician" }
 ```
 
-There is no sign-up endpoint. To create a local test user, with the stack up:
-
-```bash
-POSTGRES_HOST=localhost .venv/bin/python - <<'PY'
-import asyncio
-from rag_engine.auth import passwords
-from rag_engine.auth.tiers import Tier
-from rag_engine.auth.user_repository import PostgresUserRepository
-from rag_engine.stores.db import init_db_pool
-
-async def main():
-    init_db_pool()
-    pw_hash = await passwords.hash_password("s3cret-pw!")
-    await PostgresUserRepository().create("alex", pw_hash, Tier.technician)
-
-asyncio.run(main())
-PY
-```
+There is no sign-up endpoint. Accounts are created on the backend machine with
+`make user` ([step 6](#6-create-accounts)).
 
 ### Tiers
 
@@ -490,6 +696,8 @@ Postgres, Redis and the model server all answer, and `503` with
 which dependency is down. `scripts/smoke_e2e.sh` runs a login, a resolve and a
 chat against a running stack and is a working reference for the calls above.
 
+## Deployment: HTTPS and public access
+
 ### Behind HTTPS
 
 The orchestrator serves plain HTTP on 8080 and expects HTTPS to be handled by a
@@ -616,53 +824,34 @@ models load from disk.
   answer is not a user's. The machine must stay on, with Docker Desktop
   running.
 
-## Design boundaries (who owns what)
+## Evaluation
 
-- **Documentation team** — the `docs` submodule *and* ingestion: content through
-  to a populated, validated index. Deliverable = store contents meeting the
-  schema and passing the eval thresholds.
-- **RAG team** — everything that *reads* the index: orchestrator, hybrid
-  retrieval, reranking, generation, the HTTP API contract, and the platform
-  layer (compose, CI, auth, Langfuse).
-- **Frontend team** — the App UI, in its own repo, against the OpenAPI spec.
+`make eval` scores the running engine against the gold answers: whether it cites
+the right documents, and whether its steps contain the fix. `EVAL_RUNS=10 make eval`
+runs every alarm 10 times, to show the variation between runs. Results, including
+each alarm's generated steps, go to `eval/results/retrieval.json`. That file is
+committed only for a result worth recording. Normally leave it uncommitted.
 
-## CI/CD
+- What each score means: [eval/README.md](eval/README.md).
+- The current scores, what has been tried, and the open gaps:
+  [docs/answer-quality.md](docs/answer-quality.md).
 
-- **`ci.yml`** runs on every push/PR on **hosted runners**: ruff, pylint, mypy,
-  pytest, and an image build. It never loads a model. Model-backed code sits
-  behind `Protocol` interfaces and is faked in tests, which is what keeps CI
-  free of GPUs.
-
-### Secrets
-
-Settings load from environment variables (`.env` locally; gitignored,
-never committed, see `.env.example` for local examples).
-
-**Secrets:** `JWT_SECRET`, `POSTGRES_PASSWORD`, `OPENAI_API_KEY`,
-`ANTHROPIC_API_KEY`, `HF_TOKEN`, `LANGFUSE_SECRET_KEY`.
-`LANGFUSE_PUBLIC_KEY` identifies the Langfuse project and isn't
-sensitive by design. Everything else (e.g. `LANGFUSE_HOST`) is
-plain config, not a credential.
-
-**CI** already injects secrets via GitHub Actions Secrets
-(`rag-eval.yml` reads `LANGFUSE_SECRET_KEY`, etc.) -> the pattern to
-follow for any workflow that needs credentials.
-
-**Production** isn't implemented yet: no deployment or secret
-retrieval exists in this repo. Values should eventually come from a
-managed secrets store (Vault or another platform-native option)
-backend choice still TBD.
-
-`JWT_SECRET` already fails fast outside `local` if it's the
-placeholder or under 32 characters. `POSTGRES_PASSWORD` has no
-equivalent minimum-length check, but now rejects blank values and the
-known placeholders (`"rag"` and `"change_in_prod"`) outside `local`.
-Production must set a non-placeholder password.
-
-## Cloning (submodule!)
+## Development
 
 ```bash
-git clone --recurse-submodules git@github.com:your-org/rag-engine.git
-# or, after a plain clone:
-git submodule update --init --recursive
+make fmt         # format and auto-fix with ruff
+make lint        # ruff + pylint (report only)
+make test        # unit tests
+make retest      # unit tests -> restart the orchestrator -> bench -> eval
 ```
+
+**CI:** `.github/workflows/ci.yml` runs on every push and PR on hosted runners:
+ruff, pylint, mypy, pytest and an image build. It never loads a model.
+Model-backed code sits behind `Protocol` interfaces and is faked in the tests,
+which keeps CI free of GPUs. `eval.yml` is disabled until a self-hosted GPU
+runner exists.
+
+**Fresh WSL machine without Docker Desktop:** `make bootstrap` installs Docker
+Engine and the NVIDIA Container Toolkit if they are missing, then runs the setup
+steps through to `make smoke`. With Docker Desktop, follow
+[Set up a new instance](#set-up-a-new-instance) instead.
