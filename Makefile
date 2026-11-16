@@ -13,7 +13,7 @@
         up up-full down build restart models sparse \
         migrate migrate-status migrate-down revision db-reset \
         ingest reingest seed-alarms \
-        smoke https funnel funnel-login funnel-off bench eval retest
+        user user-disable smoke https funnel funnel-login funnel-off bench eval retest
 
 .DEFAULT_GOAL := help
 
@@ -109,6 +109,16 @@ reingest:       ## like ingest, but re-embed every document (after switching EMB
 
 seed-alarms:    ## load alarms.sample.json into the alarm catalogue only (no embedding)
 	$(COMPOSE) run --rm --build ingestion python -m ingestion.seed_alarms
+
+# --- accounts (the stack's Postgres must be running) ------------------------------------
+
+user:           ## create or update an account: make user u=alice tier=technician (asks for the password)
+	@test -n "$(u)" -a -n "$(tier)" || { echo "usage: make user u=<name> tier=<operator|technician|partner>"; exit 1; }
+	@set -a; . ./.env; set +a; POSTGRES_HOST=localhost $(VENV)/python scripts/manage_user.py set "$(u)" "$(tier)"
+
+user-disable:   ## deactivate an account so it can no longer log in: make user-disable u=evaluser
+	@test -n "$(u)" || { echo "usage: make user-disable u=<name>"; exit 1; }
+	@set -a; . ./.env; set +a; POSTGRES_HOST=localhost $(VENV)/python scripts/manage_user.py disable "$(u)"
 
 # --- checks against the running stack ----------------------------------------------
 
